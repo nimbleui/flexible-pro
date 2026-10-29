@@ -1,0 +1,136 @@
+/**
+ * 架构（Schema）模块统一导出入口
+ *
+ * 本包只包含类型、常量与纯函数，可被内核、契约层、插件、运行时共同依赖；
+ * 不依赖 Vue、DOM，也不持有任何运行时状态。
+ */
+
+// -------------------- 节点 -------------------- //
+export type {
+  ComponentPropsMap,
+  DefaultComponentPropsMap,
+  Directive,
+  EventBindingValue,
+  FlowEventBinding,
+  LoopConfig,
+  NodeProps,
+  NodeSchema,
+  NodeSchemaBase,
+} from './node'
+
+// -------------------- 页面与文档 -------------------- //
+export type { PageMeta, PageSchema } from './page'
+export type { CreateDocumentInput, DocumentModel } from './document'
+export { cloneSchema, createDocument } from './document'
+
+// -------------------- 组件 -------------------- //
+export type { ComponentMeta, ComponentSchema, SnippetSchema } from './component'
+
+// -------------------- 属性 -------------------- //
+export type { PropDefinition, PropOption, PropType, PropValue } from './props'
+
+// -------------------- 事件 -------------------- //
+export type {
+  ActionHandlerDef,
+  ChainHandlerDef,
+  EventChain,
+  EventChainStep,
+  EventDefinition,
+  EventHandlerDef,
+  EventParameter,
+  FlowHandlerDef,
+} from './events'
+
+// -------------------- 流程图 -------------------- //
+export type { FlowDefinition, FlowEdgeDef, FlowNodeDef, FlowNodeKind } from './flow'
+
+// -------------------- 表达式 -------------------- //
+export type { ExpressionEngine, ExpressionString, JsExpression } from './expression'
+export {
+  createExpression,
+  createJsExpression,
+  isExpressionString,
+  isJsExpression,
+} from './expression'
+
+// -------------------- 声明式函数 -------------------- //
+export type { FunctionSchema } from './functions'
+
+// -------------------- 数据源 -------------------- //
+export type {
+  CacheConfig,
+  CacheStrategy,
+  DataSourceConfig,
+  DataSourceSchemaDef,
+  DataSourceType,
+  DedupeTransform,
+  ExpressionTransform,
+  FilterTransform,
+  FlattenTransform,
+  GraphQLConfig,
+  GroupByTransform,
+  LocalStorageConfig,
+  MapTransform,
+  MockConfig,
+  OmitTransform,
+  PathTransform,
+  PickTransform,
+  RestConfig,
+  SortTransform,
+  StaticConfig,
+  TransformConfig,
+} from './datasource'
+
+// -------------------- 生命周期与插槽 -------------------- //
+export type { LifecycleEvent, LifecycleSchema } from './lifecycle'
+export type { SlotDefinition } from './slots'
+
+// -------------------- 样式与布局 -------------------- //
+export type {
+  BorderValue,
+  CSSValue,
+  LayoutConstraints,
+  LayoutSchema,
+  Position,
+  Rect,
+  Size,
+  SpacingValue,
+  StyleSchema,
+} from './styles'
+
+// -------------------- 节点树操作 -------------------- //
+export type { GroupResult, NodeFlagChange, NodePosition, OrderMode, OutlineItem } from './tree'
+export {
+  buildOutlineTree,
+  changeOrders,
+  childRefs,
+  collectSubtree,
+  detachFromParents,
+  findPosition,
+  groupNodes,
+  paintOrder,
+  reorderChildren,
+  renameNode,
+  setNodeFlags,
+  ungroupNodes,
+} from './tree'
+
+// -------------------- 补丁 / 校验 / 迁移 -------------------- //
+export type { SchemaPatch, SchemaPatchOp, SchemaPatches } from './patch'
+export {
+  applyPatches,
+  applySchemaPatches,
+  createNodeLayoutPatch,
+  getAtPath,
+  isNodePatch,
+  nodePath,
+} from './patch'
+
+export type { ValidationIssue, ValidationSeverity } from './validate'
+export { hasBlockingIssue, validateDocument } from './validate'
+
+export type { SchemaMigration } from './migrate'
+export { migrateDocument } from './migrate'
+
+// -------------------- 版本 -------------------- //
+export { compareSchemaVersion, SCHEMA_VERSION } from './version'
