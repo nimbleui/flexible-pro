@@ -1,0 +1,38 @@
+/**
+ * 设计器设计令牌：外壳与覆盖层只消费语义变量，不硬编码主题色。
+ */
+:root {
+  --lc-canvas-bg: #eef1f6;
+  --lc-surface: #ffffff;
+  --lc-surface-sunken: #f8fafc;
+  --lc-border: #e2e8f0;
+  --lc-border-strong: #cbd5e1;
+  --lc-text: #0f172a;
+  --lc-text-secondary: #64748b;
+  --lc-accent: #2563eb;
+  --lc-danger: #b91c1c;
+  --lc-danger-surface: #fef2f2;
+  --lc-danger-border: #fecaca;
+  --lc-radius-sm: 8px;
+  --lc-radius-md: 12px;
+  --lc-guide: #f97316;
+  --lc-handle-bg: #ffffff;
+  --lc-grid-line: rgba(15, 23, 42, 0.06);
+  --lc-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+  --lc-font:
+    'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #e7ebf2;
+  color: var(--lc-text);
+  font-family: var(--lc-font);
+  -webkit-font-smoothing: antialiased;
+}

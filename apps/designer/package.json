@@ -1,0 +1,36 @@
+{
+  "name": "@lc/designer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@lc/canvas-plugin-align": "workspace:*",
+    "@lc/canvas-plugin-commands": "workspace:*",
+    "@lc/canvas-plugin-drag": "workspace:*",
+    "@lc/canvas-plugin-drop": "workspace:*",
+    "@lc/canvas-plugin-grid": "workspace:*",
+    "@lc/canvas-plugin-guides": "workspace:*",
+    "@lc/canvas-plugin-pan": "workspace:*",
+    "@lc/canvas-plugin-resize": "workspace:*",
+    "@lc/canvas-plugin-rotate": "workspace:*",
+    "@lc/canvas-plugin-selection": "workspace:*",
+    "@lc/canvas-plugin-snap": "workspace:*",
+    "@lc/canvas-plugin-zoom": "workspace:*",
+    "@lc/contracts": "workspace:*",
+    "@lc/kernel": "workspace:*",
+    "@lc/plugin-materials-basic": "workspace:*",
+    "@lc/plugin-panel-materials": "workspace:*",
+    "@lc/plugin-panel-outline": "workspace:*",
+    "@lc/plugin-panel-properties": "workspace:*",
+    "@lc/preset-canvas": "workspace:*",
+    "@lc/preset-designer": "workspace:*",
+    "@lc/schema": "workspace:*",
+    "@lc/vue": "workspace:*",
+    "vue": "^3.5.0"
+  }
+}
