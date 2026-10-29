@@ -1,0 +1,132 @@
+import type {
+  CanvasTransaction,
+  DocumentService,
+  SchemaPatch,
+  TransactionService,
+} from '@lc/contracts'
+import type { PageSchema } from '@lc/schema'
+
+/** 事务服务创建选项 */
+export interface CreateTransactionOptions {
+  /** 文档服务；事务通过它预览与提交 */
+  document: DocumentService
+
+  /**
+   * 事务结束回调；画布内核用它广播 `canvas:gestureEnd`
+   *
+   * committed 为 false 表示取消或撤销，此时文档已被恢复到手势前状态。回调在
+   * active 清空之后执行，因此回调里可以立刻 begin 下一次事务；未传时事务照常
+   * 工作，只是外部收不到结束通知。
+   */
+  onEnd?: (info: { owner: string; label: string; committed: boolean }) => void
+}
+
+/** 一次活动手势事务的内部状态 */
+interface ActiveTransaction {
+  /** 发起方插件 id；用于冲突报错与 onEnd 归因，不参与事务逻辑判定 */
+  owner: string
+
+  /** 展示用的事务名；同时作为写入历史记录的 label */
+  label: string
+
+  /** begin 时刻的 schema 快照，commit / cancel 都以它为回退基准 */
+  base: PageSchema
+
+  /** path → 最后一次预览 patch；同一 path 多次预览只保留最新值 */
+  pending: Map<string, SchemaPatch>
+
+  /** 是否已结束；防止 commit / cancel / dispose 重复触发 onEnd */
+  closed: boolean
+}
+
+/**
+ * 创建手势事务服务。
+ *
+ * 预览直接写文档但不产生历史；提交时先恢复到手势前快照，再一次性
+ * 写入最终 patch，保证「一次拖拽 = 一条历史」。同一时刻只允许一个事务，
+ * 抢不到 `begin` 的插件应放弃本次手势。
+ */
+export function createTransactionService(
+  options: CreateTransactionOptions,
+): TransactionService {
+  let active: ActiveTransaction | null = null
+
+  /**
+   * 结束事务并通知宿主。
+   *
+   * 幂等：重复调用只触发一次 onEnd。先清 active 再回调，保证 onEnd 里可以
+   * 立即开始下一次手势。cancel、commit 与 dispose 走的都是这一条出口。
+   */
+  function close(state: ActiveTransaction, committed: boolean): void {
+    if (state.closed) return
+    state.closed = true
+    if (active === state) active = null
+    options.onEnd?.({ owner: state.owner, label: state.label, committed })
+  }
+
+  return {
+    /**
+     * 开始一次手势事务。
+     *
+     * base 直接引用当时的 schema：文档写入走拷贝式 patch，旧对象不会被改动，
+     * 因此无需深拷贝即可作为回退基准。
+     *
+     * @throws 已存在活动事务时抛错。
+     */
+    begin({ label, owner }): CanvasTransaction {
+      if (active) {
+        throw new Error(`[canvas] 已存在活动事务: ${active.label}(${active.owner})`)
+      }
+
+      const state: ActiveTransaction = {
+        owner,
+        label,
+        base: options.document.model.schema,
+        pending: new Map(),
+        closed: false,
+      }
+      active = state
+
+      return {
+        get closed() {
+          return state.closed
+        },
+
+        preview(patches) {
+          // 以 path 去重：同一目标反复预览只保留最后一次，提交时不会累积中间态。
+          // 事务已结束（提交或取消）时静默忽略，避免迟到的回调再改文档。
+          if (state.closed) return
+          for (const patch of patches) state.pending.set(patch.path, patch)
+          options.document.apply(patches, { record: false })
+        },
+
+        /**
+         * 提交为一条历史记录。
+         *
+         * 先 restore 到 base 再一次性 apply 去重后的 patch：预览期间逐帧写入的
+         * 中间态不进历史，撤销一次即可回到手势开始前。pending 为空时只回退、
+         * 不写历史，等于把预览完全撤销。
+         */
+        commit() {
+          if (state.closed) return
+          // 先回到手势前快照，确保历史记录的 before 是稳定状态
+          options.document.restore(state.base)
+          if (state.pending.size > 0) {
+            options.document.apply([...state.pending.values()], {
+              record: true,
+              label: state.label,
+            })
+          }
+          close(state, true)
+        },
+
+        /** 取消并回到 base；不写历史，但仍会触发 onEnd(committed=false)。 */
+        cancel() {
+          if (state.closed) return
+          options.document.restore(state.base)
+          close(state, false)
+        },
+      }
+    },
+  }
+}
