@@ -1,0 +1,28 @@
+{
+  "name": "lowcode-plugin-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "企业级低代码插件平台：应用插件内核 + 画布微内核 + 声明式贡献",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "pnpm --filter @lc/designer dev",
+    "build": "pnpm --filter @lc/designer build",
+    "preview": "pnpm --filter @lc/designer preview",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "prettier": "^3.6.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.1.0",
+    "vitest": "^3.2.0",
+    "vue": "^3.5.0",
+    "vue-tsc": "^3.0.0"
+  }
+}
