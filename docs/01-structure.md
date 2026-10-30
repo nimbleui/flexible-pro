@@ -12,6 +12,7 @@ new-cordis/
 │  ├─ schema/                  @lc/schema              文档数据模型 + patch/tree/validate 纯函数
 │  ├─ shared/                  @lc/shared              2 个通用工具（createId、clamp）
 │  ├─ canvas/                  @lc/canvas              画布微内核（纯算法，不画 DOM）
+│  ├─ expression/               @lc/expression          白名单表达式引擎（词法/语法/求值/注册表/预算/Worker 沙箱）
 │  ├─ vue/                      @lc/vue                 Vue 适配层 + 舞台/图层/插槽宿主组件
 │  ├─ devtools/                 @lc/devtools            宿主级开发者工具：七个自省面板
 │  ├─ services/                 12 个 service-*          核心服务能力，每个 = 一个插件
@@ -27,7 +28,7 @@ new-cordis/
 
 ## 2. 包清单与依赖边
 
-按层级排列。「运行时依赖」为 `package.json > dependencies` 实测结果（40 个包 + 1 个应用 = 41）。
+按层级排列。「运行时依赖」为 `package.json > dependencies` 实测结果（41 个包 + 1 个应用 = 42）。
 
 ### L0 基础层（不依赖任何平台包）
 
@@ -47,11 +48,14 @@ new-cordis/
 
 ### L2 引擎层
 
-| 包             | 运行时依赖                                                |
-| -------------- | --------------------------------------------------------- |
-| `@lc/canvas`   | `@lc/contracts`、`@lc/kernel`、`@lc/schema`、`@lc/shared` |
-| `@lc/vue`      | `@lc/contracts`、`@lc/kernel`、`@lc/schema`               |
-| `@lc/devtools` | `@lc/contracts`、`@lc/kernel`（`vue` 为 peer）            |
+| 包               | 运行时依赖                                                                                           |
+| ---------------- | ---------------------------------------------------------------------------------------------------- |
+| `@lc/expression` | `@lc/schema`                                                                                         |
+| `@lc/canvas`     | `@lc/contracts`、`@lc/kernel`、`@lc/schema`、`@lc/shared`                                            |
+| `@lc/vue`        | `@lc/contracts`、`@lc/kernel`、`@lc/schema`（另有 devDependency `@lc/expression`，仅渲染接线测试用） |
+| `@lc/devtools`   | `@lc/contracts`、`@lc/kernel`（`vue` 为 peer）                                                       |
+
+`@lc/expression` 放引擎层的理由：它只依赖 `@lc/schema`（语法树与求值契约都在那里），不含 Vue、DOM 与内核引用。因此运行时播放器、FlowRunner 与数据源管道可以直接引用它求值，不必拉起插件内核；把它包进 `@lc/service-expression` 的那一层只负责装配与诊断桥接（见 [07](./07-services.md)）。这也是 Worker 沙箱（设计稿 §19.4）的前置条件——纯数据进出、无全局状态，整包可以搬进独立 realm。
 
 `@lc/canvas` 依赖 contracts 只为拿接口类型与 `ViewportState` 等数据结构；它自己不做任何框架绑定，DOM 挂载点由宿主传入（`interaction.attach(element)`，`packages/canvas/src/interaction/pipeline.ts:428`）。
 
@@ -65,7 +69,7 @@ new-cordis/
 | `@lc/service-loader`      | contracts、kernel                                  | `contribution`（`:190`）、`loader`（`:354`） |
 | `@lc/service-material`    | contracts、kernel                                  | `material`（`:175`）                         |
 | `@lc/service-command`     | contracts、kernel                                  | `command`（`:91`）                           |
-| `@lc/service-expression`  | kernel、schema                                     | `expression`（`:78`）                        |
+| `@lc/service-expression`  | expression、kernel、schema                         | `expression`（`:86`）                        |
 | `@lc/service-setter`      | contracts、kernel                                  | `setter`（`:84`）                            |
 | `@lc/service-keybinding`  | contracts、kernel                                  | `keybinding`（`:74`）                        |
 | `@lc/service-document`    | contracts、kernel、schema                          | `document`（`:146`）                         |
@@ -141,7 +145,7 @@ presets ──→ plugins / canvas-plugins ──→ services
 
 `vitest.config.ts:5-6`：`include: ['packages/**/tests/**/*.spec.ts']`，`environment: 'node'`。
 
-- 现有 26 个 spec 文件，覆盖：kernel 4（config/effect/events/runtime）、contracts 2（drag/nodes）、schema 2（patch/tree）、canvas 6（coordinates/hitTest/menu/scheduler/snap/transaction）、vue 1（renderTree）、services 2（expression/keys）、canvas-plugins 9（align/operations/drag/minimap-geometry/resize/rotate/guides/hierarchy/snap-providers）。
+- 现有 35 个 spec 文件，覆盖：kernel 5（config/effect/events/runtime/diagnostics）、contracts 2（drag/nodes）、schema 2（patch/tree）、canvas 6（coordinates/hitTest/menu/scheduler/snap/transaction）、expression 4（evaluate/security/functions/sandbox）、devtools 3（feed/format/snapshot）、vue 2（renderTree/renderTreeExpression）、services 2（expression/keys）、canvas-plugins 9（align/operations/drag/minimap-geometry/resize/rotate/guides/hierarchy/snap-providers）。
 - 因为是 node 环境且 glob 只吃 `.spec.ts`，**`.vue` 文件不在单测范围内**。这是有意的取舍：可测的逻辑都被抽成了纯函数模块（`*-align/src/align.ts`、`*-commands/src/operations.ts`、`*-rotate/src/rotate.ts` 等），交互行为靠浏览器验证。
 
 ### 质量闸门

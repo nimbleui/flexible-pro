@@ -10,7 +10,7 @@
 | `loader` + `contribution` | service-loader      | 应用            | `modules`                                | `:190`（contribution）、`:354`（loader） |
 | `material`                | service-material    | 应用            | `modules`、`contribution`                | `:175`                                   |
 | `command`                 | service-command     | 应用            | —                                        | `:91`                                    |
-| `expression`              | service-expression  | 应用            | —（`provides: ['expression']`）          | `:78`                                    |
+| `expression`              | service-expression  | 应用            | —（`provides: ['expression']`）          | `:86`                                    |
 | `setter`                  | service-setter      | 应用            | —                                        | `:84`                                    |
 | `keybinding`              | service-keybinding  | 应用            | —（`provides: ['keybinding']`）          | `:76`                                    |
 | `document`                | service-document    | **EditorRealm** | —（`defineEditorPlugin`）                | `:147`                                   |
@@ -134,25 +134,22 @@ notify()           // version += 1
 - `version`（`:59`）随每次注册/注销自增（`:18-21`），供 Vue 适配层触发重渲染。
 - `execute(id, args)`（`:75-88`）三条退出路径都不向调用方抛错：命令不存在 → 诊断；`enabled()` 为 false → **静默跳过（置灰本身就是预期，不该刷诊断）**；`run` 抛错 → 捕获后上报。异步命令被 await，调用方可串接后续操作。
 
-## `expression` — 求值引擎
+## `expression` — 求值服务（装配层）
+
+语言实现已移出本插件，在 `packages/expression`（词法 / 语法 / 求值 / 白名单方法表 / 函数注册表 / 缓存 / 三重预算）。本插件只剩三件事：读配置、把诊断桥到 `ctx.diagnostics`、注册服务。分成两层的原因是运行时播放器与 FlowRunner 不需要插件内核也能求值。
 
 `packages/services/service-expression/src/index.ts`
 
 ```ts
-cache: Map<string, CompiledExpression | null> // :36  null = 编译失败的负缓存
-compile(expr) // :38-54  new Function('__scope', `with (__scope){ return (expr); }`)
-evaluate(expr, scope) // :57-66  unwrap → compile → run；运行期抛错 → 诊断 + undefined
-interpolate(template, scope) // :68-73  {{ }} 替换；undefined/null → ''（:71）
-isExpression // :75     直接复用 schema 的类型守卫
+createJsRunner() // :45   JsExpression 执行器；全仓库唯一的 new Function 在 :51
+schema.parse // :65   allowUnsafeJs 默认 false；timeBudgetMs 非负或 Infinity，否则配置阶段失败
+apply(ctx, config) // :79   createExpressionEngine({ jsRunner, timeBudgetMs, onDiagnostic })
+ctx.provide('expression', engine, { apiVersion: '1.1' }) // :86
 ```
 
-`unwrapExpression`（`:14`）让**整值绑定保持原类型**（数字/布尔不会被转成字符串），这正是 `ExpressionEngine.evaluate` 契约「返回原始结果（保留类型）」的实现方式（`packages/schema/src/expression.ts:104-110`）。
+`jsRunner` **就是**能力开关本身，而不是配一个布尔位：不传执行器就没有任何路径能执行 `JsExpression`，因此不存在「开了开关但没有运行器」的非法状态。`@lc/expression` 自身不持有 `new Function`，搜索全仓库只能命中 `:51` 一处，且它只在显式开启 `allowUnsafeJs` 后才构造。这条分层的意义是让「字符串变成可执行代码」的站点可被直接审计。
 
-**安全边界必须原样记录**（`:28-30` 的类注释）：
-
-> 表达式来自受信任的 schema，与物料代码同属 inline 执行位置；不可信插件/文档的隔离属于沙箱层（设计稿 Part III），**不在表达式引擎内解决**。
-
-也就是说 `with + new Function` 是有授权前提的实现选择，不是可暴露给第三方文档的求值器；`eslint-disable-next-line no-new-func` 就写在 `:42`。
+**安全边界必须原样记录**：白名单解释器限制的是「语言能表达什么」（无原型链、无全局对象、`call/apply/bind` 不可得、`constructor` 被拒），**不是**「代码能碰到什么」。同 realm 的 JS 无法被沙箱化（设计稿 §19.2 明示）；§19.4 要求的 Worker 求值后端已作为**可选旁路**实现（`packages/expression/src/sandbox/`，细节见 [05](./05-contracts-and-schema.md) 的沙箱条目），但它**不经本插件装配**：本插件只 provide 同步 `expression`，沙箱由消费方按需用 `createExpressionSandbox` 自建——没有调用方却常驻一个线程是纯开销。两个残留的非隔离面：宿主注入到求值作用域的函数是真 JS（沙箱强度 = min(语言白名单, 注入的函数面)，且这样的作用域无法结构化克隆进 worker），以及开启后的 `JsExpression` 完全等同物料代码。
 
 ## `setter` — 属性类型 → 控件种类
 
