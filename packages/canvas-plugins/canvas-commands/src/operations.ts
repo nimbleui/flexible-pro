@@ -1,6 +1,12 @@
 import type { SchemaPatch } from '@lc/contracts'
 import type { NodeSchema, PageSchema } from '@lc/schema'
-import { childRefs, collectSubtree, detachFromParents } from '@lc/schema'
+import {
+  childRefs,
+  collectSubtree,
+  createNodeLayoutPatch,
+  detachFromParents,
+  nodePath,
+} from '@lc/schema'
 
 /**
  * 一组可插入的子树快照。
@@ -108,7 +114,7 @@ export function insertSubtrees(
         : node.layout,
     }
 
-    patches.push({ op: 'add', path: `/nodes/${newId}`, value: next })
+    patches.push({ op: 'add', path: nodePath(newId), value: next })
   }
 
   const appends = new Map<string, string[]>()
@@ -132,7 +138,7 @@ export function insertSubtrees(
     const current = parent?.children ?? []
     patches.push({
       op: 'replace',
-      path: `/nodes/${parentId}/children`,
+      path: nodePath(parentId, 'children'),
       value: [...current, ...children],
     })
   }
@@ -152,7 +158,7 @@ export function deleteSelection(schema: PageSchema, ids: readonly string[]): Sch
   const removed = collectSubtree(schema, roots)
 
   const patches: SchemaPatch[] = []
-  for (const id of removed) patches.push({ op: 'remove', path: `/nodes/${id}` })
+  for (const id of removed) patches.push({ op: 'remove', path: nodePath(id) })
   // 引用清理交给树操作：集合内的节点自身不再产生 patch，随 remove 一起消失
   patches.push(...detachFromParents(schema, removed))
 
@@ -171,11 +177,9 @@ export function nudgeSelection(
   for (const id of ids) {
     const rect = schema.nodes[id]?.layout?.rect
     if (!rect) continue
-    patches.push({
-      op: 'replace',
-      path: `/nodes/${id}/layout/rect`,
-      value: { ...rect, x: rect.x + dx, y: rect.y + dy },
-    })
+    patches.push(
+      ...createNodeLayoutPatch(id, { rect: { ...rect, x: rect.x + dx, y: rect.y + dy } }),
+    )
   }
 
   return patches

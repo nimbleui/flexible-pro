@@ -9,6 +9,7 @@ import type {
   SetterService,
 } from '@lc/contracts'
 import type { NodeSchema, PropOption, PropType, PropValue, Rect, SchemaPatch } from '@lc/schema'
+import { nodePath } from '@lc/schema'
 import { useAppContext } from '@lc/vue'
 
 defineProps<{
@@ -120,8 +121,14 @@ function commit(patches: SchemaPatch[], label = '修改属性'): void {
   document.apply(patches, { record: true, label })
 }
 
+/**
+ * 当前选中节点下的 patch 路径。
+ *
+ * 节点 id 要经 `nodePath` 转义：文档里的 id 可能带 `/` 或 `~`，直接拼进路径会写到
+ * 别的容器上。没有选中节点时返回空串，`commit()` 在写文档前已经拦下这种调用。
+ */
 function path(suffix: string): string {
-  return `/nodes/${node.value?.id}${suffix}`
+  return node.value ? nodePath(node.value.id, suffix) : ''
 }
 
 function commitRect(field: keyof Rect, event: Event): void {
@@ -134,7 +141,7 @@ function commitRect(field: keyof Rect, event: Event): void {
     ...current,
     [field]: field === 'width' || field === 'height' ? Math.max(1, value) : value,
   }
-  commit([{ op: 'replace', path: path('/layout/rect'), value: next }], '修改位置尺寸')
+  commit([{ op: 'replace', path: path('layout/rect'), value: next }], '修改位置尺寸')
 }
 
 function commitLayout(field: 'rotate' | 'zIndex', event: Event): void {
@@ -142,14 +149,14 @@ function commitLayout(field: 'rotate' | 'zIndex', event: Event): void {
   const value = Number(input.value)
   if (!Number.isFinite(value)) return
   const label = field === 'rotate' ? '修改旋转' : '修改层级'
-  commit([{ op: 'replace', path: path(`/layout/${field}`), value }], label)
+  commit([{ op: 'replace', path: path(`layout/${field}`), value }], label)
 }
 
 function commitStyle(field: string, event: Event): void {
   const input = event.target as HTMLInputElement
   const value = field === 'opacity' ? Number(input.value) : input.value
   if (field === 'opacity' && !Number.isFinite(value)) return
-  commit([{ op: 'replace', path: path(`/style/${field}`), value }], '修改样式')
+  commit([{ op: 'replace', path: path(`style/${field}`), value }], '修改样式')
 }
 
 function propValue(key: string): unknown {
@@ -177,13 +184,13 @@ function commitProp(key: string, event: Event): void {
   const input = event.target as HTMLInputElement | HTMLSelectElement
   const value: PropValue =
     input instanceof HTMLInputElement && input.type === 'checkbox' ? input.checked : input.value
-  commit([{ op: 'replace', path: path(`/props/${key}`), value }], '修改属性')
+  commit([{ op: 'replace', path: path(`props/${key}`), value }], '修改属性')
 }
 
 function commitPropNumber(key: string, event: Event): void {
   const value = Number((event.target as HTMLInputElement).value)
   if (!Number.isFinite(value)) return
-  commit([{ op: 'replace', path: path(`/props/${key}`), value }], '修改属性')
+  commit([{ op: 'replace', path: path(`props/${key}`), value }], '修改属性')
 }
 </script>
 

@@ -1,5 +1,5 @@
 import type { NodeSchema, PageSchema } from '@lc/schema'
-import { SCHEMA_VERSION } from '@lc/schema'
+import { SCHEMA_VERSION, applyPatches } from '@lc/schema'
 import { describe, expect, it } from 'vitest'
 import {
   copySubtrees,
@@ -88,5 +88,19 @@ describe('编辑命令操作', () => {
   it('微调只平移位置', () => {
     const patches = nudgeSelection(createSchema(), ['card'], 10, -2)
     expect(patches[0]?.value).toEqual({ x: 110, y: 78, width: 100, height: 60 })
+  })
+
+  it('id 含 / 与 ~ 时路径被转义，patch 落在真正的节点上', () => {
+    const schema = createSchema()
+    schema.nodes['team/1'] = node('team/1', { x: 10, y: 10 })
+    schema.nodes['board']!.children = ['card', 'team/1']
+
+    const patches = nudgeSelection(schema, ['team/1'], 5, 0)
+    expect(patches[0]?.path).toBe('/nodes/team~11/layout/rect')
+
+    const next = applyPatches(schema, patches)
+    expect(next.nodes['team/1']?.layout?.rect?.x).toBe(15)
+    // 手写模板串会写出 /nodes/team/1，于是凭空多出名为 team 的节点
+    expect(next.nodes.team).toBeUndefined()
   })
 })

@@ -1,5 +1,6 @@
 import type { CanvasTransaction } from '@lc/contracts'
 import { defineCanvasPlugin, isPointerEvent, transformableIds } from '@lc/contracts'
+import { createNodeLayoutPatch } from '@lc/schema'
 import { rotateNodes, snapRadians } from './rotate'
 import type { RotatableNode } from './rotate'
 import RotateHandle from './overlay'
@@ -94,14 +95,9 @@ export default defineCanvasPlugin({
 
                 const rotated = rotateNodes(starts, center, delta)
                 transaction.preview(
-                  rotated.flatMap(({ id, rect, rotate }) => [
-                    { op: 'replace' as const, path: `/nodes/${id}/layout/rect`, value: rect },
-                    {
-                      op: 'replace' as const,
-                      path: `/nodes/${id}/layout/rotate`,
-                      value: rotate,
-                    },
-                  ]),
+                  rotated.flatMap(({ id, rect, rotate }) =>
+                    createNodeLayoutPatch(id, { rect, rotate }),
+                  ),
                 )
               },
               onFinish: (commit) => {

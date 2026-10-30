@@ -1,11 +1,7 @@
-import type {
-  CanvasDropPayload,
-  CanvasTransaction,
-  MaterialService,
-  SchemaPatch,
-} from '@lc/contracts'
+import type { CanvasDropPayload, CanvasTransaction, SchemaPatch } from '@lc/contracts'
 import { defineCanvasPlugin } from '@lc/contracts'
 import type { NodeSchema } from '@lc/schema'
+import { nodePath } from '@lc/schema'
 import { createId } from '@lc/shared'
 import { DEFAULT_DROP_HEIGHT, DEFAULT_DROP_WIDTH, DROP_PREVIEW_SETTING } from './constants'
 import DropOverlay from './overlay'
@@ -26,12 +22,14 @@ function cloneNode(node: NodeSchema): NodeSchema {
  */
 export default defineCanvasPlugin({
   name: 'canvas-drop',
-  inject: ['canvas'],
+  // material 是硬依赖：没有物料 snippet 就生成不出可插入的节点，
+  // 声明成必需依赖让本插件等物料就位再激活
+  inject: ['canvas', 'document', 'material'],
 
   apply(ctx) {
     const canvas = ctx.canvas
     const document = ctx.document
-    const material = ctx.require<MaterialService>('material')
+    const material = ctx.material
 
     ctx.effect(() =>
       canvas.settings.register({
@@ -99,10 +97,10 @@ export default defineCanvasPlugin({
         }
 
         const patches: SchemaPatch[] = [
-          { op: 'add', path: `/nodes/${node.id}`, value: node },
+          { op: 'add', path: nodePath(node.id), value: node },
           {
             op: 'replace',
-            path: `/nodes/${parentId}/children`,
+            path: nodePath(parentId, 'children'),
             value: [...siblings, node.id],
           },
         ]

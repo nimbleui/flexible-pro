@@ -1,5 +1,6 @@
 import type { CanvasTransaction } from '@lc/contracts'
 import { defineCanvasPlugin } from '@lc/contracts'
+import { createNodeLayoutPatch } from '@lc/schema'
 import { alignRects, distributeRects } from './align'
 import type { AlignMode, AlignNode } from './align'
 
@@ -35,7 +36,7 @@ const ALIGN_COMMANDS: readonly AlignCommand[] = [
  */
 export default defineCanvasPlugin({
   name: 'canvas-align',
-  inject: ['canvas'],
+  inject: ['canvas', 'command'],
 
   apply(ctx) {
     const canvas = ctx.canvas
@@ -69,11 +70,7 @@ export default defineCanvasPlugin({
       }
 
       transaction.preview(
-        changes.map(({ id, rect }) => ({
-          op: 'replace',
-          path: `/nodes/${id}/layout/rect`,
-          value: rect,
-        })),
+        changes.flatMap(({ id, rect }) => createNodeLayoutPatch(id, { rect })),
       )
       transaction.commit()
     }

@@ -2,6 +2,7 @@ import type { CanvasTransaction, SnapService } from '@lc/contracts'
 import { defineCanvasPlugin, isPointerEvent, transformableIds } from '@lc/contracts'
 import { normalizeRect } from '@lc/canvas'
 import type { Rect } from '@lc/schema'
+import { createNodeLayoutPatch } from '@lc/schema'
 import {
   applyEdgeSnap,
   edgeModesOf,
@@ -167,9 +168,7 @@ export default defineCanvasPlugin({
                   // 旋转后的「边」不沿世界轴，按轴吸附会改可视尺寸而不是对齐，直接跳过
                   const next =
                     startRotation === 0 ? withSnap(raw, handleId, move, [single.id]) : raw
-                  transaction.preview([
-                    { op: 'replace', path: `/nodes/${single.id}/layout/rect`, value: next },
-                  ])
+                  transaction.preview(createNodeLayoutPatch(single.id, { rect: next }))
                   return
                 }
 
@@ -183,11 +182,7 @@ export default defineCanvasPlugin({
                 )
                 const scaled = scaleSelection(starts, startBounds, nextBounds)
                 transaction.preview(
-                  scaled.map(({ id, rect }) => ({
-                    op: 'replace',
-                    path: `/nodes/${id}/layout/rect`,
-                    value: rect,
-                  })),
+                  scaled.flatMap(({ id, rect }) => createNodeLayoutPatch(id, { rect })),
                 )
               },
               onFinish: (commit) => {

@@ -3,7 +3,7 @@ import { defineCanvasPlugin, transformableIds } from '@lc/contracts'
 import { normalizeRect } from '@lc/canvas'
 import type { Rect } from '@lc/schema'
 import { DRAG_BADGE_LABEL, DRAG_BADGE_SETTING } from './constants'
-import { collectSubtree } from '@lc/schema'
+import { collectSubtree, createNodeLayoutPatch } from '@lc/schema'
 
 export { manifest } from './manifest'
 
@@ -176,11 +176,11 @@ export default defineCanvasPlugin({
 
                 // 整块 rect 一次 replace，而不是 x / y 两条 path：事务按 path 去重，
                 // 合并成一条能天然保证 x、y 来自同一帧
-                const patches: SchemaPatch[] = [...starts.entries()].map(([id, rect]) => ({
-                  op: 'replace',
-                  path: `/nodes/${id}/layout/rect`,
-                  value: { ...rect, x: rect.x + dx, y: rect.y + dy },
-                }))
+                const patches: SchemaPatch[] = [...starts.entries()].flatMap(([id, rect]) =>
+                  createNodeLayoutPatch(id, {
+                    rect: { ...rect, x: rect.x + dx, y: rect.y + dy },
+                  }),
+                )
                 transaction.preview(patches)
 
                 const [, primaryRect] = primary
