@@ -85,6 +85,9 @@ importers:
       '@lc/devtools':
         specifier: workspace:*
         version: link:../../packages/devtools
+      '@lc/expression':
+        specifier: workspace:*
+        version: link:../../packages/expression
       '@lc/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel

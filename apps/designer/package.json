@@ -26,6 +26,7 @@
     "@lc/canvas-plugin-zoom": "workspace:*",
     "@lc/contracts": "workspace:*",
     "@lc/devtools": "workspace:*",
+    "@lc/expression": "workspace:*",
     "@lc/kernel": "workspace:*",
     "@lc/plugin-materials-basic": "workspace:*",
     "@lc/plugin-panel-materials": "workspace:*",
