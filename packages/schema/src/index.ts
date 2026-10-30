@@ -45,7 +45,30 @@ export type {
 export type { FlowDefinition, FlowEdgeDef, FlowNodeDef, FlowNodeKind } from './flow'
 
 // -------------------- 表达式 -------------------- //
-export type { ExpressionEngine, ExpressionString, JsExpression } from './expression'
+export type {
+  CompiledExpression,
+  ExpressionArrayNode,
+  ExpressionArrowNode,
+  ExpressionAst,
+  ExpressionBinaryNode,
+  ExpressionBinaryOp,
+  ExpressionCallNode,
+  ExpressionConditionalNode,
+  ExpressionEngine,
+  ExpressionIdentifierNode,
+  ExpressionIndexNode,
+  ExpressionLiteralNode,
+  ExpressionLogicalNode,
+  ExpressionLogicalOp,
+  ExpressionMemberNode,
+  ExpressionNode,
+  ExpressionObjectNode,
+  ExpressionScope,
+  ExpressionString,
+  ExpressionUnaryNode,
+  ExpressionUnaryOp,
+  JsExpression,
+} from './expression'
 export {
   createExpression,
   createJsExpression,
@@ -54,7 +77,12 @@ export {
 } from './expression'
 
 // -------------------- 声明式函数 -------------------- //
-export type { FunctionSchema } from './functions'
+export type {
+  FunctionRegistration,
+  FunctionRegistry,
+  FunctionSchema,
+  FunctionScopeLevel,
+} from './functions'
 
 // -------------------- 数据源 -------------------- //
 export type {
