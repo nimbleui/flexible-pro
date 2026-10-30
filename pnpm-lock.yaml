@@ -82,6 +82,9 @@ importers:
       '@lc/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@lc/devtools':
+        specifier: workspace:*
+        version: link:../../packages/devtools
       '@lc/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel

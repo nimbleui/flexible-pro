@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import type { CanvasContext, EditorContext } from '@lc/contracts'
 import { CanvasStage, ContextScope, LcSlot, useAppContext } from '@lc/vue'
+import { LcDevtools } from '@lc/devtools'
 import ToolbarStock from './components/ToolbarStock.vue'
 import StatusBar from './components/StatusBar.vue'
 import CommandPalette from './components/CommandPalette.vue'
@@ -13,6 +15,7 @@ const props = defineProps<{
 }>()
 
 const appCtx = useAppContext()
+const devtoolsOpen = ref(false)
 
 function togglePalette(): void {
   appCtx.emit('palette:toggle')
@@ -31,6 +34,14 @@ function togglePalette(): void {
         <ToolbarStock />
         <button type="button" class="lc-app__palette-button" @click="togglePalette">
           命令 ⌘K
+        </button>
+        <button
+          type="button"
+          class="lc-app__palette-button"
+          :aria-pressed="devtoolsOpen"
+          @click="devtoolsOpen = !devtoolsOpen"
+        >
+          开发者工具
         </button>
       </header>
 
@@ -54,6 +65,14 @@ function togglePalette(): void {
             </template>
           </LcSlot>
         </aside>
+
+        <LcDevtools
+          v-if="devtoolsOpen"
+          class="lc-app__devtools"
+          :context="appCtx"
+          :canvas-context="props.canvasContext"
+          @close="devtoolsOpen = false"
+        />
       </main>
 
       <StatusBar :canvas-context="props.canvasContext" />
