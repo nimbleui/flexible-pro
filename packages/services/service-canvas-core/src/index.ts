@@ -12,6 +12,7 @@ import type { Disposable } from '@lc/kernel'
 import type { NodeSchema, Rect } from '@lc/schema'
 import { paintOrder } from '@lc/schema'
 import {
+  createContextMenuService,
   createHitTest,
   createInteractionPipeline,
   createLayerService,
@@ -62,6 +63,7 @@ export default definePlugin({
     const scheduler = createScheduler()
     const settings = createSettingsService()
     const layers = createLayerService()
+    const contextMenu = createContextMenuService()
 
     const scene = createScene({
       // 根矩形取 schema.nodeId 指向的节点；根不存在时回落到 100×40 兜底尺寸，
@@ -175,6 +177,7 @@ export default definePlugin({
       selection,
       interaction,
       layers,
+      contextMenu,
       transaction,
       settings,
       scheduler,

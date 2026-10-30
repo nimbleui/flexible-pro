@@ -18,6 +18,7 @@ export { createInteractionPipeline } from './interaction/pipeline'
 export type { CreateInteractionOptions, InteractionPipeline } from './interaction/pipeline'
 
 export { createLayerService } from './layers'
+export { createContextMenuService } from './menu'
 export { createScheduler } from './scheduler'
 export type { SchedulerHandle } from './scheduler'
 export { createSettingsService } from './settings'

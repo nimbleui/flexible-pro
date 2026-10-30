@@ -189,6 +189,14 @@ export interface CanvasMenuItem {
   enabled?: (target: CanvasMenuTarget) => boolean
 }
 
+/**
+ * 打开中的右键菜单状态在画布设置里的 id。
+ *
+ * 值是 `CanvasMenuTarget | null`：菜单覆盖层读它渲染，交互处理器在 contextmenu
+ * 事件里写入。放在设置服务而不是插件内部状态，宿主与其他插件都能观察开合。
+ */
+export const CANVAS_CONTEXT_MENU_STATE = 'canvas-context-menu.state'
+
 /** 吸附候选点 */
 export interface SnapCandidate {
   /** 吸附轴 */

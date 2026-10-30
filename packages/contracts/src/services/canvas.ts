@@ -3,6 +3,7 @@ import type { Rect, SchemaPatch, Size } from '@lc/schema'
 import type {
   CanvasInputEvent,
   CanvasLayer,
+  CanvasMenuItem,
   CanvasSetting,
   GestureCallbacks,
   InteractionHandler,
@@ -199,6 +200,21 @@ export interface SnapService {
 }
 
 /**
+ * 右键菜单注册表。
+ *
+ * 只存项目本身，开合状态由画布设置承载：菜单是画布级 UI 能力，项目则由各个
+ * 画布插件按自己的命令贡献，卸载插件时项目随之消失。
+ */
+export interface CanvasContextMenuService {
+  /** 注册菜单项；id 重复视为装配错误 */
+  register(item: CanvasMenuItem): Disposable
+  /** 已注册项，按 order → 注册顺序排好 */
+  list(): readonly CanvasMenuItem[]
+  /** 注册表变化通知 */
+  onDidChange(listener: () => void): Disposable
+}
+
+/**
  * 画布服务：画布微内核的唯一入口。
  *
  * 画布插件只依赖这里；snap 是独立服务，通过 `ctx.get('snap')` 可选获取。
@@ -218,6 +234,8 @@ export interface CanvasService {
   readonly interaction: CanvasInteractionService
   /** 覆盖层注册 */
   readonly layers: CanvasLayerService
+  /** 右键菜单项注册表 */
+  readonly contextMenu: CanvasContextMenuService
   /** 手势事务 */
   readonly transaction: TransactionService
   /** 画布设置 */
