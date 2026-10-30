@@ -12,6 +12,7 @@
     }
   },
   "dependencies": {
+    "@lc/expression": "workspace:*",
     "@lc/kernel": "workspace:*",
     "@lc/schema": "workspace:*"
   }

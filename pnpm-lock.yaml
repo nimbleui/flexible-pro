@@ -542,6 +542,9 @@ importers:
 
   packages/services/service-expression:
     dependencies:
+      '@lc/expression':
+        specifier: workspace:*
+        version: link:../../expression
       '@lc/kernel':
         specifier: workspace:*
         version: link:../../kernel
