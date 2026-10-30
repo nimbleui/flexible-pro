@@ -20,7 +20,6 @@ import type {
   RendererService,
 } from '@lc/contracts'
 import { CANVAS_DROP_PREVIEW_SETTING, materialNameFromDragTypes } from '@lc/contracts'
-import { isExpressionString, isJsExpression } from '@lc/schema'
 import type { ExpressionEngine } from '@lc/schema'
 import { buildRenderTree } from '../render/tree'
 import type { RenderNode } from '../render/tree'
@@ -53,33 +52,13 @@ const loading = new Set<string>()
 const disposables: Array<{ dispose(): void }> = []
 const rootOrigin: Point = { x: 0, y: 0 }
 
-/**
- * 表达式/模板求值：递归解析 props 里的表达式与嵌套对象。
- *
- * 条件、循环、指令共用同一入口，保证渲染树中的值都已求值。
- */
-function resolveValue(value: unknown, scope: Record<string, unknown>): unknown {
-  if (isExpressionString(value)) return expression.evaluate(value.raw, scope)
-  if (isJsExpression(value)) return expression.evaluate(value.code, scope)
-  if (typeof value === 'string' && value.includes('{{')) {
-    return expression.interpolate(value, scope)
-  }
-  if (Array.isArray(value)) return value.map((item) => resolveValue(item, scope))
-  if (value && typeof value === 'object') {
-    const resolved: Record<string, unknown> = {}
-    for (const [key, item] of Object.entries(value)) resolved[key] = resolveValue(item, scope)
-    return resolved
-  }
-  return value
-}
-
 const tree = computed<RenderNode[]>(() => {
   docVersion.value
   const schema = document.model.schema
   return buildRenderTree({
     schema,
     scope: { data: {}, page: schema.metadata ?? {} },
-    resolveValue,
+    resolveValue: expression.resolveValue,
   })
 })
 

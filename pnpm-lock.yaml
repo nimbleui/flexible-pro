@@ -667,6 +667,10 @@ importers:
       vue:
         specifier: ^3.5.0
         version: 3.5.44(typescript@5.9.3)
+    devDependencies:
+      '@lc/expression':
+        specifier: workspace:*
+        version: link:../expression
 
 packages:
   '@babel/helper-string-parser@7.29.11':

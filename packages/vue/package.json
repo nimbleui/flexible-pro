@@ -18,5 +18,8 @@
   },
   "peerDependencies": {
     "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@lc/expression": "workspace:*"
   }
 }
