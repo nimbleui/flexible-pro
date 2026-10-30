@@ -8,26 +8,26 @@
 
 ## 1. 模块清单
 
-| 文件                                | 导出                                                                                                                                             | 职责                                        |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------- |
-| `viewport.ts`                       | `createViewport`、`computeMatrix`（私有）                                                                                                        | 视口状态、坐标换算、矩阵                    |
-| `scene.ts`                          | `createScene`                                                                                                                                    | 节点几何索引 + 绘制顺序                     |
-| `hitTest.ts`                        | `createHitTest`、`createMeasure`                                                                                                                 | 点选 / 框选 / 容器投递命中；并集测量        |
-| `interaction/pipeline.ts`（704 行） | `createInteractionPipeline`                                                                                                                      | 唯一的 DOM 监听入口 + 分阶段分发 + 手势接管 |
-| `layers.ts`                         | `createLayerService`                                                                                                                             | 覆盖层注册表与 `band → zIndex → seq` 排序   |
-| `menu.ts`                           | `createContextMenuService`                                                                                                                       | 右键菜单项注册表                            |
-| `settings.ts`                       | `createSettingsService`                                                                                                                          | 画布设置总线（单层内存）                    |
-| `scheduler.ts`                      | `createScheduler`                                                                                                                                | rAF 合帧调度 + 无头/后台兜底                |
-| `transaction.ts`                    | `createTransactionService`                                                                                                                       | 手势事务（预览 / 提交 / 取消）              |
-| `snap/engine.ts`                    | `createSnapService`                                                                                                                              | 吸附解析引擎 + provider 注册                |
-| `geometry.ts`                       | `IDENTITY`、`applyMatrix`、`multiplyMatrix`、`invertMatrix`、`rectContainsPoint`、`rectIntersects`、`normalizeRect`、`unionRects`、`rotatePoint` | 无状态几何                                  |
-| `index.ts`                          | 全量 barrel（`:8-30`）                                                                                                                           | 只导出工厂函数与类型，无 class              |
+| 文件                                | 导出                                                                                                                                                                                                                            | 职责                                        |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `viewport.ts`                       | `createViewport`、`computeMatrix`（私有）                                                                                                                                                                                       | 视口状态、坐标换算、矩阵                    |
+| `scene.ts`                          | `createScene`                                                                                                                                                                                                                   | 节点几何索引 + 绘制顺序                     |
+| `hitTest.ts`                        | `createHitTest`、`createMeasure`                                                                                                                                                                                                | 点选 / 框选 / 容器投递命中；并集测量        |
+| `interaction/pipeline.ts`（704 行） | `createInteractionPipeline`                                                                                                                                                                                                     | 唯一的 DOM 监听入口 + 分阶段分发 + 手势接管 |
+| `layers.ts`                         | `createLayerService`                                                                                                                                                                                                            | 覆盖层注册表与 `band → zIndex → seq` 排序   |
+| `menu.ts`                           | `createContextMenuService`                                                                                                                                                                                                      | 右键菜单项注册表                            |
+| `settings.ts`                       | `createSettingsService`                                                                                                                                                                                                         | 画布设置总线（单层内存）                    |
+| `scheduler.ts`                      | `createScheduler`                                                                                                                                                                                                               | rAF 合帧调度 + 无头/后台兜底                |
+| `transaction.ts`                    | `createTransactionService`                                                                                                                                                                                                      | 手势事务（预览 / 提交 / 取消）              |
+| `snap/engine.ts`                    | `createSnapService`                                                                                                                                                                                                             | 吸附解析引擎 + provider 注册                |
+| `geometry.ts`                       | `IDENTITY`、`applyMatrix`、`multiplyMatrix`、`invertMatrix`、`rectContainsPoint`、`rectIntersects`、`rotatedRectCorners`、`rotatedRectContainsPoint`、`rotatedRectIntersectsRect`、`normalizeRect`、`unionRects`、`rotatePoint` | 无状态几何                                  |
+| `index.ts`                          | 全量 barrel（`:8-45`）                                                                                                                                                                                                          | 只导出工厂函数与类型，无 class              |
 
 ## 2. 视口与坐标模型
 
 ### 变换顺序是硬约束
 
-`viewport.ts:45-51` 的注释直接写成规则：
+`viewport.ts:57-63` 的注释直接写成规则：
 
 ```text
 screen = S(zoom) · R(rotation) · (world − origin)
@@ -39,26 +39,26 @@ screen = S(zoom) · R(rotation) · (world − origin)
 
 ### 单一写入口 `commit`
 
-`viewport.ts:66-90`：所有写入（`set` / `zoomAt` / `panBy` / `fit` / `setSize`）都经 `commit`，它做三件事——夹紧 zoom 到 `[minZoom, maxZoom]`（默认 `0.1`~`4`，`:41-43`）、按需重算矩阵、按需通知监听。越界值**静默夹紧不抛错**（`:8-20` 的选项注释）。`changed` 判定包含尺寸变化，因此传入越界 zoom 但实际未变时不会触发额外的覆盖层刷新。
+`viewport.ts:81-119`：所有写入（`set` / `zoomAt` / `panBy` / `fit` / `setSize`）都经 `commit`，它做三件事——夹紧 zoom 到 `[minZoom, maxZoom]`（默认 `0.1`~`4`，`:43-44`）、按需重算矩阵、按需通知监听。越界值**静默夹紧不抛错**（`:12` 的选项注释；`:89-90` 进一步说明坏值按「本次不写」处理，因为一次 NaN 不该让整条手势和已正常的画面一起废掉）。`changed` 判定包含尺寸变化（`:105-111`），因此传入越界 zoom 但实际未变时不会触发额外的覆盖层刷新。
 
 `state` 每次都被替换为新对象，所以 `viewport.state` 的引用可作为「一帧快照」传给覆盖层（`LayerHost.vue:63-69`）。
 
 ### 换算用闭式公式，不复用矩阵
 
-`screenToWorld`（`:122-129`）与 `worldToScreen`（`:131-140`）各自展开三角函数，注释给出理由（`:120-121`）：单点换算不必构造矩阵，`pointermove` 高频路径上避免每次分配新元组。
+`screenToWorld`（`:151-158`）与 `worldToScreen`（`:160-169`）各自展开三角函数，注释给出理由（`:149-150`）：单点换算不必构造矩阵，`pointermove` 高频路径上避免每次分配新元组。
 
-代价是**同一套变换有两个实现**：`computeMatrix`（`:252-264`）返回与 CSS `matrix(a,b,c,d,e,f)` 逐项对应的六元组，注释强调「推导必须与 `worldToScreen` 的闭式公式逐项对应；两者不一致时画面与坐标换算会分裂成两套结果」。`packages/canvas/tests/coordinates.spec.ts` 就是钉住这一致性的。
+代价是**同一套变换有两个实现**：`computeMatrix`（`:278-296`）返回与 CSS `matrix(a,b,c,d,e,f)` 逐项对应的六元组，注释强调「推导必须与 `worldToScreen` 的闭式公式逐项对应；两者不一致时画面与坐标换算会分裂成两套结果」。`packages/canvas/tests/coordinates.spec.ts` 就是钉住这一致性的。
 
 ### 三个操作的语义细节
 
-| 操作                      | 位置       | 关键语义                                                                                                                                                              |
-| ------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `zoomAt(screen, factor)`  | `:142-165` | `factor` 是**倍率**而非目标值，连续滚轮可复合；夹紧后 zoom 未变则直接返回，`origin` 不重算，避免已到上下限时画面仍漂移；保持指针下的世界坐标不动                      |
-| `panBy(delta)`            | `:167-182` | `delta` 恒为**屏幕像素**；先逆旋转再除 zoom，并整体取负（画面移动方向与 origin 移动相反）。传世界坐标会双重缩放                                                       |
-| `fit(rect, padding = 40)` | `:184-225` | 可用宽高不足 1 时按 1 算，避免极窄视口除零；矩形按未旋转的轴计算，**视口旋转时只保证中心对齐，不保证视觉完整包含**；尺寸为 0 时静默返回（所以 `attach` 必须先写尺寸） |
-| `center`                  | `:115-118` | 尺寸未测得时结果就是 `origin` 自身，宿主不应据此 fit                                                                                                                  |
-| `setSize`                 | `:231-234` | 负值夹到 0，与「尚未测量」保持同一种表达                                                                                                                              |
-| `onDidChange`             | `:236-240` | `listeners` 是 Set：同一函数重复注册只留一份，任一 Disposable 释放即全部失效                                                                                          |
+| 操作                      | 位置       | 关键语义                                                                                                                                                                                                           |
+| ------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `zoomAt(screen, factor)`  | `:171-200` | `factor` 是**倍率**而非目标值，连续滚轮可复合；夹紧后 zoom 未变则直接返回，`origin` 不重算，避免已到上下限时画面仍漂移；保持指针下的世界坐标不动                                                                   |
+| `panBy(delta)`            | `:196-211` | `delta` 恒为**屏幕像素**；先逆旋转再除 zoom，并整体取负（画面移动方向与 origin 移动相反）。传世界坐标会双重缩放                                                                                                    |
+| `fit(rect, padding = 40)` | `:213-257` | 可用宽高不足 1 时按 1 算，避免极窄视口除零；矩形按未旋转的轴计算，**视口旋转时只保证中心对齐，不保证视觉完整包含**；非有限宽高、零面积矩形、尚未测量的视口尺寸都静默返回（`:228-231`），所以 `attach` 必须先写尺寸 |
+| `center`                  | `:144-147` | 尺寸未测得时结果就是 `origin` 自身，宿主不应据此 fit                                                                                                                                                               |
+| `setSize`                 | `:263-266` | 负值夹到 0，与「尚未测量」保持同一种表达                                                                                                                                                                           |
+| `onDidChange`             | `:268-272` | `listeners` 是 Set：同一函数重复注册只留一份，任一 Disposable 释放即全部失效                                                                                                                                       |
 
 ## 3. 场景图：登记顺序即层级
 
@@ -71,21 +71,21 @@ screen = S(zoom) · R(rotation) · (world − origin)
 - `list()`：**直接暴露内部登记数组**以避免每帧复制，调用方不得 push/splice/sort（`:92-94`）。
 - `getRootBounds/getRootSize`：每次实时调用 `options.getRootRect()`，结果不缓存（`:7-15`），因此宿主改完文档尺寸不需要再 invalidate。
 
-命中测试的层级由此而来：**叠放由登记顺序决定，与 rect 面积无关**（`hitTest.ts:50-55`）。
+命中测试的层级由此而来：**叠放由登记顺序决定，与 rect 面积无关**（`hitTest.ts:60-63`）。
 
 ## 4. 命中测试
 
-三个入口，各自的过滤策略不同（`hitTest.ts:46-118`）：
+三个入口，各自的过滤策略不同（`hitTest.ts:55-125`）：
 
-| 方法                  | 过滤           | 说明                                                                                                                                                                        |
-| --------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `at(screen)`          | `isSelectable` | 逆序扫描 `scene.list()`；`filter` 在读几何**之前**执行，让容器筛选少算一批包围盒（`:53`）。覆盖层不进场景登记，因此天然不参与命中（`:69`）                                  |
-| `inRect(screenRect)`  | `isSelectable` | **四角投影取 AABB**（`:75-99`），因为视口旋转时只取两个角会漏选；返回值保持登记顺序（底→顶），不按距离或面积排序                                                            |
-| `containerAt(screen)` | `isContainer`  | **故意不受 `isSelectable` 影响**（`:26-32` 注释）：否则锁定容器会变成不可投递的黑洞。非容器节点被跳过并继续向下查找，所以覆盖在容器上的子节点不会挡住拖入判定（`:112-113`） |
+| 方法                  | 过滤           | 说明                                                                                                                                                                    |
+| --------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `at(screen)`          | `isSelectable` | 逆序扫描 `scene.list()`；`filter` 在读几何**之前**执行，让容器筛选少算一批包围盒（`:62-63`、`:69`）。覆盖层不进场景登记，因此天然不参与命中（`:78`）                    |
+| `inRect(screenRect)`  | `isSelectable` | **四角投影取 AABB**（`:84-99`），因为视口旋转时只取两个角会漏选；返回值保持登记顺序（底→顶），不按距离或面积排序                                                        |
+| `containerAt(screen)` | `isContainer`  | **故意不受 `isSelectable` 影响**（`:35-41` 注释）：否则锁定容器会变成不可投递的黑洞。非容器节点被跳过并继续向下查找，所以覆盖在容器上的子节点不会挡住拖入判定（`:120`） |
 
-已知精度限制（`:40-45`）：节点 AABB 来自 `layout.rect`，**不做旋转精确命中**，旋转节点返回其 AABB 粗命中，最终局部命中留给后续版本。
+已知精度边界：命中判定**已经按节点自转做精确计算**——几何取自场景登记的 `layout.rect`（未旋转世界矩形），再用 `getRotation(nodeId)` 把指针换算回节点的局部轴，点选走 `rotatedRectContainsPoint`、框选走 `rotatedRectIntersectsRect`（`:52-53` 的设计说明、`:71`、`:115`），因此判定结果与渲染层的 CSS `rotate` 一致。剩余的限制写在 `:28-31`：**只合成节点自身旋转**，祖先旋转对子节点的影响既不在这里合成、也不在渲染层合成（渲染层对嵌套子树做的是坐标补偿）。
 
-`createMeasure(scene)`（`:124+`）只提供一个能力：对一组 id 求并集矩形，供对齐/分布与小地图使用。
+`createMeasure(scene)`（`:133-149`）提供两个能力：`measure(id)` 取单个矩形、`measureMany(ids)` 求并集矩形，供对齐/分布与小地图使用；未登记的 id 直接缺席而不是返回 `undefined` 项（`:140` 注释），调用方按 `has()` 判断存在性。
 
 ## 5. 交互管线
 
@@ -106,19 +106,19 @@ window resize（仅刷新 stageRect 缓存）
 
 ### 5.2 事件对象
 
-`CanvasPointerEvent` 由 `createPointerEvent` 组装（`:196-226`），字段见 `PointerInit`（`:85-113`）：`type / phase / modifiers / screen / world / delta / buttons / pointerId / targetNodeId / targetHandleId / originalEvent / preventDefault / stopPropagation`。
+`CanvasPointerEvent` 由 `createPointerEvent` 组装（`:206-226`），字段见 `PointerInit`（`:86-113`）：`type / phase / modifiers / screen / world / delta / buttons / pointerId / targetNodeId / targetHandleId / originalEvent / preventDefault / stopPropagation`。
 
 三个容易踩的实现细节：
 
-- `phase` 注册时占位 `'bubble'`，由 `dispatch` 在**每个阶段覆写同一个对象**（`:201-202`）：处理器读到的是当前阶段，但事件引用全程唯一，`stoppedEvents` 与原生事件才能对得上。
-- `stopPropagation` 除了调原生方法，还把事件记入 `WeakSet stoppedEvents`（`:220-223`）——原生停止传播拦不住同一元素上由管线自己逐个调用的处理器。
+- `phase` 注册时占位 `'bubble'`（`:209`），由 `dispatch` 在**每个阶段覆写同一个对象**（`:291`）：处理器读到的是当前阶段，但事件引用全程唯一，`stoppedEvents` 与原生事件才能对得上。
+- `stopPropagation` 除了调原生方法，还把事件记入 `WeakSet stoppedEvents`（`:220-222`，集合声明在 `:138`）——原生停止传播拦不住同一元素上由管线自己逐个调用的处理器。
 - `screen` 是**舞台本地坐标**（已减 stage rect），不是 `clientX/clientY`；`delta` 相对上一次指针事件，首个事件与合成事件均为 0；键盘与非指针事件的 `pointerId` 传 `-1`。
 
 `resolveTarget`（`:315-321`）：先 `closest('[data-handle-id]')` 取手柄 id；**命中手柄时 `targetNodeId` 为 `undefined`**，两者互斥。
 
 ### 5.3 分发
 
-`sortedHandlers()`（`:255-269`）：`PHASE_ORDER.indexOf(phase)` → `priority` 降序 → 注册 `seq`。每次调用重新排序并返回副本（处理器数量有限，注册/注销不承担插入成本）；**分发按阶段各取一次快照**，因此处理器在自身回调里注销别人只影响后续阶段。
+`sortedHandlers()`（`:255-271`）：`PHASE_ORDER.indexOf(phase)`（`:116`）→ `priority` 降序 → 注册 `seq`（`:270`）。每次调用重新排序并返回副本（处理器数量有限，注册/注销不承担插入成本）；**分发按阶段各取一次快照**，因此处理器在自身回调里注销别人只影响后续阶段。
 
 `dispatch`（`:281-...`）：
 
@@ -203,8 +203,8 @@ return false   # 无人消费
 
 - `begin({label, owner})`：已有活动事务**抛错**（`transaction.ts:76-79`）；`base` 直接引用当时 schema（`:81-87`，靠拷贝式写入免深拷贝）。
 - `preview(patches)`：`state.pending.set(patch.path, patch)` 按 path 去重 + `document.apply(patches, {record:false})`（`:95-101`）；事务已结束后静默忽略，避免迟到的回调再改文档。
-- `commit()`：先 `document.restore(base)` 再 `apply(去重后的 pending, {record:true, label})`（`:110-121`）；`pending` 为空时只回退不写历史，等于把预览完全撤销。
-- `cancel()`：`restore(base)`，不写历史但仍触发 `onEnd(committed:false)`（`:123-128`）。
+- `commit()`：**不再先回退再重放**。`pending` 非空时直接 `apply([...pending.values()], { record: true, label, before: base })`（`:103-127`）——`base` 只作为历史的 `before`，文档不回滚；`:108-111` 写明先 `restore(base)` 再重放会把手势期间别处的写入整体抹掉且毫不报错，代价是同 `path` 的并发写入被本事务最后一次预览覆盖。`pending` 为空时才只 `restore(base)`（`:123-125`），等于把预览完全撤销且不写历史。
+- `cancel()`：`restore(base)`，不写历史但仍触发 `onEnd(committed:false)`（`:129-134`）。
 - `close()` 幂等：先清 `active` 再回调，保证 `onEnd` 里可以立即开始下一次手势（`:60-65`）。
 
 ## 11. 吸附引擎
@@ -241,14 +241,14 @@ return false   # 无人消费
 
 | 接线                               | 位置                                                                                                                                        |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| 创建全部工厂并聚合为 `canvas` 服务 | `service-canvas-core/src/index.ts:53-114` → `ctx.provide('canvas', service, {apiVersion:'1.0'})`（`:221`）                                  |
-| 根包围盒来源                       | `createScene({ getRootRect })` 实时读 `document.model.schema.nodeId` 的 rect（`:68-72`）                                                    |
-| 文档 → 场景                        | `syncScene()`：`nodeFlags = resolveNodeFlags(schema)` + 按 `paintOrder(schema)` 重登记几何，增量路径复用已登记 token（`:129-157`）          |
-| 脏来源汇聚                         | `document.onDidChange → syncScene`、`viewport.onDidChange → invalidateViewport`、`selection.onDidChange → invalidateViewport`（`:165-167`） |
-| 写回文档                           | `createTransactionService({ document, onEnd: info → ctx.emit('canvas:gestureEnd', info) })`（`:111-114`）                                   |
+| 创建全部工厂并聚合为 `canvas` 服务 | `service-canvas-core/src/index.ts:52-126` → `ctx.provide('canvas', service, {apiVersion:'1.0'})`（`:233`）                                  |
+| 根包围盒来源                       | `createScene({ getRootRect })` 实时读 `document.model.schema.nodeId` 的 rect（`:71-74`）                                                    |
+| 文档 → 场景                        | `syncScene()`：`nodeFlags = resolveNodeFlags(schema)` + 按 `paintOrder(schema)` 重登记几何，增量路径复用已登记 token（`:141-172`）          |
+| 脏来源汇聚                         | `document.onDidChange → syncScene`、`viewport.onDidChange → invalidateViewport`、`selection.onDidChange → invalidateViewport`（`:176-179`） |
+| 写回文档                           | `createTransactionService({ document, onEnd: info → ctx.emit('canvas:gestureEnd', info) })`（`:123-126`）                                   |
 | 容器判定策略                       | `isContainer` 咨询 `ctx.get('material')?.get(componentName)?.container`（`:91`）——**物料语义不下沉到内核**                                  |
-| 可选判定策略                       | `isSelectable` 咨询继承锁定标志（`:99`）                                                                                                    |
-| DOM 挂载                           | `attach()`：ResizeObserver + `viewport.setSize`（`:197`），由 `CanvasStage.vue:242` 调用                                                    |
+| 可选判定策略                       | `isSelectable` 咨询继承锁定标志（`:111`）                                                                                                   |
+| DOM 挂载                           | `attach()`：ResizeObserver + `viewport.setSize`（`:214`），由 `CanvasStage.vue:242` 调用                                                    |
 
 `nodeFlags` 用派生只读集合而不是每帧重算，注释给出原因（`contracts/src/services/canvas.ts:245-251`）：覆盖层 `visible` 每帧求值，这里给已算好的集合，查一次 O(1)；手势起始处的批量过滤另有 `transformableIds`。
 
@@ -278,12 +278,12 @@ return false   # 无人消费
 
 ## 15. 内核当前不做的事
 
-| 未做                      | 现状出处                                                |
-| ------------------------- | ------------------------------------------------------- |
-| 旋转节点的精确命中        | `hitTest.ts:40-45`（AABB 粗命中）                       |
-| 按节点粒度的场景失效      | `scene.ts:85-89`（`nodeIds` 参数不生效）                |
-| 按图层粒度的重绘          | `scheduler.ts:120-124`（`invalidateLayer(id)` 忽略 id） |
-| 设置持久化与策略锁定      | `settings.ts:4-9`（合并顺序只是注释）                   |
-| `flow` 布局模式           | 宿主一律按 absolute 渲染（`CanvasStage.vue:97-110`）    |
-| `angle` / `distance` 吸附 | `engine.ts:76-78`（只有 x/y 轴被应用）                  |
-| 多手势并发                | `pipeline.ts:407-408`（第二个 `beginGesture` 抛错）     |
+| 未做                      | 现状出处                                                                 |
+| ------------------------- | ------------------------------------------------------------------------ |
+| 祖先旋转的合成            | 命中与渲染都只看节点自转（`hitTest.ts:28-31`），嵌套旋转树不属于当前能力 |
+| 按节点粒度的场景失效      | `scene.ts:85-89`（`nodeIds` 参数不生效）                                 |
+| 按图层粒度的重绘          | `scheduler.ts:120-124`（`invalidateLayer(id)` 忽略 id）                  |
+| 设置持久化与策略锁定      | `settings.ts:4-9`（合并顺序只是注释）                                    |
+| `flow` 布局模式           | 宿主一律按 absolute 渲染（`CanvasStage.vue:97-110`）                     |
+| `angle` / `distance` 吸附 | `engine.ts:76-78`（只有 x/y 轴被应用）                                   |
+| 多手势并发                | `pipeline.ts:407-408`（第二个 `beginGesture` 抛错）                      |

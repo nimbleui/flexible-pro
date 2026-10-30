@@ -249,18 +249,19 @@ load ──→ loading ──→ [schedule] ──→ applying ──→ active 
 
 内核为观测加了四个入口，共同约束是**只读不干预生命周期**：
 
-| 能力                          | 位置                                                | 说明                                                                                                    |
-| ----------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `Diagnostics.onChange`        | `context.ts:196`                                    | 实时订阅新记录，不必轮询 `list()`；只通知 `report` 新增，回放历史仍走 `list()`                          |
-| `Diagnostics.report` 错误隔离 | `context.ts:173-181`                                | 订阅者抛错只记日志，保证 `report` 对外「不抛错」的约定不被展示层破坏                                    |
-| `EventBus.monitor`            | `events.ts:126`                                     | 每次监听器执行产生一条 `EventDispatchRecord`（事件名、模式、归属 `pluginId`、耗时、错误、当轮监听器数） |
-| 零开销开关                    | `events.ts:237-238`                                 | `tracker()` 在无监视器时返回 `undefined`，热路径不取时间戳、不建记录                                    |
-| `PluginRuntime.retry`         | `runtime.ts:201`                                    | 只重排 `pending`/`failed`；`active` 重启会连带重建整棵子树，属宿主级决策，不由本方法承担                |
-| `activatedAt` / `applyMs`     | `types.ts:97-104`、`runtime.ts:354-365`、`:423-425` | 成功与失败都留耗时，用于区分「秒失败」与「卡住后被中止」；配置阶段失败发生在装配之前，因此不写耗时      |
+| 能力                          | 位置                                                   | 说明                                                                                                                                                                       |
+| ----------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Diagnostics.onChange`        | `context.ts:196`                                       | 实时订阅新记录，不必轮询 `list()`；只通知 `report` 新增，回放历史仍走 `list()`                                                                                             |
+| `Diagnostics.report` 错误隔离 | `context.ts:173-181`                                   | 订阅者抛错只记日志，保证 `report` 对外「不抛错」的约定不被展示层破坏                                                                                                       |
+| `EventBus.monitor`            | `events.ts:132`                                        | 每次监听器执行产生一条 `EventDispatchRecord`（事件名、模式、归属 `pluginId`、耗时、错误、当轮监听器数）                                                                    |
+| 零监听记录                    | `events.ts:141`（另见 `:160`、`:181`、`:200`、`:226`） | 没人监听时也留一条 `listenerCount = 0`、`duration = 0` 的记录：设计器的 UI 多数走服务级 `onDidChange`，事件总线常常无人订阅，这条是「事件名写错 / 插件没挂监听」的唯一线索 |
+| 零开销开关                    | `events.ts:248-254`                                    | `tracker()` 在无监视器时返回 `undefined`，热路径不取时间戳、不建记录                                                                                                       |
+| `PluginRuntime.retry`         | `runtime.ts:201`                                       | 只重排 `pending`/`failed`；`active` 重启会连带重建整棵子树，属宿主级决策，不由本方法承担                                                                                   |
+| `activatedAt` / `applyMs`     | `types.ts:97-104`、`runtime.ts:355-365`、`:423-425`    | 成功与失败都留耗时，用于区分「秒失败」与「卡住后被中止」；配置阶段失败发生在装配之前，因此不写耗时                                                                         |
 
-`fail` 的写法顺序也是有意的：**先上报 `error`，再改状态**，这样 devtools 收到状态事件时错误与出错阶段已经落定（`runtime.ts:412-418`）。
+`fail` 的写法顺序也是有意的：**先上报 `error`，再改状态**，这样 devtools 收到状态事件时错误与出错阶段已经落定（`runtime.ts:420-431`）。
 
-现状：`packages/devtools/` 只有一个 `package.json`，上述能力**尚无仓内消费者**，但都有测试覆盖（见 §16）。另外 `InternalErrorPayload` 允许 `phase: 'dispose'`，而 `runtime.fail` 只发 `'config' | 'apply'`——`'dispose'` 目前无发送方。
+消费方是 `@lc/devtools`（已完成，见 [11](./11-devtools.md)）：`src/core/feed.ts` 把 `EventDispatchRecord` 收进环形日志缓冲（`EventLog`，上限 `EVENT_LOG_LIMIT = 500`），`src/core/snapshot.ts` 读 Context 树产出作用域、插件、服务与依赖图视图，`src/use-devtools.ts` 负责把内核事件桥到 Vue 响应式。另外 `InternalErrorPayload` 允许 `phase: 'dispose'`，而 `runtime.fail` 只发 `'config' | 'apply'`——`'dispose'` 目前无发送方。
 
 ## 14. 一次启动（内核视角骨架）
 
@@ -298,7 +299,7 @@ load ──→ loading ──→ [schedule] ──→ applying ──→ active 
 `packages/kernel/tests/` 共 5 个 spec，都不依赖任何业务包即可运行——这是「内核零依赖」的直接收益：
 
 - `runtime.spec.ts`：生命周期、装配耗时（`activatedAt`/`applyMs` 四例）、`retry`（三例）、作用域与隔离、保留服务授权、`ctx.inject`。
-- `events.spec.ts`：五种分发模式、排序、`dispose` 后不再收到事件、**事件监视器**（归属、错误记录、`waterfall` 上报后继续抛、监视器自身抛错不影响分发）。
+- `events.spec.ts`：五种分发模式、排序、`dispose` 后不再收到事件、**事件监视器**（归属、错误记录、零监听也留记录、`waterfall` 上报后继续抛、监视器自身抛错不影响分发）。
 - `effect.spec.ts`：逆序回收与关闭后行为。
 - `config.spec.ts`：`deepMerge`、`intercept` 与 schema 默认值的先后。
 - `diagnostics.spec.ts`：`report` 上限淘汰、`list` 快照、`onChange` 订阅与抛错隔离。

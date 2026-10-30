@@ -203,7 +203,7 @@ export default { components }
 
 | 要加的东西  | 必须同时改的位置                                                                                                                                                                                                  |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 服务名      | `Context` 接口（`contracts/src/contexts.ts:25-58`）+ `SERVICE_NAMES`（`:99-115`）+ 若属内核语义则加 `RESERVED_SERVICES`（`kernel/src/context.ts:62-87`）+ 宿主 `GRANTS`（`apps/designer/src/bootstrap.ts:41-54`） |
+| 服务名      | `Context` 接口（`contracts/src/contexts.ts:25-58`）+ `SERVICE_NAMES`（`:99-115`）+ 若属内核语义则加 `RESERVED_SERVICES`（`kernel/src/context.ts:67-92`）+ 宿主 `GRANTS`（`apps/designer/src/bootstrap.ts:41-54`） |
 | 业务事件    | 只允许改 `contracts/src/events.ts`（头注释禁止插件自行 `declare module`）                                                                                                                                         |
 | 宿主插槽    | 先加 `SLOT` 常量 → 再加宿主渲染点 → 才允许插件声明（`contracts/src/slots.ts:3-6`）                                                                                                                                |
 | 贡献点      | 加 `ContributionValueMap` 条目 + 消费方；若该贡献带模块，还要检查 `collectModules`（`service-loader/src/index.ts:165-174`）是否覆盖到新的点                                                                       |
@@ -213,17 +213,17 @@ export default { components }
 
 以下不是新约定，是从代码里归纳出的既有纪律，改代码时请保持一致：
 
-1. **注释解释「为什么」**。仓库里几乎所有常量与私有函数都带一条说明取舍或踩坑的注释（例：`viewport.ts:120-121` 为什么不复用矩阵、`context.ts:351-352` 为什么两个守卫要分开、`scheduler.ts:54-55` 为什么不能用真值判断）。interface 与 type 的**每个字段**都要有中文注释，写类型表达不了的约束（`@default` 必须与实现核对过）。
+1. **注释解释「为什么」**。仓库里几乎所有常量与私有函数都带一条说明取舍或踩坑的注释（例：`viewport.ts:149-150` 为什么不复用矩阵、`context.ts:521-522` 为什么两个守卫要分开、`scheduler.ts:54-55` 为什么不能用真值判断）。interface 与 type 的**每个字段**都要有中文注释，写类型表达不了的约束（`@default` 必须与实现核对过）。
 2. **不重复造抽象**。注册表只在真有「同 id 冲突 + 排序 + 变化通知」需求时出现（material / command / setter / contribution / layers / contextMenu，共 6 处）；其余用 `Map` + `Set` + `sorted()` 函数。画布内核一律工厂函数，不用 class。
 3. **DOM 与算法分离**。几何/变换/解析逻辑写成纯函数并单测：`canvas-align/src/align.ts`、`canvas-commands/src/operations.ts`、`canvas-rotate/src/rotate.ts`、`canvas-minimap/src/geometry.ts`、`canvas-rulers/src/guides.ts`、`canvas-selection/src/hierarchy.ts`、`vue/src/render/tree.ts`。渲染函数只负责把结果写进 DOM。
 4. **依赖方向不可逆**。低层包不得 import 高层；插件不得 import 插件；跨层协作走服务/事件/设置/handle-id。物料语义（`container`）不下沉进画布内核。
 5. **失败降级优先于抛错**，但装配错误要抛错。二者分界：`ensure`/`resolveMaterial`/`execute` 返回 undefined 或静默并记诊断；`provide` 冲突、`settings.set` 未注册 id、`transaction.begin` 已有活动事务、`beginGesture` 已有手势——**抛错**。
-6. **不绕过类型系统**。现存的收窄点只有 `as Component`（`CanvasStage.vue:166`）、`as CanvasContext`（`service-canvas-core/src/index.ts:108`）、`new Function` 表达式引擎（`service-expression/src/index.ts:42-43`，带 `eslint-disable` 与授权前提注释）。新增断言必须说明为什么类型无法表达。
+6. **不绕过类型系统**。现存的收窄点只有 `as Component`（`CanvasStage.vue:166`）、`as CanvasContext`（`service-canvas-core/src/index.ts:120`）、`new Function` 表达式引擎（`service-expression/src/index.ts:42-43`，带 `eslint-disable` 与授权前提注释）。新增断言必须说明为什么类型无法表达。
 7. **样式走语义变量 + 兜底值**：`var(--lc-accent, #2563eb)`。可复用组件一律 `<style scoped>`；画布覆盖层是渲染函数，用内联 `style`。
 
 ## 7. 测试
 
-- 位置与命名：`<package>/tests/<topic>.spec.ts`（26 个），`vitest.config.ts:5-6` 只 glob `packages/**/tests/**/*.spec.ts`，`environment: 'node'`。
+- 位置与命名：`<package>/tests/<topic>.spec.ts`（30 个，含 devtools 的 3 个与内核新增的 `diagnostics.spec.ts`），`vitest.config.ts:5-6` 只 glob `packages/**/tests/**/*.spec.ts`，`environment: 'node'`。
 - 因此**被测对象必须不依赖 DOM**。需要视口/场景时构造最小 fake（参考 `packages/canvas/tests/snap.spec.ts`、`hitTest.spec.ts`）。
 - 优先为「容易错且难在 UI 里发现」的部分写测试：坐标一致性（`coordinates.spec.ts` 钉住闭式公式与矩阵同源）、事务历史语义（`transaction.spec.ts`）、键位匹配（`keys.spec.ts`）、渲染树规则（`renderTree.spec.ts`）。
 - `.vue` 组件与交互链路只能**在浏览器里验证**：`pnpm dev` 后按 `docs/02` 的三条数据流逐条走一遍，并检查 `window.__lc.context.diagnostics.list()` 为空。
@@ -242,12 +242,14 @@ __lc.editor.context.document.model // { version, dirty, schema }
 __lc.canvas.context.canvas.viewport.state // { x, y, zoom, rotation }
 ```
 
+**面板优先于控制台**：设计器头部「开发者工具」按钮打开 `@lc/devtools`（覆盖式抽屉，不挤压画布）。七个标签页——插件树、服务表、依赖图、事件日志、配置、诊断、画布——数据来自内核观测面（[04 §13](./04-plugin-kernel.md#13-观测面devtools-与错误面板用)），动作只有重试（`pending`/`failed`）、卸载、清空日志。`pending` 先看依赖图（缺哪个服务、候选提供者是谁、有没有环），`failed` 看插件树上的错误行与 `attempts`；事件日志能看出「事件发了但没人监听」（`listenerCount = 0`）与超过单帧预算（16ms）的监听器。接入与边界见 [11](./11-devtools.md)。
+
 排查顺序建议：
 
 | 症状             | 先看                                                                                                                          |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | 某能力没生效     | `contribution.list('canvasFeatures')` 有没有该条；`defaultEnabled`；`order`；`diagnostics` 里 `scope: 'preset-canvas'`        |
-| 插件停在 pending | 它的 `inject.required` 是否都在**父上下文**可见（`runtime.ts:214` 读 parent，不读自己）                                       |
+| 插件停在 pending | 它的 `inject.required` 是否都在**父上下文**可见（`runtime.ts:316` 读 parent，不读自己）                                       |
 | 快捷键没反应     | 焦点是否在可编辑元素（`service-keybinding/src/index.ts:8-18`）；舞台是否 `focus()`；`keybinding` 是否为该插件的可选依赖而未装 |
 | 拖拽不进历史     | 是否用了 `record: false`；事务 `commit` 是否被调用（`cancel` 不写历史）                                                       |
 | 画面与命中不一致 | `scene.list()` 顺序是否等于 `paintOrder(schema)`；插件是否自行拼了矩阵而没走 `viewport`                                       |
@@ -276,7 +278,7 @@ __lc.canvas.context.canvas.viewport.state // { x, y, zoom, rotation }
 | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 「覆盖层模块首次可见时加载」                                  | 契约 `canvas-contributions.ts:141`、`canvas-guides/src/index.ts:22-23` 都这么写；实现 `LayerHost.vue:138-140` 对全部注册图层 `ensureLayer`，`:136` 注释承认代价 |
 | 「主画布、每文档一个」                                        | 契约 `services/workspace.ts:25-26`；实现 `service-workspace/src/index.ts:100-106` 不限制 `createCanvasRealm()` 次数                                             |
-| `InternalErrorPayload.phase` 允许 `'dispose'`                 | `internal.ts:9`；`runtime.fail` 只发 `'config' \| 'apply'`（`:294-301`），`'dispose'` 无发送方                                                                  |
+| `InternalErrorPayload.phase` 允许 `'dispose'`                 | `internal.ts:9`；`runtime.fail` 只发 `'config' \| 'apply'`（`:420-433`），`'dispose'` 无发送方                                                                  |
 | `scene.invalidate(nodeIds)` / `scheduler.invalidateLayer(id)` | 参数存在但被忽略（`scene.ts:85-89`、`scheduler.ts:120-124`）                                                                                                    |
 
 ### 9.3 结构性技术债
@@ -286,7 +288,7 @@ __lc.canvas.context.canvas.viewport.state // { x, y, zoom, rotation }
 3. **预览期间 version 每帧自增**（`service-document/src/index.ts:70-76`）：所有靠 version 失效的消费者（大纲、属性、状态栏、覆盖层）每帧重来一次。拖大文档时这是主要开销来源。
 4. **loader 并发激活可能重复装配插件**（`service-loader/src/index.ts:326-329`）：`activated` 表在 `load()` 之后写入；修法（登记 pending Promise）注释里已给出但未做。
 5. **`ensureActivated` 拼错事件名无反馈**（同上 `:329`）。
-6. **`Registry` 与 `Service` 两处冗余**：`kernel/src/service.ts:9` 的 `abstract class Service` 全仓 0 使用（仍被 `kernel/src/index.ts:26` 导出）；`useService` / `useRegistryList`（`vue/src/context.ts:33-87`）已导出但无消费者。按「删除该抽象是否让实现变差」判据，四处都应删除或在文档中标注为公共 API 承诺。
+6. **`Registry` 与 `Service` 两处冗余**：`kernel/src/service.ts:9` 的 `abstract class Service` 全仓 0 使用（仍被 `kernel/src/index.ts:27` 导出）；`useService` / `useRegistryList`（`vue/src/context.ts:33-87`）已导出但无消费者。按「删除该抽象是否让实现变差」判据，四处都应删除或在文档中标注为公共 API 承诺。
 7. **业务事件无消费者**：`document:change`、`selection:change`、`canvas:gestureEnd`、`plugin:activated/failed` 在仓库内没有任何 `ctx.on`，内部刷新实际走各自的 `onDidChange`（见 [02 §4](./02-runtime-flow.md#4-两套通道业务事件-vs-服务通知)）。保留是对的（外部订阅面），但要防止误以为「监听事件就能刷新 UI」。
 8. **hover 描边硬编码颜色**（`canvas-selection/src/overlay.ts:95`）与 token 规范不一致；无 `prefers-color-scheme` / `prefers-reduced-motion` 适配。
 9. **`.vue` 无自动化测试**：26 个 spec 全是纯逻辑；面板与舞台的行为回归依赖人工浏览器验证。

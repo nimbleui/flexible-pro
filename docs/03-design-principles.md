@@ -42,15 +42,15 @@
 
 **命题**：`@lc/kernel` 没有 token、没有装饰器、没有容器类。服务是 `Map<string, ServiceEntry>`，解析沿 `ServiceScope` 链向上走。
 
-**证据**：`packages/kernel/src/context.ts:26-34`（`ServiceScope` 结构）、`:210-224`（`get`/`require`）、`:231-267`（`provide`）。`PluginDefinition` 的 `inject` 允许 `string[]` 简写（`packages/kernel/src/types.ts:60`）。
+**证据**：`packages/kernel/src/context.ts:26-34`（`ServiceScope` 结构）、`:292-311`（`get`/`require`）、`:326-362`（`provide`）。`PluginDefinition` 的 `inject` 允许 `string[]` 简写（`packages/kernel/src/types.ts:60`）。
 
 **为什么值得**：
 
-1. **跨 Realm 遮蔽是天然能力**。`fork()` 只是给 scope 加一层 `parent`（`context.ts:312-325`），文档 A 与文档 B 可以各自持有不同的 `document`/`canvas` 实例，而解析规则完全一致。用 token + 全局容器实现同样的隔离需要额外的子容器机制。
-2. **调试可直读**。`window.__lc.context.get('canvas')` 与 `ctx.canvas`（由 `installServiceAccessors` 生成的 getter，`context.ts:419-441`）都是同一个名字，不需要反查 token。
+1. **跨 Realm 遮蔽是天然能力**。`fork()` 只是给 scope 加一层 `parent`（`context.ts:464-477`），文档 A 与文档 B 可以各自持有不同的 `document`/`canvas` 实例，而解析规则完全一致。用 token + 全局容器实现同样的隔离需要额外的子容器机制。
+2. **调试可直读**。`window.__lc.context.get('canvas')` 与 `ctx.canvas`（由 `installServiceAccessors` 生成的 getter，`context.ts:617-630`）都是同一个名字，不需要反查 token。
 3. **零依赖**。内核 `dependencies` 为空（`packages/kernel/package.json`），字符串名是自描述的，不引入 reflect-metadata 之类的运行时。
 
-**代价**：拼错服务名没有编译期保护。平台的缓解手段是把名字集中到 `SERVICE_NAMES`（`packages/contracts/src/contexts.ts:99-115`）并给 15 个名字装上类型化 getter；`require()` 缺失时抛带服务名的错误（`context.ts:222`）。类型层面则靠 `EditorContext` / `CanvasContext` 收窄（`:85-96`）——**类型糖不改变运行时**，只让写错的 `ctx.document` 在编辑器里变红。
+**代价**：拼错服务名没有编译期保护。平台的缓解手段是把名字集中到 `SERVICE_NAMES`（`packages/contracts/src/contexts.ts:99-115`）并给 15 个名字装上类型化 getter；`require()` 缺失时抛带服务名的错误（`context.ts:309`）。类型层面则靠 `EditorContext` / `CanvasContext` 收窄（`:85-96`）——**类型糖不改变运行时**，只让写错的 `ctx.document` 在编辑器里变红。
 
 ---
 
@@ -60,7 +60,7 @@
 
 **证据**：`service-workspace/src/index.ts:66-70` 注释「Realm 不是裸 `fork()`：每个 Realm 拥有独立 service scope 与生命周期记录」；`:78`+`:86` 建 EditorRealm，`:108` 建 CanvasRealm；`:129-138` 关闭文档时反向销毁全部画布再释放 Realm；`:148` 把 Realm 生命周期挂在 workspace 插件的 effect 上——**插件被停用，它管理的文档也随之关闭**。
 
-**为什么值得**：多文档/多画布是编辑器常态。若共享一个作用域，第二个文档的 `document` 服务会与第一个冲突（`provide` 同层冲突直接抛错，`context.ts:243-246`）。Realm 化之后，两个画布视图共享同一个 `document`/`selection`（选中同步）、各自持有 `viewport`/`layers`/`settings`（缩放平移独立），这个语义差异直接体现在两次 fork 的层级上（`service-workspace/src/index.ts:100-105`）。
+**为什么值得**：多文档/多画布是编辑器常态。若共享一个作用域，第二个文档的 `document` 服务会与第一个冲突（`provide` 同层冲突直接抛错，`context.ts:338-341`）。Realm 化之后，两个画布视图共享同一个 `document`/`selection`（选中同步）、各自持有 `viewport`/`layers`/`settings`（缩放平移独立），这个语义差异直接体现在两次 fork 的层级上（`service-workspace/src/index.ts:100-105`）。
 
 **代价**：装配顺序变成需要维护的隐性契约。Realm 内固定 `document → history → selection`（`:79-86`），因为 `service-history` 声明 `inject: ['document']`（`service-history/src/index.ts:26`）；顺序错了会先 `pending` 再靠服务事件补救，虽然能自洽但诊断信息更绕。
 
@@ -72,9 +72,9 @@
 
 **证据**：
 
-- `service-document/src/index.ts:101-120`：`apply` 是唯一写入口，`before` 取当前引用、`after = applySchemaPatches(before, patches)`。
+- `service-document/src/index.ts:102-121`：`apply` 是唯一写入口；`before` 默认取当前引用，调用方可显式传入更早的快照（手势事务用它记录开始前的状态），`after = applySchemaPatches(before, patches)`。
 - `packages/schema/src/patch.ts:160` `applySchemaPatches` 返回新对象；patch 是 RFC6902 子集（同文件 `:103` `applyPatches`）。
-- 只读模式在写入口拦截：`:102-104` `mode === 'preview'` 抛错。
+- 只读模式在写入口拦截：`:103-105` `mode === 'preview'` 抛错。
 - 树操作也不直接改结构，而是「树语义 → patch」的函数集：`packages/schema/src/tree.ts` 里的 `reorderChildren`、`groupNodes`、`ungroupNodes`、`setNodeFlags`、`renameNode`、`collectSubtree`、`detachFromParents` 全部返回 patch。
 
 **为什么值得**：一个写入口同时给出四样东西——历史记录（`before/after` 现成）、预览/提交分界（`record` 标志）、协作与迁移的可重放单元（patch 可序列化）、以及「旧对象不会被就地改动」这条不变量。历史栈因此可以只存引用而不深拷贝（`service-history/src/index.ts:51-53` 的注释正是这么论证的）。
@@ -85,17 +85,17 @@
 
 ## 6. 一次手势 = 一条历史
 
-**命题**：拖拽/缩放/旋转期间每帧都写文档，但这些中间态不进历史；提交时先回退到手势前快照，再一次性写入去重后的 patch。
+**命题**：拖拽/缩放/旋转期间每帧都写文档，但这些中间态不进历史；提交时把去重后的最终 patch 直接落在当前文档上，并以手势前的快照作为历史的 `before`。
 
 **证据**：
 
-- `packages/canvas/src/transaction.ts:44-48`：「预览直接写文档但不产生历史；提交时先恢复到手势前快照，再一次性写入最终 patch，保证一次拖拽 = 一条历史。同一时刻只允许一个事务，抢不到 `begin` 的插件应放弃本次手势」。
-- 实现细节：`preview` 以 `patch.path` 去重（`:99`），提交时 `restore(base)` → `apply([...pending.values()], {record:true, label})`（`:110-121`），`cancel` 只 `restore(base)` 且不写历史但仍触发 `onEnd`（`:123-128`）。
+- `packages/canvas/src/transaction.ts:42-48`：「预览直接写文档但不产生历史；提交时把最终 patch 落在当前文档上，并以手势前的快照作为历史的 before，保证一次拖拽 = 一条历史且不吞掉并发改动。同一时刻只允许一个事务，抢不到 `begin` 的插件应放弃本次手势」。
+- 实现细节：`preview` 以 `patch.path` 去重（`:96-99`），提交时 `apply([...pending.values()], { record: true, label, before: base })`（`:103-127`）。`:108-109` 明确写出**不能先 `restore(base)` 再重放**——那会把手势期间别处的写入（属性面板改了同一节点的其它字段、拖入的新节点）整体抹掉，而且不产生任何错误；只有 `pending` 为空时才纯回退 `restore(base)`（`:123-125`）。`cancel` 只 `restore(base)` 且不写历史但仍触发 `onEnd`（`:129-134`）。
 - `begin` 在已有活动事务时抛错（`:76-79`），`contracts/src/services/canvas.ts:153-160` 把这条约束写进了接口注释。
 
-**为什么值得**：`base` 直接引用当时的 schema 引用即可作为回退基准（依赖第 5 条的拷贝式不变量），既省一次深拷贝，又保证撤销一次能准确回到手势前。用户视角的「一次拖拽」与历史记录的「一条」严格对齐。
+**为什么值得**：`base` 直接引用当时的 schema 引用即可作为历史的 `before`（依赖第 5 条的拷贝式不变量），既省一次深拷贝，又保证撤销一次能准确回到手势前；因为提交只写最终 patch 而不回滚整份文档，手势期间别处的写入不会被顺手抹掉。用户视角的「一次拖拽」与历史记录的「一条」严格对齐。
 
-**代价**：单事务意味着两个手势不能并存。当前是「抛错 + 插件放弃手势」的策略，而不是排队或抢占；多指/双画笔类交互要落地时必须先改这条约束。另一份代价在第 5 条：`version` 每次提交都自增，包括 `record: false` 的预览（`service-document/src/index.ts:70-76`），所以预览期间靠 version 失效缓存的消费者每帧都会重来一次——注释判定这是「保持画面跟手的必要代价」。
+**代价**：单事务意味着两个手势不能并存。当前是「抛错 + 插件放弃手势」的策略，而不是排队或抢占；多指/双画笔类交互要落地时必须先改这条约束。另有一处路径级独占：与本事务同 `path` 的并发写入会被本事务最后一次预览覆盖，撤销回到 `base` 时这条限制同样成立（`transaction.ts:110-111`）。另一份代价在第 5 条：`version` 每次提交都自增，包括 `record: false` 的预览（`service-document/src/index.ts:70-76`），所以预览期间靠 version 失效缓存的消费者每帧都会重来一次——注释判定这是「保持画面跟手的必要代价」。
 
 ---
 
@@ -106,11 +106,11 @@
 **证据**：
 
 - `packages/kernel/src/types.ts:5-11`：`Disposable` 的注释就是这条规则的成文表述——「否则插件卸载后会泄漏」。
-- `Context.on` 内部直接 `this.effects.effect(...)`（`context.ts:284-290`），插件拿不到未托管的监听入口。
+- `Context.on` 内部直接 `this.effects.effect(...)`（`context.ts:401-407`），插件拿不到未托管的监听入口。
 - `EffectScope.dispose` 逆序回收且幂等；关闭后再 `add` 的立即 dispose，`effect` 的工厂被跳过（`packages/kernel/src/effect.ts`）。
-- 服务提供的 `Disposable` 只删自己注册的那条，避免覆盖场景误删后来者（`context.ts:260-266`）。
+- 服务提供的 `Disposable` 只删自己注册的那条，避免覆盖场景误删后来者（`context.ts:355-361`）。
 
-**为什么值得**：插件作者不需要写 cleanup 代码，也不需要记住成对的 `on/off`。停用即整棵子树回收：`Context.dispose` 先 `abort()` 再反向卸载 children 最后回收 effects（`context.ts:348-359`），且注释解释了为什么两个守卫必须分开——否则 `deactivate` 的「先 abort 后 dispose」路径会让回收被短路。
+**为什么值得**：插件作者不需要写 cleanup 代码，也不需要记住成对的 `on/off`。停用即整棵子树回收：`Context.dispose` 先 `abort()` 再反向卸载 children 最后回收 effects（`context.ts:518-529`），且注释解释了为什么两个守卫必须分开——否则 `deactivate` 的「先 abort 后 dispose」路径会让回收被短路。
 
 **代价**：`effects.add` 这种「注册即托管」的风格要求每个 API 都返回 `Disposable`，接口签名比裸监听更啰嗦；忘记 `return` 的注册会静默泄漏（内核无法检测未被托管的资源）。
 
@@ -122,13 +122,13 @@
 
 **证据**：
 
-- 内核的 `Events` 是空接口（`types.ts:119-125`），`installServiceAccessors(names)` 由调用方给名单（`context.ts:428-441`，注释写明「内核不内置任何业务服务名」）。
+- 内核的 `Events` 是空接口（`types.ts:127-133`），`installServiceAccessors(names)` 由调用方给名单（`context.ts:617-630`，注释写明「内核不内置任何业务服务名」）。
 - 服务名与事件名的唯一扩展点在 `packages/contracts/src/contexts.ts:25-58` 与 `packages/contracts/src/events.ts:52-72`，两处注释都明确「插件不得各自 `declare module`」（`contexts.ts:20-23`、`events.ts:49-51`）。
-- `RESERVED_SERVICES` 与 `apiVersion` 校验也在内核（`context.ts:62-87`、`:236-241`），但名单内容是平台语义而非业务语义。
+- `RESERVED_SERVICES` 与 `apiVersion` 校验也在内核（`context.ts:67-92`、`:331-336`），但名单内容是平台语义而非业务语义。
 
-**为什么值得**：事件名和服务名散落是插件平台最常见的腐化起点。集中声明让「平台能力清单」变成一个可 grep 的文件，也让内核可以独立测试——`packages/kernel/tests/` 的 4 个 spec 不需要任何业务包即可跑通。
+**为什么值得**：事件名和服务名散落是插件平台最常见的腐化起点。集中声明让「平台能力清单」变成一个可 grep 的文件，也让内核可以独立测试——`packages/kernel/tests/` 的 5 个 spec（含新增的 `diagnostics.spec.ts`）不需要任何业务包即可跑通。
 
-**代价**：新增一个服务名要改三处（`Context` 接口、`SERVICE_NAMES`、`RESERVED_SERVICES`）。这是有意设置的摩擦。
+**代价**：新增一个服务名要改三处（`Context` 接口、`SERVICE_NAMES`、`RESERVED_SERVICES`）。这是有意设置的摩擦。devtools 需要的观测能力（`EventBus.monitor`、`Diagnostics.onChange`、`runtime.retry`、装配耗时字段）也只能进内核，因为事件与状态都在那里产生；判据是它们只携带**机制**而不硬编码任何业务名字，所以不算破坏本条命题。另一处口径需要留意：观测计时用了浏览器与 Node 都提供的全局 `performance.now()`（`events.ts:137`），仍然是零第三方依赖，但 `index.ts` 头注释里「不依赖 DOM、Node API」这句话要按「不依赖框架与平台专有 API」来理解。
 
 ---
 
@@ -136,9 +136,9 @@
 
 **命题**：`canvas`、`document`、`history` 这类承载内核语义的服务名，必须由平台签发的 `ServiceGrant` 才能提供，且必须声明 `apiVersion`。
 
-**证据**：`context.ts:236-241` 两条抛错；`runtime.grant`/`hasGrant`（`runtime.ts:48-65`）；宿主侧的预置授权表 `apps/designer/src/bootstrap.ts:41-54`。
+**证据**：`context.ts:331-336` 两条抛错；`runtime.grant`/`hasGrant`（`runtime.ts:71-94`）；宿主侧的预置授权表 `apps/designer/src/bootstrap.ts:41-54`。
 
-**为什么这样定位**：注释给出了非常克制的理由（`context.ts:56-61`）——「保留名单存在的意义不是防住同 realm 的恶意代码（它做不到），而是防止普通插件无意间覆盖 `canvas`、`history` 这类内核语义服务」。这是整个仓库里对安全边界最诚实的一句表述：同 realm 的 JS 无法被名单挡住，名单解决的是**事故**而不是**攻击**。真正的攻击面隔离（iframe/worker）在设计稿 Part III，代码未实现。
+**为什么这样定位**：注释给出了非常克制的理由（`context.ts:56-66`）——「保留名单存在的意义不是防住同 realm 的恶意代码（它做不到），而是防止普通插件无意间覆盖 `canvas`、`history` 这类内核语义服务」。这是整个仓库里对安全边界最诚实的一句表述：同 realm 的 JS 无法被名单挡住，名单解决的是**事故**而不是**攻击**。真正的攻击面隔离（iframe/worker）在设计稿 Part III，代码未实现。
 
 **代价**：内置服务在开发期也要显式登记 GRANTS，否则启动即抛错。`bootstrap.ts:35-40` 的注释承认这是「保证没有控制面时也能跑通内置能力，同时保留保留服务需要授权的约束」。
 
@@ -170,11 +170,11 @@
 - `packages/canvas/src/interaction/pipeline.ts:115-116`：「分发顺序：先捕获、再手柄目标阶段、最后冒泡，与 DOM 事件模型保持同一心智」。
 - `target` 阶段只在 `event.targetHandleId` 存在时进入（`:286`），handle id 由 `closest('[data-handle-id]')` 解析（`:317`）——所以尺寸手柄、旋转手柄、小地图 viewport、标尺参考线的命中都是同一套机制。
 - 返回值语义封闭：`'pass' | 'handled' | 'stop' | void`（`packages/contracts/src/canvas-contributions.ts:97`），`handled` 之后进入手势回调，`stop` 终止分发。
-- 处理器抛错只记诊断，不中断分发（`pipeline.ts:298`）。
+- 处理器抛错只记诊断，不中断分发（`pipeline.ts:297-301`）。
 
 **为什么值得**：插件作者迁移成本几乎为零（心智就是 addEventListener + 优先级），且手柄类交互不需要插件自己去注册 DOM 监听——`canvas-resize` 与 `canvas-rotate` 之间没有任何引用关系，仅靠 handle id 字符串约定（rotate 的 `ROTATE_HANDLE_ID = 'rotate'` 被 resize 的手柄集合排除）。这是第 1 条命题能成立的技术前提。
 
-**代价**：`Escape` 在手势期间被内核保留（`pipeline.ts:603`），插件不能覆盖；`click` 由管线在位移 ≤ `DEFAULT_DRAG_THRESHOLD = 3` 时合成（`:57`、`:523`），而不是原生 click——调试时不能直接看 DevTools 的事件监听器列表来推断插件行为。
+**代价**：`Escape` 在手势期间被内核保留（`pipeline.ts:603`），插件不能覆盖；`click` 由管线在位移 ≤ `DEFAULT_DRAG_THRESHOLD = 3` 时合成（`:57`、`:526`），而不是原生 click——调试时不能直接看 DevTools 的事件监听器列表来推断插件行为。
 
 ---
 
@@ -202,8 +202,8 @@
 **证据**：
 
 - `packages/contracts/src/services/registry.ts:10` 的 `Registry<T>` 只被 material / command / setter 复用；contribution 用独立的排序规则（`order ↑ → priority ↓ → 插件名`，`service-loader/src/index.ts:48`）而没有硬套 Registry。
-- 全仓的 class 只集中在内核，共 8 个：`Context`、`ServiceObserver`、`Diagnostics`（`context.ts`）、`PluginRuntime`（`runtime.ts`）、`EventBus`（`events.ts`）、`EffectScope`（`effect.ts`）、`InternalBus`（`internal.ts`）、`Service`（`service.ts`）。其中 `ServiceObserver`/`Diagnostics`/`InternalBus` 存在只是因为要携带私有状态；画布内核 12 个文件全是 `create*` 工厂（见 `packages/canvas/src/index.ts:8-30` 的导出面），服务与插件层零 class。
-- `packages/kernel/src/service.ts:9` 有一个 `abstract class Service`（构造即 `provide`，注释自己限定「只适用于 class 形态的服务」）。**全仓 `extends Service` 出现 0 次**——12 个服务与 15 个画布插件全部走 `definePlugin` + `ctx.effect(() => ctx.provide(...))`；但它仍然挂在 `packages/kernel/src/index.ts:26` 的公开导出面上。
+- class 只集中在两处。内核共 8 个：`Context`、`ServiceObserver`、`Diagnostics`（`context.ts`）、`PluginRuntime`（`runtime.ts`）、`EventBus`（`events.ts`）、`EffectScope`（`effect.ts`）、`InternalBus`（`internal.ts`）、`Service`（`service.ts`）；其中 `ServiceObserver`/`Diagnostics`/`InternalBus` 存在只是因为要携带私有状态。全仓另一个 class 是 `@lc/devtools` 展示层的 `EventLog`（`packages/devtools/src/core/feed.ts:12`，带环形上限的日志缓冲）。画布内核 12 个文件全是 `create*` 工厂（见 `packages/canvas/src/index.ts:8-45` 的导出面），服务与插件层零 class。
+- `packages/kernel/src/service.ts:9` 有一个 `abstract class Service`（构造即 `provide`，注释自己限定「只适用于 class 形态的服务」）。**全仓 `extends Service` 出现 0 次**——12 个服务与 15 个画布插件全部走 `definePlugin` + `ctx.effect(() => ctx.provide(...))`；但它仍然挂在 `packages/kernel/src/index.ts:27` 的公开导出面上。
 
 **为什么保留这份清单**：`service.ts` 是内核里唯一一处「实现了但没人用」的抽象。按 `cloud-gate-store` 规范的「删除该抽象是否让实现明显变差」判据，它应当被移除；本文把它登记在 [10 开发指南的已知边界](./10-development-guide.md#9-已知边界与技术债) 而不是继续默许。
 
@@ -217,8 +217,9 @@
 
 - `service-loader/src/index.ts:206-215` 注释：「失败不向上抛……一个坏插件不应中断其余插件的激活流程」；实际行为是 `diagnostics.report` + `emit('plugin:failed')`（`:238-240`）。
 - `preset-canvas/src/index.ts:33-48`：单个画布能力缺失或加载失败 → 记诊断 → `continue`。
-- `packages/kernel/src/events.ts:73-83`：`emit` 对每个监听器单独 `reportError`，一个监听器抛错不影响其余。
-- `context.ts:125-145` `Diagnostics`：记录上限 200 条，注释明确「不参与生命周期决策，因此插件即使伪造内容也无法影响插件状态」。
+- `packages/kernel/src/events.ts:132-147`：`emit` 对每个监听器单独 `reportError`，一个监听器抛错不影响其余。
+- `context.ts:146-182` `Diagnostics`：记录上限 200 条，注释明确「不参与生命周期决策，因此插件即使伪造内容也无法影响插件状态」。
+- 观测层自己也被隔离：诊断订阅者抛错只记日志（`context.ts:173-181`），事件监视器抛错同样不影响正在分发的监听器（`events.ts:249-255`）——展示层坏掉不能反过来拖垮上报方与分发方。
 - UI 侧 `PluginBoundary` 只降级单个面板（`Slot.vue:120-121`）。
 
 **代价**：错误容易变静默。`ensureActivated(event)` 未匹配到插件时静默返回，注释自己承认「事件名拼错不会有反馈」（`service-loader/src/index.ts:329`）。因此排查习惯是先看 `window.__lc.context.diagnostics.list()`，而不是等异常抛出。

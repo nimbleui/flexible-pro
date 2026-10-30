@@ -1,6 +1,6 @@
 # 07 服务层 `packages/services/*`
 
-12 个包，每个导出一个匿名 `definePlugin` / `defineEditorPlugin`。**没有 token、没有命名常量**：服务身份就是 `ctx.provide(name, impl, { apiVersion: '1.0' })` 里的那个字符串，全部集中在 `RESERVED_SERVICES`（`packages/kernel/src/context.ts:62-87`）与 `SERVICE_NAMES`（`packages/contracts/src/contexts.ts:99-115`）两处名单里。
+12 个包，每个导出一个匿名 `definePlugin` / `defineEditorPlugin`。**没有 token、没有命名常量**：服务身份就是 `ctx.provide(name, impl, { apiVersion: '1.0' })` 里的那个字符串，全部集中在 `RESERVED_SERVICES`（`packages/kernel/src/context.ts:67-92`）与 `SERVICE_NAMES`（`packages/contracts/src/contexts.ts:99-115`）两处名单里。
 
 ## 总览
 
@@ -12,16 +12,16 @@
 | `command`                 | service-command     | 应用            | —                                        | `:91`                                    |
 | `expression`              | service-expression  | 应用            | —（`provides: ['expression']`）          | `:78`                                    |
 | `setter`                  | service-setter      | 应用            | —                                        | `:84`                                    |
-| `keybinding`              | service-keybinding  | 应用            | —（`provides: ['keybinding']`）          | `:74`                                    |
-| `document`                | service-document    | **EditorRealm** | —（`defineEditorPlugin`）                | `:146`                                   |
+| `keybinding`              | service-keybinding  | 应用            | —（`provides: ['keybinding']`）          | `:76`                                    |
+| `document`                | service-document    | **EditorRealm** | —（`defineEditorPlugin`）                | `:147`                                   |
 | `history`                 | service-history     | EditorRealm     | `document`                               | `:94`                                    |
 | `selection`               | service-selection   | EditorRealm     | —                                        | `:76`                                    |
-| `canvas`                  | service-canvas-core | **CanvasRealm** | `document`、`selection`（`ctx.require`） | `:221`                                   |
+| `canvas`                  | service-canvas-core | **CanvasRealm** | `document`、`selection`（`ctx.require`） | `:233`                                   |
 | `workspace`               | service-workspace   | 应用            | —（内部装配上面四个 Realm 服务）         | `:176`                                   |
 
 Realm 级服务在 `Context` 类型上是**可选属性**（`contexts.ts:48-57`），因为 AppContext 没有它们；Realm 内通过 `EditorContext` / `CanvasContext` 收窄为必选。
 
-`expression` 与 `keybinding` **不在 `RESERVED_SERVICES` 名单里**（`context.ts:62-87` 未列），因此提供它们不需要 `ServiceGrant`；其余 11 个内置服务都需要宿主在 `apps/designer/src/bootstrap.ts:41-54` 预置授权。
+`expression` 与 `keybinding` **不在 `RESERVED_SERVICES` 名单里**（`context.ts:67-92` 未列），因此提供它们不需要 `ServiceGrant`；其余 11 个内置服务都需要宿主在 `apps/designer/src/bootstrap.ts:41-54` 预置授权。
 
 ---
 
@@ -163,17 +163,17 @@ isExpression // :75     直接复用 schema 的类型守卫
 - `resolve(propType)`（`:75-79`）：按类型过滤后 `sort((a,b) => (b.priority ?? 0) - (a.priority ?? 0))[0]`，即同类型优先级最高者胜出。
 - 扩展路径写在 `:25` 的注释：「内置映射覆盖全部 PropType；插件可注册更高 `priority` 的同类型设置器覆盖」。
 - **没有 `setters` 贡献点**：注册只能通过 `ctx.setter.register(...)` 命令式调用，因此第三方包无法在 manifest 里声明设置器。
-- 类型未命中时由**调用方**兜底成文本控件（`packages/plugins/plugin-panel-properties/src/PropertiesPanel.vue:107`：`setter?.resolve(propType)?.kind ?? 'text'`），服务本身不返回兜底值。
+- 类型未命中时由**调用方**兜底成文本控件（`packages/plugins/plugin-panel-properties/src/PropertiesPanel.vue:108`：`setter?.resolve(propType)?.kind ?? 'text'`），服务本身不返回兜底值。
 
 ## `keybinding` — 全局快捷键
 
 `packages/services/service-keybinding/src/index.ts` + `src/keys.ts`
 
-- `bindings: Keybinding[]`（`:31`），**id 重复抛错**（`:36`）；`list()` 返回浅拷贝（`:48`）。
-- 监听注册有环境守卫：`typeof window !== 'undefined'` 才挂 `keydown`（`:69-72`），并把解绑挂到插件 effect 上。
+- `bindings: Keybinding[]`（`:33`），**id 重复抛错**（`:37-39`）；`list()` 返回浅拷贝（`:49-51`）。
+- 监听注册有环境守卫：`typeof window !== 'undefined'` 才挂 `keydown`（`:71-74`），并把解绑挂到插件 effect 上。
 - 可编辑目标判定 `isEditableTarget`（`:8-18`）：`INPUT` / `TEXTAREA` / `SELECT`，以及 `isContentEditable` 或 `closest('[contenteditable="true"]')`——**命中即整个快捷键通道让位给输入**。
-- 匹配循环（`:56-66`）：按注册顺序遍历，`binding.when()` 为假跳过（`:60`，**既不触发也不阻止默认行为**，契约 `packages/contracts/src/services/keybinding.ts:19-20`），`matchesKeybinding` 命中则 `preventDefault()` + `ctx.command.execute(...)` 后 **`return`**——**首个匹配即独占，一条按键最多触发一个命令**（`:59-66`）。
-- `keyFor(command)`（`:51-53`）：`bindings.find(item => item.command === command)?.key`，返回**注册序里的第一条**绑定，供命令面板显示。
+- 匹配循环（`:61-68`）：按注册顺序遍历，`binding.when()` 为假跳过（`:62`，**既不触发也不阻止默认行为**，契约 `packages/contracts/src/services/keybinding.ts:19-20`），`matchesKeybinding` 命中则 `preventDefault()` + `ctx.command.execute(...)` 后 **`return`**——**首个匹配即独占，一条按键最多触发一个命令**（`:65-67`）。
+- `keyFor(command)`（`:53-55`）：`bindings.find(item => item.command === command)?.key`，返回**注册序里的第一条**绑定，供命令面板显示。
 - 匹配逻辑抽成纯函数便于测试：`matchesKeybinding`（`keys.ts:26`）、`normalizeEventKey`（`:55`）、`detectPlatform`（`:14`）；`index.ts:5-6` 再导出。规范见契约注释（`contracts/src/services/keybinding.ts:5-9`）：`Mod` 在 macOS 是 ⌘，其余平台是 Ctrl；**修饰键必须精确一致**，避免 `ArrowUp` 与 `Shift+ArrowUp` 相互误触发。
 - 与画布键盘事件是两条路：舞台 `keydown` 由交互管线分发给画布处理器（`packages/canvas/src/interaction/pipeline.ts:601-607`），窗口 `keydown` 由本服务处理。`canvas-zoom` 同时用了两者（键盘 STEP 缩放走画布 handler，命令走 command + keybinding）。
 
@@ -197,10 +197,10 @@ commitSchema(next, dirty, versioned)                          // :70-85
 
 `commitSchema` 的注释是理解预览行为的关键（`:70-76`）：**`version` 每次提交都自增，包括 `record: false` 的手势预览**——靠 version 做缓存失效的消费者因此每帧都会重来一次，这是预览期间保持画面跟手的必要代价；**`dirty` 只在正式提交时置 `true`**，预览不会把文档标记成未保存。
 
-### `apply(patches, options)`（`:87-120`）
+### `apply(patches, options)`（`:102-121`）
 
 ```text
-mode === 'preview' → 抛「只读文档不允许写入」（:102-104）
+mode === 'preview' → 抛「只读文档不允许写入」（:103-105）
 record = options.record ?? true        // 默认写历史
 before = model.schema                  // 拷贝式 patch ⇒ 旧引用可安全作为历史快照
 after  = applySchemaPatches(before, patches)
@@ -208,13 +208,13 @@ commitSchema(after, record ? true : model.dirty, true)
 if (record) ctx.get<HistoryService>('history')?.record({ label: options.label ?? '编辑文档', before, after })
 ```
 
-最后一行的**懒取**是刻意的（`:113` 注释）：「历史服务在 Realm 中晚于文档装载，这里按需解析避免循环依赖」。因此 `history` 缺席时文档仍能写，只是不留痕。
+最后一行的**懒取**是刻意的（`:114` 注释）：「历史服务在 Realm 中晚于文档装载，这里按需解析避免循环依赖」。因此 `history` 缺席时文档仍能写，只是不留痕。
 
 ### `restore` / `validate` / `onDidChange`
 
-- `restore(next)`（`:122-131`）：递增 version、**不写历史、不动 dirty**。注释明确「撤销一次编辑后文档仍是已修改状态，是否符合预期由调用方判断，服务不做猜测」。这也是事务 `commit` 的实现基础。
-- `validate()`（`:133-136`）：只返回 `validateDocument(schema)` 的结果，**不拦截任何已发生的写入**。
-- `onDidChange`（`:138-143`）：`listeners` 是 Set，同一函数重复注册只保留一份，任一 Disposable 释放即全部失效。
+- `restore(next)`（`:123-132`）：递增 version、**不写历史、不动 dirty**。注释明确「撤销一次编辑后文档仍是已修改状态，是否符合预期由调用方判断，服务不做猜测」。这也是事务 `commit` 的实现基础。
+- `validate()`（`:134-137`）：只返回 `validateDocument(schema)` 的结果，**不拦截任何已发生的写入**。
+- `onDidChange`（`:139-144`）：`listeners` 是 Set，同一函数重复注册只保留一份，任一 Disposable 释放即全部失效。
 
 ## `history` — 全量快照栈
 
@@ -258,11 +258,11 @@ API 语义（`:47-68`）：`set` 覆盖；**`add` 会把新 id 移到集合末�
 | 无 `layout` 的兜底尺寸 `100×40`     | `:27-36`   | `nodeRect` 拷贝一份矩形给场景，避免调用方后续改动写回 schema                                                                                                                                                                                                                         |
 | 根矩形取 `schema.nodeId` 指向的节点 | `:68-75`   | 根不存在时回落兜底尺寸；注释判定这是「文档损坏下的可观察降级而不是抛错」                                                                                                                                                                                                             |
 | 容器判定：先孩子后物料              | `:77-92`   | `locked` 直接 false（锁定容器不接收拖入，命中测试会继续向下寻找未锁定的容器）；`children` 非空即为容器（省一次物料表查询）；空容器取决于 `material.get(componentName).container`；**物料服务是可选的**，未安装时只有带子节点的节点算容器                                             |
-| `isSelectable`                      | `:94-100`  | 只查上一次文档同步算出的 `nodeFlags.locked`，处理器在指针事件里同步调用                                                                                                                                                                                                              |
-| `syncScene` 增量策略                | `:119-160` | 只在**绘制顺序变化**时整表撤下重登记；顺序没变时逐节点覆盖矩形（场景按 nodeId 复用首次登记的位置），因此拖拽期间每帧重同步不会打乱层级；节点被删或转隐藏后必须显式注销，否则矩形会一直留在场景里参与命中；末尾只标一次视口脏                                                         |
-| 调度器所有权                        | `:169-170` | 「残留的 rAF 与兜底定时器会跨文档泄漏」，所以 `scheduler.dispose()` 挂在本插件 effect 上                                                                                                                                                                                             |
-| `attach` 顺序                       | `:190-218` | 先绑监听再同步量一次尺寸（`clientWidth/clientHeight`，舞台 `overflow:hidden` 所以内容尺寸=可视尺寸），保证第一次 pointerdown 时 `viewport.size` 已可用；Node 环境无 `ResizeObserver` 时只有首次测量；销毁顺序：停观察 → 解绑交互 → 尺寸归零（卸载后残留尺寸会让 `fit` 算出错误缩放） |
-| `nodeFlags` 用 getter               | `:185-188` | `syncScene` 整体替换对象，读取方每次拿到的都是最新集合                                                                                                                                                                                                                               |
+| `isSelectable`                      | `:110-111` | 只查上一次文档同步算出的 `nodeFlags.locked`，处理器在指针事件里同步调用                                                                                                                                                                                                              |
+| `syncScene` 增量策略                | `:131-172` | 只在**绘制顺序变化**时整表撤下重登记；顺序没变时逐节点覆盖矩形（场景按 nodeId 复用首次登记的位置），因此拖拽期间每帧重同步不会打乱层级；节点被删或转隐藏后必须显式注销，否则矩形会一直留在场景里参与命中；末尾只标一次视口脏                                                         |
+| 调度器所有权                        | `:181-182` | 「残留的 rAF 与兜底定时器会跨文档泄漏」，所以 `scheduler.dispose()` 挂在本插件 effect 上                                                                                                                                                                                             |
+| `attach` 顺序                       | `:202-230` | 先绑监听再同步量一次尺寸（`clientWidth/clientHeight`，舞台 `overflow:hidden` 所以内容尺寸=可视尺寸），保证第一次 pointerdown 时 `viewport.size` 已可用；Node 环境无 `ResizeObserver` 时只有首次测量；销毁顺序：停观察 → 解绑交互 → 尺寸归零（卸载后残留尺寸会让 `fit` 算出错误缩放） |
+| `nodeFlags` 用 getter               | `:197-200` | `syncScene` 整体替换对象，读取方每次拿到的都是最新集合                                                                                                                                                                                                                               |
 
 ## `workspace` — Realm 工厂
 
