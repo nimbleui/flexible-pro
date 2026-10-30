@@ -557,6 +557,30 @@ export function createInteractionPipeline(
         )
       }
 
+      /**
+       * 指针离开舞台。
+       *
+       * 手势期间指针常常滑出舞台（指针捕获仍在送 move），离开不能打断手势，
+       * 因此只在不处于手势时转发，供悬停高亮之类的状态做清理。
+       */
+      const onPointerLeave = (native: PointerEvent): void => {
+        if (gesture) return
+        updateStageRect()
+        const screen = toScreen(native)
+        lastScreen = null
+        dispatch(
+          createPointerEvent({
+            type: 'pointerleave',
+            screen,
+            world: options.viewport.screenToWorld(screen),
+            delta: { x: 0, y: 0 },
+            buttons: 0,
+            pointerId: native.pointerId,
+            originalEvent: native,
+          }),
+        )
+      }
+
       const onWheel = (native: WheelEvent): void => {
         // 滚轮期间画面缩放会改变舞台尺寸，每次重新测量 rect；
         // 滚动增量不映射到 delta（恒为 0），缩放插件自行读 originalEvent.deltaY
@@ -629,6 +653,7 @@ export function createInteractionPipeline(
       element.addEventListener('pointermove', onPointerMove)
       element.addEventListener('pointerup', onPointerUp)
       element.addEventListener('pointercancel', onPointerCancel)
+      element.addEventListener('pointerleave', onPointerLeave)
       element.addEventListener('wheel', onWheel, { passive: false })
       element.addEventListener('keydown', onKeyDown)
       element.addEventListener('keyup', onKeyUp)
@@ -643,6 +668,7 @@ export function createInteractionPipeline(
           element.removeEventListener('pointermove', onPointerMove)
           element.removeEventListener('pointerup', onPointerUp)
           element.removeEventListener('pointercancel', onPointerCancel)
+          element.removeEventListener('pointerleave', onPointerLeave)
           element.removeEventListener('wheel', onWheel)
           element.removeEventListener('keydown', onKeyDown)
           element.removeEventListener('keyup', onKeyUp)

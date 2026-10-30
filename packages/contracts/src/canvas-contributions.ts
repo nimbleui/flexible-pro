@@ -42,6 +42,7 @@ export interface CanvasPointerEvent extends CanvasEventBase {
     | 'pointermove'
     | 'pointerup'
     | 'pointercancel'
+    | 'pointerleave'
     | 'wheel'
     | 'click'
     | 'dblclick'
