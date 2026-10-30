@@ -13,6 +13,7 @@ new-cordis/
 │  ├─ shared/                  @lc/shared              2 个通用工具（createId、clamp）
 │  ├─ canvas/                  @lc/canvas              画布微内核（纯算法，不画 DOM）
 │  ├─ vue/                      @lc/vue                 Vue 适配层 + 舞台/图层/插槽宿主组件
+│  ├─ devtools/                 @lc/devtools            宿主级开发者工具：七个自省面板
 │  ├─ services/                 12 个 service-*          核心服务能力，每个 = 一个插件
 │  ├─ plugins/                  4 个 plugin-*            业务插件：物料 + 3 个面板
 │  ├─ canvas-plugins/           15 个 canvas-plugin-*    画布能力插件
@@ -26,7 +27,7 @@ new-cordis/
 
 ## 2. 包清单与依赖边
 
-按层级排列。「运行时依赖」为 `package.json > dependencies` 实测结果（39 个包 + 1 个应用 = 40）。
+按层级排列。「运行时依赖」为 `package.json > dependencies` 实测结果（40 个包 + 1 个应用 = 41）。
 
 ### L0 基础层（不依赖任何平台包）
 
@@ -46,12 +47,15 @@ new-cordis/
 
 ### L2 引擎层
 
-| 包           | 运行时依赖                                                |
-| ------------ | --------------------------------------------------------- |
-| `@lc/canvas` | `@lc/contracts`、`@lc/kernel`、`@lc/schema`、`@lc/shared` |
-| `@lc/vue`    | `@lc/contracts`、`@lc/kernel`、`@lc/schema`               |
+| 包             | 运行时依赖                                                |
+| -------------- | --------------------------------------------------------- |
+| `@lc/canvas`   | `@lc/contracts`、`@lc/kernel`、`@lc/schema`、`@lc/shared` |
+| `@lc/vue`      | `@lc/contracts`、`@lc/kernel`、`@lc/schema`               |
+| `@lc/devtools` | `@lc/contracts`、`@lc/kernel`（`vue` 为 peer）            |
 
 `@lc/canvas` 依赖 contracts 只为拿接口类型与 `ViewportState` 等数据结构；它自己不做任何框架绑定，DOM 挂载点由宿主传入（`interaction.attach(element)`，`packages/canvas/src/interaction/pipeline.ts:428`）。
+
+`@lc/devtools` 挂在引擎层是因为它和 `@lc/vue` 同一性质：只消费内核与契约的公共面，不参与装配。区别是它不提供任何能力，只读——由应用直接渲染，不注册为插件、不占 `SLOT`（详见 [11](./11-devtools.md)）。
 
 ### L3 服务层
 
@@ -85,11 +89,11 @@ new-cordis/
 
 ### L5 预设与应用
 
-| 包                    | 运行时依赖                                                                   |
-| --------------------- | ---------------------------------------------------------------------------- |
-| `@lc/preset-designer` | kernel、8 个 service-*、vue                                                  |
-| `@lc/preset-canvas`   | contracts、kernel（**不依赖任何画布插件**）                                  |
-| `@lc/designer`        | kernel、contracts、schema、vue、2 presets、4 plugins、15 canvas-plugins、vue |
+| 包                    | 运行时依赖                                                                        |
+| --------------------- | --------------------------------------------------------------------------------- |
+| `@lc/preset-designer` | kernel、8 个 service-*、vue                                                       |
+| `@lc/preset-canvas`   | contracts、kernel（**不依赖任何画布插件**）                                       |
+| `@lc/designer`        | kernel、contracts、schema、vue、devtools、2 presets、4 plugins、15 canvas-plugins |
 
 `preset-canvas` 没有画布插件依赖是结构上的关键约束：它只读 `contribution.list('canvasFeatures')` 并 `modules.load()`（`presets/preset-canvas/src/index.ts:22-31`），新增画布能力不需要改预设、不需要改宿主。
 
