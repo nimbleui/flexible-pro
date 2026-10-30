@@ -25,6 +25,8 @@ function isEditableTarget(target: EventTarget | null): boolean {
  */
 export default definePlugin({
   name: 'service-keybinding',
+  // 命中键位后唯一的执行目标是命令服务，没有它这个服务只是空转
+  inject: ['command'],
   provides: ['keybinding'],
 
   apply(ctx) {

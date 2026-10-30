@@ -42,7 +42,7 @@ export { manifest } from './manifest'
  */
 export default defineCanvasPlugin<SnapPluginConfig>({
   name: 'canvas-snap',
-  inject: ['canvas'],
+  inject: ['canvas', 'document'],
   provides: ['snap'],
   schema,
 

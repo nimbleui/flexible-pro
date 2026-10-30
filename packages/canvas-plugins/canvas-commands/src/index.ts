@@ -33,7 +33,11 @@ const ORDER_LABELS: Record<OrderMode, string> = {
  */
 export default defineCanvasPlugin({
   name: 'canvas-commands',
-  inject: ['canvas'],
+  // keybinding 只负责「键位 → 命令」的附加层，没装它命令仍然可以从菜单/工具栏执行
+  inject: {
+    required: ['canvas', 'command', 'document', 'history'],
+    optional: ['keybinding'],
+  },
 
   apply(ctx) {
     const canvas = ctx.canvas

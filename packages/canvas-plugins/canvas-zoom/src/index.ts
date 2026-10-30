@@ -27,7 +27,8 @@ const WHEEL_SENSITIVITY = 0.0015
  */
 export default defineCanvasPlugin({
   name: 'canvas-zoom',
-  inject: ['canvas'],
+  // 缩放命令是核心入口，键位只是可选加速方式
+  inject: { required: ['canvas', 'command'], optional: ['keybinding'] },
 
   apply(ctx) {
     const canvas = ctx.canvas
