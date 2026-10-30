@@ -239,6 +239,13 @@ export interface SnapContext {
   readonly thresholdWorld: number
   /** 正在移动的节点 id；元素提供者用它排除自身 */
   readonly movingIds?: readonly string[]
+  /**
+   * 各轴参与吸附的边；缺省 both。
+   *
+   * 从被拖框自身推导候选的提供者（网格）要读它：缩放只拖一条边时，固定锚点上
+   * 的候选只会与移动边争位。
+   */
+  readonly edges?: { x?: SnapEdgeMode; y?: SnapEdgeMode }
 }
 
 /** 吸附提供者；每个插件可注册多个来源（网格、节点、参考线） */
@@ -250,6 +257,15 @@ export interface SnapProvider {
 }
 
 /** 吸附输入 */
+/**
+ * 单轴参与吸附的边。
+ *
+ * `start` = 左/上边，`end` = 右/下边，`both` = 起、中、止三条边都参与（缺省）。
+ * 缩放类手势只拖动一条边，必须只让那条边吸附，否则「拖右边却按左边对齐」会让
+ * 尺寸跳到一个用户没预期的值。
+ */
+export type SnapEdgeMode = 'start' | 'end' | 'both'
+
 export interface SnapInput {
   /** 正在移动的矩形（世界坐标） */
   rects: readonly Rect[]
@@ -259,6 +275,8 @@ export interface SnapInput {
   viewportRect: Rect
   /** 正在移动的节点 id；元素提供者排除自身用 */
   movingIds?: readonly string[]
+  /** 各轴参与吸附的边；缺省两轴都是 both */
+  edges?: { x?: SnapEdgeMode; y?: SnapEdgeMode }
 }
 
 /** 吸附辅助线 */

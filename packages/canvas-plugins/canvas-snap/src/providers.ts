@@ -33,11 +33,20 @@ export function gridCandidates(context: SnapContext, step: number): SnapCandidat
   }
 
   for (const rect of context.moving) {
+    // 缩放只拖动一条边时不要为固定锚点生成候选：锚点本来就不动，候选只会
+    // 在窄节点上与移动边争位
+    const xMode = context.edges?.x ?? 'both'
+    const yMode = context.edges?.y ?? 'both'
+
     for (const edge of [rect.x, rect.x + rect.width]) {
+      if (edge === rect.x && xMode === 'end') continue
+      if (edge !== rect.x && xMode === 'start') continue
       pushNearEdge('x', gridBelow(edge, step), edge)
       pushNearEdge('x', gridAbove(edge, step), edge)
     }
     for (const edge of [rect.y, rect.y + rect.height]) {
+      if (edge === rect.y && yMode === 'end') continue
+      if (edge !== rect.y && yMode === 'start') continue
       pushNearEdge('y', gridBelow(edge, step), edge)
       pushNearEdge('y', gridAbove(edge, step), edge)
     }

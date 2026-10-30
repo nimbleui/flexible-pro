@@ -92,6 +92,7 @@ export function createSnapService(options: CreateSnapServiceOptions = {}): SnapS
       moving: input.rects,
       thresholdWorld: threshold,
       movingIds: input.movingIds,
+      edges: input.edges,
     }
 
     const candidates: SnapCandidate[] = []
@@ -253,14 +254,7 @@ function pickAxis(
   axis: 'x' | 'y',
   threshold: number,
 ): AxisHit | null {
-  const edges: number[] = []
-  for (const rect of input.rects) {
-    if (axis === 'x') {
-      edges.push(rect.x, rect.x + rect.width / 2, rect.x + rect.width)
-    } else {
-      edges.push(rect.y, rect.y + rect.height / 2, rect.y + rect.height)
-    }
-  }
+  const edges = edgesOf(input, axis)
 
   let best: AxisHit | null = null
   for (const candidate of candidates) {
@@ -284,6 +278,25 @@ function pickAxis(
     }
   }
   return best
+}
+
+/**
+ * 取某轴上参与吸附的边的坐标。
+ *
+ * 缩放只拖动一条边时（edges.x/y = start|end），另一条边是固定锚点，拿它去比较
+ * 会把尺寸修到用户没拖的方向上，所以这里按模式只收一条边。
+ */
+function edgesOf(input: SnapInput, axis: 'x' | 'y'): number[] {
+  const mode = axis === 'x' ? (input.edges?.x ?? 'both') : (input.edges?.y ?? 'both')
+  const edges: number[] = []
+  for (const rect of input.rects) {
+    const start = axis === 'x' ? rect.x : rect.y
+    const size = axis === 'x' ? rect.width : rect.height
+    if (mode !== 'end') edges.push(start)
+    if (mode !== 'start') edges.push(start + size)
+    if (mode === 'both') edges.push(start + size / 2)
+  }
+  return edges
 }
 
 /**

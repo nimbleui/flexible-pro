@@ -130,4 +130,29 @@ describe('吸附引擎', () => {
     expect(result.matched).toBe(false)
     expect(snap.lastResult).toBeNull()
   })
+
+  it('edges 只让指定的边参与吸附', () => {
+    const snap = createSnapService({ thresholdScreenPx: 10 })
+    snap.registerProvider({
+      id: 'edges',
+      getCandidates: () => [
+        { axis: 'x', value: 100, source: 'left-line' },
+        { axis: 'x', value: 140, source: 'right-line' },
+      ],
+    })
+
+    // 框 x=102..142：左边差 2、右边差 2，默认两边都可吸，取距离更近者
+    const base = { rects: [{ x: 102, y: 0, width: 40, height: 40 }], zoom: 1, viewportRect }
+    expect(snap.resolve(base).delta.x).toBeCloseTo(-2)
+
+    // 只拖右边：左边是固定锚点，必须忽略左边那条候选
+    const endOnly = snap.resolve({ ...base, edges: { x: 'end' } })
+    expect(endOnly.delta.x).toBeCloseTo(-2)
+    expect(endOnly.guides[0]?.value).toBe(140)
+
+    // 右边离得远、左边离得近时，只拖右边就什么都不吸
+    const leftNear = { rects: [{ x: 98, y: 0, width: 30, height: 40 }], zoom: 1, viewportRect }
+    expect(snap.resolve({ ...leftNear, edges: { x: 'end' } }).matched).toBe(false)
+    expect(snap.resolve(leftNear).matched).toBe(true)
+  })
 })
