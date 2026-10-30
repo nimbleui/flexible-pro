@@ -392,6 +392,12 @@ importers:
         specifier: ^3.5.0
         version: 3.5.44(typescript@5.9.3)
 
+  packages/expression:
+    dependencies:
+      '@lc/schema':
+        specifier: workspace:*
+        version: link:../schema
+
   packages/kernel: {}
 
   packages/plugins/plugin-materials-basic:
