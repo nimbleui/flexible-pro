@@ -10,6 +10,7 @@ import {
   parseGuideHandleId,
   removeGuide,
   rulerStep,
+  rulerTicks,
 } from '../src/guides'
 import type { UserGuides } from '../src/guides'
 
@@ -110,5 +111,33 @@ describe('标尺刻度步进', () => {
 
   it('异常缩放退回 1，不产生 NaN 步进', () => {
     expect(rulerStep(0)).toBe(1)
+  })
+})
+
+describe('标尺刻度位置', () => {
+  it('刻度按标尺条局部坐标给出，与拐角让掉的厚度对齐', () => {
+    const ticks = rulerTicks({ originWorld: 100, zoom: 2, inset: 20, stageLength: 400 })
+
+    // 世界 150 在 zoom=2 下位于舞台 x=100，条内要再减掉 20 的拐角厚度；
+    // 按舞台坐标直接落位会整体偏出 20px，刻度与内容对不上
+    expect(ticks.find((tick) => tick.label === '150')?.at).toBe(80)
+    // 条内 0 处对应世界 110（原点 100 + 20/2），它是次刻度所以没有文字
+    expect(ticks[0]).toEqual({ at: 0, major: false, label: undefined })
+  })
+
+  it('刻度覆盖到条的末端，不超出可用长度', () => {
+    const ticks = rulerTicks({ originWorld: 100, zoom: 2, inset: 20, stageLength: 400 })
+
+    // 可用长度 380，末端世界 300 正好贴边；再往外的刻度已经被拐角让掉，不该生成
+    expect(ticks.at(-1)).toEqual({ at: 380, major: true, label: '300' })
+    expect(ticks.every((tick) => tick.at >= -1 && tick.at <= 381)).toBe(true)
+  })
+
+  it('拐角吃满整条或缩放坏掉时不生成刻度', () => {
+    expect(rulerTicks({ originWorld: 0, zoom: 1, inset: 20, stageLength: 20 })).toEqual([])
+    expect(
+      rulerTicks({ originWorld: 0, zoom: Number.NaN, inset: 20, stageLength: 400 }),
+    ).toEqual([])
+    expect(rulerTicks({ originWorld: 0, zoom: 0, inset: 20, stageLength: 400 })).toEqual([])
   })
 })

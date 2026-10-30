@@ -7,23 +7,14 @@ import {
   GUIDE_DRAFT_SETTING,
   USER_GUIDES_SETTING,
   guideHandleId,
-  rulerStep,
+  rulerTicks,
 } from './guides'
-import type { GuideDraft, UserGuides } from './guides'
+import type { GuideDraft, RulerTick, UserGuides } from './guides'
 
 /** 标尺厚度（屏幕像素），左上角留同样大小的空白方块 */
 const RULER = 20
-/** 主刻度之间的细分格数 */
-const MINOR = 5
 /** 参考线手柄的命中厚度（屏幕像素），线本身只有 1px 抓不住 */
 const GUIDE_HIT = 7
-
-/** 一条刻度：屏幕位置 + 是否主刻度 */
-interface Tick {
-  at: number
-  major: boolean
-  label?: string
-}
 
 /**
  * 标尺与参考线覆盖层。
@@ -59,32 +50,6 @@ export const RulersOverlay = defineComponent({
       disposables.length = 0
     })
 
-    /**
-     * 世界坐标序列 → 屏幕刻度序列。
-     *
-     * `limit` 是该标尺条的屏幕长度，越界的刻度直接丢掉：SVG 里留几千个不可见的
-     * line 会让每次平移都重画一遍。
-     */
-    function ticksOf(
-      startWorld: number,
-      endWorld: number,
-      toScreen: (value: number) => number,
-      limit: number,
-    ): Tick[] {
-      const step = rulerStep(props.frame.viewport.zoom)
-      const minor = step / MINOR
-      const ticks: Tick[] = []
-
-      const first = Math.floor(startWorld / minor) * minor
-      for (let value = first; value <= endWorld; value += minor) {
-        const at = toScreen(value)
-        if (at < -1 || at > limit + 1) continue
-        const isMajor = Math.abs(value / step - Math.round(value / step)) < 1e-6
-        ticks.push({ at, major: isMajor, label: isMajor ? formatTick(value) : undefined })
-      }
-      return ticks
-    }
-
     return () => {
       version.value
 
@@ -95,11 +60,20 @@ export const RulersOverlay = defineComponent({
 
       const toScreenX = (world: number): number => (world - viewport.x) * zoom
       const toScreenY = (world: number): number => (world - viewport.y) * zoom
-      const worldRight = viewport.x + size.width / zoom
-      const worldBottom = viewport.y + size.height / zoom
 
-      const xTicks = ticksOf(viewport.x, worldRight, toScreenX, size.width)
-      const yTicks = ticksOf(viewport.y, worldBottom, toScreenY, size.height)
+      // 参考线画在整块舞台上，刻度画在被拐角让掉的标尺条里，两者的坐标原点不同
+      const xTicks = rulerTicks({
+        originWorld: viewport.x,
+        zoom,
+        inset: RULER,
+        stageLength: size.width,
+      })
+      const yTicks = rulerTicks({
+        originWorld: viewport.y,
+        zoom,
+        inset: RULER,
+        stageLength: size.height,
+      })
 
       return h(
         'div',
@@ -111,8 +85,8 @@ export const RulersOverlay = defineComponent({
           ...guides.horizontal.map((value, index) => guideLine('h', toScreenY(value), index)),
           ...guides.vertical.map((value, index) => guideLine('v', toScreenX(value), index)),
           draft ? draftLine(draft, toScreenX, toScreenY, size) : null,
-          rulerStrip('horizontal', size.width, xTicks),
-          rulerStrip('vertical', size.height, yTicks),
+          rulerStrip('horizontal', size.width - RULER, xTicks),
+          rulerStrip('vertical', size.height - RULER, yTicks),
           h('div', {
             key: 'corner',
             style: {
@@ -133,18 +107,17 @@ export const RulersOverlay = defineComponent({
   },
 })
 
-/** 刻度文字：1e-6 容差去掉浮点尾巴，大数不带小数 */
-function formatTick(value: number): string {
-  const rounded = Math.round(value * 1e6) / 1e6
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2)
-}
-
+/**
+ * 一条标尺：`length` 是刻度可用长度（舞台长度减去拐角），刻度位置已是条内局部坐标。
+ */
 function rulerStrip(
   axis: 'horizontal' | 'vertical',
   length: number,
-  ticks: Tick[],
+  ticks: RulerTick[],
 ): ReturnType<typeof h> {
   const isRow = axis === 'horizontal'
+  // 舞台还没测出尺寸时 length 会是负的（0 减掉拐角厚度），SVG 不接受负宽高
+  const span = Math.max(0, length)
   const style: Record<string, string> = isRow
     ? {
         position: 'absolute',
@@ -181,8 +154,8 @@ function rulerStrip(
     h(
       'svg',
       {
-        width: isRow ? length : RULER,
-        height: isRow ? RULER : length,
+        width: isRow ? span : RULER,
+        height: isRow ? RULER : span,
         style: { display: 'block', pointerEvents: 'none' },
       },
       ticks.flatMap((tick, index) => {

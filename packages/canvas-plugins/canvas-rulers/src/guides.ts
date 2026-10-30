@@ -142,3 +142,62 @@ export function rulerStep(zoom: number, minGapPx = 64): number {
   if (normalized <= 5) return 5 * base
   return 10 * base
 }
+
+/** 主刻度之间的细分格数 */
+const MINOR_DIVISIONS = 5
+
+/** 一条刻度 */
+export interface RulerTick {
+  /** 相对标尺条起点的屏幕像素位置；原点已经让给了左上角的空白方块 */
+  at: number
+  /** 主刻度带文字与长刻线 */
+  major: boolean
+  /** 主刻度的数值文本；次刻度为 undefined */
+  label?: string
+}
+
+/** 刻度生成输入 */
+export interface RulerTickInput {
+  /** 舞台起点对应的世界坐标，即视口左上角的世界值 */
+  originWorld: number
+  /** 视口缩放 */
+  zoom: number
+  /** 标尺条起点相对舞台起点的偏移，即空白方块的厚度（屏幕像素） */
+  inset: number
+  /** 舞台在主轴上的长度（屏幕像素） */
+  stageLength: number
+}
+
+/**
+ * 生成标尺刻度，返回位置位于**标尺条自身的坐标空间**。
+ *
+ * 刻度条被 `inset` 让给了左上角空白方块，所以不能直接把舞台屏幕坐标写进去：
+ * 那样整条刻度会相对内容偏出一个 inset，末端一圈刻度还会被 overflow 裁掉。
+ * 这里统一减掉 inset，并按标尺条可用长度过滤，渲染层原样落位即可。
+ * 落在条外的刻度直接丢弃：SVG 里留几千个不可见的 line 会让每次平移都重画一遍。
+ */
+export function rulerTicks(input: RulerTickInput): RulerTick[] {
+  const { originWorld, zoom, inset, stageLength } = input
+  const length = stageLength - inset
+  if (!(length > 0) || !Number.isFinite(zoom) || !(zoom > 0)) return []
+
+  const step = rulerStep(zoom)
+  const minor = step / MINOR_DIVISIONS
+  const endWorld = originWorld + stageLength / zoom
+  const ticks: RulerTick[] = []
+
+  for (let value = Math.floor(originWorld / minor) * minor; value <= endWorld; value += minor) {
+    const at = (value - originWorld) * zoom - inset
+    if (at < -1 || at > length + 1) continue
+    const isMajor = Math.abs(value / step - Math.round(value / step)) < 1e-6
+    ticks.push({ at, major: isMajor, label: isMajor ? formatTickLabel(value) : undefined })
+  }
+
+  return ticks
+}
+
+/** 刻度文字：1e-6 容差去掉浮点尾巴，整数不带小数 */
+function formatTickLabel(value: number): string {
+  const rounded = Math.round(value * 1e6) / 1e6
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2)
+}
