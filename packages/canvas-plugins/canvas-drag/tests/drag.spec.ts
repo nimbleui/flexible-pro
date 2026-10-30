@@ -82,6 +82,16 @@ function createContext(
   }
 
   const canvas = {
+    // 插件在 apply 里注册位置标注的设置与覆盖层，测试只关心手势，因此给空实现
+    settings: {
+      register: () => ({ dispose() {} }),
+      get: () => null,
+      set: () => undefined,
+      onDidChange: () => ({ dispose() {} }),
+    },
+    layers: {
+      register: () => ({ dispose() {} }),
+    },
     interaction: {
       register(next: InteractionHandler) {
         handler = next

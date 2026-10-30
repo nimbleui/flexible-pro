@@ -2,6 +2,7 @@ import type { CanvasTransaction, SchemaPatch, SnapService } from '@lc/contracts'
 import { defineCanvasPlugin, transformableIds } from '@lc/contracts'
 import { normalizeRect } from '@lc/canvas'
 import type { Rect } from '@lc/schema'
+import { DRAG_BADGE_LABEL, DRAG_BADGE_SETTING } from './constants'
 import { collectSubtree } from '@lc/schema'
 
 export { manifest } from './manifest'
@@ -28,6 +29,26 @@ export default defineCanvasPlugin({
     const canvas = ctx.canvas
     const document = ctx.document
     const snap = ctx.snap
+
+    ctx.effect(() =>
+      canvas.settings.register<Rect | null>({
+        id: DRAG_BADGE_SETTING,
+        title: DRAG_BADGE_LABEL,
+        scope: 'document',
+        schema: {},
+        default: null,
+      }),
+    )
+
+    ctx.effect(() =>
+      canvas.layers.register({
+        id: 'canvas-drag.badge',
+        band: 'preview',
+        pointerEvents: 'none',
+        // 懒加载：覆盖层依赖 Vue，静态引入会让 Node 侧的插件单测解析不了 .vue
+        load: () => import('./overlay'),
+      }),
+    )
 
     /**
      * 取视口对应的世界矩形，作为吸附候选的裁剪范围。
@@ -92,6 +113,9 @@ export default defineCanvasPlugin({
             if (rect) starts.set(id, rect)
           }
           if (starts.size === 0) return 'pass'
+
+          // 标注只跟主节点：多选时整组位置与组框左上角重合，显示单个更贴近手感
+          const primary = [...starts.entries()][0]
 
           // 吸附只以被直接拖动的节点为基准：整棵子树刚性平移，用后代边参与候选
           // 只会引入无关的吸附点
@@ -158,11 +182,19 @@ export default defineCanvasPlugin({
                   value: { ...rect, x: rect.x + dx, y: rect.y + dy },
                 }))
                 transaction.preview(patches)
+
+                const [, primaryRect] = primary
+                canvas.settings.set<Rect | null>(DRAG_BADGE_SETTING, {
+                  ...primaryRect,
+                  x: primaryRect.x + dx,
+                  y: primaryRect.y + dy,
+                })
               },
 
               // commit=false 来自 Esc 或 pointercancel：撤销预览并清掉辅助线
               onFinish: (commit) => {
                 if (snap) clearSnap(snap, ids)
+                canvas.settings.set<Rect | null>(DRAG_BADGE_SETTING, null)
                 if (commit) transaction.commit()
                 else transaction.cancel()
               },
