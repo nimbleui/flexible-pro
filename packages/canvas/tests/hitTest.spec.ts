@@ -3,7 +3,7 @@ import { createHitTest } from '../src/hitTest'
 import { createScene } from '../src/scene'
 import { createViewport } from '../src/viewport'
 
-function setup(): {
+function setup(rotations: Record<string, number> = {}): {
   scene: ReturnType<typeof createScene>
   viewport: ReturnType<typeof createViewport>
   hitTest: ReturnType<typeof createHitTest>
@@ -16,9 +16,13 @@ function setup(): {
     scene,
     viewport,
     isContainer: (nodeId) => nodeId === 'a',
+    getRotation: (nodeId) => rotations[nodeId] ?? 0,
   })
   return { scene, viewport, hitTest }
 }
+
+/** 45° 弧度值：命中与框选都用它，避免测试里混用度数 */
+const DIAGONAL = Math.PI / 4
 
 describe('命中测试', () => {
   it('命中最后登记（最上层）的节点', () => {
@@ -69,6 +73,7 @@ describe('命中测试', () => {
       scene,
       viewport,
       isContainer: (nodeId) => nodeId === 'a' || nodeId === 'lockedBox',
+      getRotation: () => 0,
       isSelectable: (nodeId) => nodeId !== 'lockedBox',
     })
     scene.register('a', { x: 0, y: 0, width: 500, height: 500 })
@@ -80,5 +85,43 @@ describe('命中测试', () => {
     expect(hitTest.inRect({ x: 0, y: 0, width: 300, height: 300 })).toEqual(['a'])
     // containerAt 不受可选性影响，否则锁定容器会变成投递黑洞
     expect(hitTest.containerAt({ x: 150, y: 150 })).toBe('lockedBox')
+  })
+})
+
+/** 细长横条：旋转 45° 后外包络与真实形状差异最大，用它验证命中不再按 AABB */
+const BAR = { x: 0, y: 0, width: 200, height: 20 }
+
+describe('旋转节点命中', () => {
+  it('外包络里的空白不再命中，转出 AABB 的本体仍然命中', () => {
+    const { scene, hitTest } = setup({ a: DIAGONAL })
+    scene.register('a', BAR)
+
+    // 未旋转时 (10,5) 落在条带里；旋转 45° 后它只在外包络内、不在条带上
+    expect(hitTest.at({ x: 10, y: 5 })).toBeUndefined()
+
+    // 沿条带长轴离开中心 60 世界像素，正是 DOM 里能看到的部分
+    const along = 60 * Math.SQRT1_2
+    expect(hitTest.at({ x: 100 + along, y: 10 + along })).toBe('a')
+  })
+
+  it('框选收进旋转后越出 AABB 的节点', () => {
+    const marquee = { x: 120, y: 60, width: 60, height: 60 }
+
+    const rotated = setup({ a: DIAGONAL })
+    rotated.scene.register('a', BAR)
+
+    const upright = setup()
+    upright.scene.register('a', BAR)
+
+    expect(rotated.hitTest.inRect(marquee)).toEqual(['a'])
+    // 不旋转时条带只在 y 0~20，框在 y 60~120，确实选不中
+    expect(upright.hitTest.inRect(marquee)).toEqual([])
+  })
+
+  it('角度不是有限数时退化为未旋转命中，而不是让节点彻底点不中', () => {
+    const { scene, hitTest } = setup({ a: Number.NaN })
+    scene.register('a', BAR)
+
+    expect(hitTest.at({ x: 10, y: 5 })).toBe('a')
   })
 })

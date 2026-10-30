@@ -66,8 +66,8 @@ export function invertMatrix(matrix: Matrix2D): Matrix2D {
 /**
  * 矩形是否包含世界坐标点（含边界）。
  *
- * 只按 x/y/width/height 判定，不感知节点 rotation，旋转节点得到的是 AABB 粗命中；
- * 宽高为 0 时矩形退化为线或点，边界包含规则仍然成立。
+ * 只按 x/y/width/height 判定，不感知节点 rotation；旋转节点请用
+ * `rotatedRectContainsPoint`。宽高为 0 时矩形退化为线或点，边界包含规则仍然成立。
  */
 export function rectContainsPoint(rect: Rect, point: Point): boolean {
   return (
@@ -86,6 +86,98 @@ export function rectIntersects(a: Rect, b: Rect): boolean {
     a.y <= b.y + b.height &&
     a.y + a.height >= b.y
   )
+}
+
+/**
+ * 把「绕自身中心旋转」的矩形展开成世界坐标四角。
+ *
+ * 入参 rect 是未旋转的世界矩形，与 CSS `rotate()` 语义一致：先按 rect 定位、
+ * 再绕矩形中心旋转，所以宽高不变而外包络变。返回顺序只作顶点集合使用。
+ */
+export function rotatedRectCorners(rect: Rect, radians: number): Point[] {
+  const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+  const cos = Math.cos(radians)
+  const sin = Math.sin(radians)
+  const half = { x: rect.width / 2, y: rect.height / 2 }
+  const corners: Point[] = []
+
+  for (const signX of [-1, 1]) {
+    for (const signY of [-1, 1]) {
+      const dx = signX * half.x
+      const dy = signY * half.y
+      corners.push({ x: center.x + dx * cos - dy * sin, y: center.y + dx * sin + dy * cos })
+    }
+  }
+
+  return corners
+}
+
+/**
+ * 旋转矩形是否包含世界坐标点（含边界）。
+ *
+ * 判定把点反向旋转回矩形的局部轴再做 AABB 比较，比拿外包络判定更准：旋转 45°
+ * 的窄条外包络明显变大，按外包络会点中它旁边的空白。
+ *
+ * `radians` 为 0 走 AABB 快路径，省掉指针高频路径上的三角函数；为非有限值时同样
+ * 退化成 AABB，坏角度应让节点按未旋转命中，而不是彻底点不中。
+ */
+export function rotatedRectContainsPoint(rect: Rect, radians: number, point: Point): boolean {
+  if (!Number.isFinite(radians) || radians === 0) return rectContainsPoint(rect, point)
+
+  const cos = Math.cos(radians)
+  const sin = Math.sin(radians)
+  const dx = point.x - (rect.x + rect.width / 2)
+  const dy = point.y - (rect.y + rect.height / 2)
+  // 逆旋转是正旋转的转置：[[cos, sin], [-sin, cos]]
+  const localX = cos * dx + sin * dy
+  const localY = -sin * dx + cos * dy
+
+  return Math.abs(localX) <= rect.width / 2 && Math.abs(localY) <= rect.height / 2
+}
+
+/**
+ * 旋转矩形与轴对齐矩形是否相交（含边界接触），框选用它。
+ *
+ * 被框到的旋转节点必须真的与框有公共部分：只比未旋转的 AABB 会漏选转出框外的
+ * 节点，改用外包络又会多选到框内的空白。分离轴取轴对齐矩形的 x/y 轴加旋转矩形
+ * 的两条局部轴，四条轴上任意一条投影不重叠即判定为不相交。
+ */
+export function rotatedRectIntersectsRect(rect: Rect, radians: number, other: Rect): boolean {
+  if (!Number.isFinite(radians) || radians === 0) return rectIntersects(rect, other)
+
+  const rotated = rotatedRectCorners(rect, radians)
+  const axisAligned = [
+    { x: other.x, y: other.y },
+    { x: other.x + other.width, y: other.y },
+    { x: other.x + other.width, y: other.y + other.height },
+    { x: other.x, y: other.y + other.height },
+  ]
+  const axes: Point[] = [
+    { x: 1, y: 0 },
+    { x: 0, y: 1 },
+    { x: Math.cos(radians), y: Math.sin(radians) },
+    { x: -Math.sin(radians), y: Math.cos(radians) },
+  ]
+
+  return axes.every((axis) => {
+    const a = projectExtent(rotated, axis)
+    const b = projectExtent(axisAligned, axis)
+    return a.min <= b.max && b.min <= a.max
+  })
+}
+
+/** 点集在轴上的投影区间；轴不必单位化，区间比较只看相对次序。 */
+function projectExtent(points: readonly Point[], axis: Point): { min: number; max: number } {
+  let min = Number.POSITIVE_INFINITY
+  let max = Number.NEGATIVE_INFINITY
+
+  for (const point of points) {
+    const value = point.x * axis.x + point.y * axis.y
+    if (value < min) min = value
+    if (value > max) max = value
+  }
+
+  return { min, max }
 }
 
 /**

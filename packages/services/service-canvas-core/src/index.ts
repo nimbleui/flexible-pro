@@ -91,10 +91,22 @@ export default definePlugin({
       return ctx.get<MaterialService>('material')?.get(node.componentName)?.container === true
     }
 
+    /**
+     * 节点自转角，弧度。
+     *
+     * schema 按 CSS 语义存度数，画布几何统一用弧度，换算只在这里发生一次。
+     * 命中测试逐节点调用，因此只读上一次同步后的文档对象，不查物料表、不测 DOM。
+     */
+    const nodeRotation = (nodeId: string): number => {
+      const degrees = document.model.schema.nodes[nodeId]?.layout?.rotate ?? 0
+      return (degrees * Math.PI) / 180
+    }
+
     const hitTest = createHitTest({
       scene,
       viewport,
       isContainer,
+      getRotation: nodeRotation,
       // 处理器在指针事件里同步调用，这里只查上一次文档同步算出的集合
       isSelectable: (nodeId) => !nodeFlags.locked.has(nodeId),
     })

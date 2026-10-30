@@ -37,6 +37,9 @@ export {
   normalizeRect,
   rectContainsPoint,
   rectIntersects,
+  rotatedRectContainsPoint,
+  rotatedRectCorners,
+  rotatedRectIntersectsRect,
   rotatePoint,
   unionRects,
 } from './geometry'

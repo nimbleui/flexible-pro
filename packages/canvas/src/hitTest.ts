@@ -5,7 +5,7 @@ import type {
   ViewportService,
 } from '@lc/contracts'
 import type { Rect } from '@lc/schema'
-import { rectContainsPoint, rectIntersects } from './geometry'
+import { rotatedRectContainsPoint, rotatedRectIntersectsRect } from './geometry'
 
 /** 命中测试创建选项 */
 export interface CreateHitTestOptions {
@@ -24,6 +24,15 @@ export interface CreateHitTestOptions {
   isContainer: (nodeId: string) => boolean
 
   /**
+   * 取节点自转角（弧度）
+   *
+   * 命中判定据此将指针换算回节点的局部轴，未旋转的节点返回 0 即可。
+   * 只表示节点自身的旋转：渲染层对嵌套子树做的是坐标补偿，祖先旋转对子节点的
+   * 影响目前既不在此合成、也不在渲染层合成。必须是同步廉价函数。
+   */
+  getRotation: (nodeId: string) => number
+
+  /**
    * 判断节点是否可被选中（点选与框选）
    *
    * 缺省视为全部可选。锁定节点返回 false 后，指针会穿过它命中下方节点、框选也不再
@@ -40,11 +49,11 @@ function alwaysSelectable(): boolean {
 /**
  * 创建命中测试服务。
  *
- * 节点 AABB 来自场景（layout.rect），不做旋转精确命中；
- * 旋转节点的最终局部命中留给后续版本，当前返回其 AABB 粗命中。
+ * 几何取自场景登记的 `layout.rect`（未旋转世界矩形）并按 `getRotation` 补上节点
+ * 自转，因此点选与框选的判定结果和渲染层的 CSS rotate 一致；不读取 DOM。
  */
 export function createHitTest(options: CreateHitTestOptions): HitTestService {
-  const { scene, viewport } = options
+  const { scene, viewport, getRotation } = options
   const isSelectable = options.isSelectable ?? alwaysSelectable
 
   /**
@@ -59,7 +68,7 @@ export function createHitTest(options: CreateHitTestOptions): HitTestService {
       const nodeId = ids[index] as string
       if (filter && !filter(nodeId)) continue
       const rect = scene.getBounds(nodeId)
-      if (rect && rectContainsPoint(rect, world)) return nodeId
+      if (rect && rotatedRectContainsPoint(rect, getRotation(nodeId), world)) return nodeId
     }
     return undefined
   }
@@ -103,7 +112,7 @@ export function createHitTest(options: CreateHitTestOptions): HitTestService {
       return scene.list().filter((nodeId) => {
         if (!isSelectable(nodeId)) return false
         const rect = scene.getBounds(nodeId)
-        return rect ? rectIntersects(rect, bounds) : false
+        return rect ? rotatedRectIntersectsRect(rect, getRotation(nodeId), bounds) : false
       })
     },
 
