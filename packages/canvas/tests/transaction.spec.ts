@@ -20,11 +20,15 @@ function createSchema(): PageSchema {
   }
 }
 
-function createFakeDocument(): DocumentService & { history: string[] } {
+function createFakeDocument(): DocumentService & {
+  history: string[]
+  records: Array<{ label: string; before: PageSchema; after: PageSchema }>
+} {
   let schema = createSchema()
   let dirty = false
   const listeners = new Set<(model: DocumentService['model']) => void>()
   const history: string[] = []
+  const records: Array<{ label: string; before: PageSchema; after: PageSchema }> = []
 
   const notify = (): void => {
     const model = { id: 'doc', title: 'doc', schema, version: 1, dirty }
@@ -33,6 +37,7 @@ function createFakeDocument(): DocumentService & { history: string[] } {
 
   return {
     history,
+    records,
 
     get model() {
       return { id: 'doc', title: 'doc', schema, version: 1, dirty }
@@ -40,10 +45,13 @@ function createFakeDocument(): DocumentService & { history: string[] } {
 
     apply(patches: readonly SchemaPatch[], options = {}) {
       const record = options.record ?? true
-      schema = applySchemaPatches(schema, patches)
+      const current = schema
+      schema = applySchemaPatches(current, patches)
       if (record) {
+        const label = options.label ?? ''
         dirty = true
-        history.push(options.label ?? '')
+        history.push(label)
+        records.push({ label, before: options.before ?? current, after: schema })
       }
       notify()
     },
@@ -68,6 +76,10 @@ function moveX(value: number): SchemaPatch {
   return { op: 'replace', path: '/nodes/root/layout/rect/x', value }
 }
 
+function setWidth(value: number): SchemaPatch {
+  return { op: 'replace', path: '/nodes/root/layout/rect/width', value }
+}
+
 describe('画布事务', () => {
   it('预览不产生历史，取消后恢复原状', () => {
     const document = createFakeDocument()
@@ -87,7 +99,7 @@ describe('画布事务', () => {
     expect(tx.closed).toBe(true)
   })
 
-  it('提交后只产生一条历史，并在恢复基线上重放最终 patch', () => {
+  it('提交后只产生一条历史，并把最终 patch 落在当前文档上', () => {
     const document = createFakeDocument()
     const transaction = createTransactionService({ document })
 
@@ -101,6 +113,46 @@ describe('画布事务', () => {
     expect(document.history).toEqual(['移动节点'])
     expect(document.model.dirty).toBe(true)
     expect(tx.closed).toBe(true)
+  })
+
+  it('提交保留手势期间别处的写入，历史的 before 仍是手势前的快照', () => {
+    const document = createFakeDocument()
+    const service = createTransactionService({ document })
+    const tx = service.begin({ label: '移动节点', owner: 'canvas-drag' })
+
+    tx.preview([moveX(60)])
+    // 属性面板在手势期间改了同一节点的宽度：先 restore(base) 会把它一起抹掉
+    document.apply([setWidth(220)], { record: false })
+    tx.commit()
+
+    expect(document.model.schema.nodes.root?.layout?.rect).toMatchObject({ x: 60, width: 220 })
+    expect(document.records[0]?.before.nodes.root?.layout?.rect?.x).toBe(0)
+    expect(document.records[0]?.after.nodes.root?.layout?.rect?.x).toBe(60)
+  })
+
+  it('同一路径上手势的最后一次预览胜出', () => {
+    const document = createFakeDocument()
+    const service = createTransactionService({ document })
+    const tx = service.begin({ label: '移动节点', owner: 'canvas-drag' })
+
+    tx.preview([moveX(60)])
+    document.apply([moveX(99)], { record: false })
+    tx.preview([moveX(70)])
+    tx.commit()
+
+    expect(document.model.schema.nodes.root?.layout?.rect?.x).toBe(70)
+  })
+
+  it('没有预览写入时提交只回退，不产生历史', () => {
+    const document = createFakeDocument()
+    const service = createTransactionService({ document })
+    const tx = service.begin({ label: '移动节点', owner: 'canvas-drag' })
+
+    document.apply([moveX(88)], { record: false })
+    tx.commit()
+
+    expect(document.model.schema.nodes.root?.layout?.rect?.x).toBe(0)
+    expect(document.history).toEqual([])
   })
 
   it('同一时刻只允许一个活动事务', () => {

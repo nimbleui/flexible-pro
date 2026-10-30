@@ -29,7 +29,7 @@ interface ActiveTransaction {
   /** 展示用的事务名；同时作为写入历史记录的 label */
   label: string
 
-  /** begin 时刻的 schema 快照，commit / cancel 都以它为回退基准 */
+  /** begin 时刻的 schema 快照：cancel 的回退基准，也是 commit 写入历史的 before */
   base: PageSchema
 
   /** path → 最后一次预览 patch；同一 path 多次预览只保留最新值 */
@@ -42,9 +42,9 @@ interface ActiveTransaction {
 /**
  * 创建手势事务服务。
  *
- * 预览直接写文档但不产生历史；提交时先恢复到手势前快照，再一次性
- * 写入最终 patch，保证「一次拖拽 = 一条历史」。同一时刻只允许一个事务，
- * 抢不到 `begin` 的插件应放弃本次手势。
+ * 预览直接写文档但不产生历史；提交时把最终 patch 落在当前文档上，并以手势前的
+ * 快照作为历史的 before，保证「一次拖拽 = 一条历史」且不吞掉并发改动。
+ * 同一时刻只允许一个事务，抢不到 `begin` 的插件应放弃本次手势。
  */
 export function createTransactionService(
   options: CreateTransactionOptions,
@@ -103,19 +103,25 @@ export function createTransactionService(
         /**
          * 提交为一条历史记录。
          *
-         * 先 restore 到 base 再一次性 apply 去重后的 patch：预览期间逐帧写入的
-         * 中间态不进历史，撤销一次即可回到手势开始前。pending 为空时只回退、
-         * 不写历史，等于把预览完全撤销。
+         * 把去重后的最终 patch 直接落在当前文档上，并用 `before: base` 记录手势前的
+         * 状态：预览期间逐帧写入的中间态不进历史，撤销一次即回到手势开始前。
+         * 不能先 `restore(base)` 再重放——那会把手势期间别处的写入（属性面板改了同一
+         * 节点的其它字段、拖入的新节点）整体抹掉，而且不产生任何错误。
+         * 代价是与本事务同路径的并发写入由本事务的最后一次预览覆盖，即手势独占它
+         * 改过的路径；撤销则回到 base，这条限制同样成立。
+         *
+         * pending 为空时只回退、不写历史，等于把预览完全撤销。
          */
         commit() {
           if (state.closed) return
-          // 先回到手势前快照，确保历史记录的 before 是稳定状态
-          options.document.restore(state.base)
           if (state.pending.size > 0) {
             options.document.apply([...state.pending.values()], {
               record: true,
               label: state.label,
+              before: state.base,
             })
+          } else {
+            options.document.restore(state.base)
           }
           close(state, true)
         },

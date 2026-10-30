@@ -92,7 +92,8 @@ export default defineEditorPlugin<DocumentPluginConfig>({
       /**
        * 以 patch 更新文档。
        *
-       * before 取的是当前 schema 引用：patch 应用是拷贝式的，旧对象不会被改动，
+       * before 取的是当前 schema 引用，除非调用方显式传入更早的快照（手势事务用它
+       * 记录「手势开始前」的状态）：patch 应用是拷贝式的，旧对象不会被改动，
        * 因此可以直接交给历史记录而不必深拷贝。
        * 只读模式下任何写入都抛错，包括 record=false 的预览。
        *
@@ -104,8 +105,8 @@ export default defineEditorPlugin<DocumentPluginConfig>({
         }
 
         const record = options.record ?? true
-        const before = model.schema
-        const after = applySchemaPatches(before, patches)
+        const current = model.schema
+        const after = applySchemaPatches(current, patches)
 
         commitSchema(after, record ? true : model.dirty, true)
 
@@ -113,7 +114,7 @@ export default defineEditorPlugin<DocumentPluginConfig>({
           // 历史服务在 Realm 中晚于文档装载，这里按需解析避免循环依赖
           ctx.get<HistoryService>('history')?.record({
             label: options.label ?? '编辑文档',
-            before,
+            before: options.before ?? current,
             after,
           })
         }

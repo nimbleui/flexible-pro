@@ -13,6 +13,14 @@ export interface DocumentApplyOptions {
   record?: boolean
   /** 历史记录名称，如「移动节点」；仅 record=true 时生效 */
   label?: string
+
+  /**
+   * 历史记录的 before 快照；缺省用当前 schema。
+   *
+   * 手势事务需要把「手势开始前」的 schema 记成 before，同时把最终 patch 落在
+   * 当前文档上（当前文档可能已含别处的并发写入）。不传时行为不变。
+   */
+  before?: PageSchema
 }
 
 /**
