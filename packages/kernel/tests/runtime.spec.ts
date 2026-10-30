@@ -146,6 +146,82 @@ describe('PluginRuntime 生命周期', () => {
   })
 })
 
+describe('装配耗时', () => {
+  it('成功装配写入 activatedAt 与 applyMs，供 devtools 展示启动耗时', async () => {
+    const app = createApp()
+    const before = Date.now()
+
+    const record = app.plugin(
+      definePlugin({
+        name: 'timed',
+        async apply() {
+          await Promise.resolve()
+        },
+      }),
+    )
+
+    await app.runtime.whenIdle()
+
+    expect(record.activatedAt).toBeGreaterThanOrEqual(before)
+    expect(record.applyMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('apply 抛错同样留下耗时，devtools 能区分秒失败与卡住', async () => {
+    const app = createApp()
+
+    const record = app.plugin(
+      definePlugin({
+        name: 'slow-failure',
+        async apply() {
+          await Promise.resolve()
+          throw new Error('boom')
+        },
+      }),
+    )
+
+    await app.runtime.whenIdle()
+    await app.runtime.whenIdle()
+
+    expect(record.state).toBe('failed')
+    expect(record.applyMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('配置阶段失败发生在装配之前，不写耗时', async () => {
+    const app = createApp()
+
+    const record = app.plugin(
+      definePlugin({
+        name: 'bad-config',
+        schema: {
+          parse() {
+            throw new Error('bad config')
+          },
+        },
+        apply() {},
+      }),
+    )
+
+    await app.runtime.whenIdle()
+
+    expect(record.state).toBe('failed')
+    expect(record.activatedAt).toBeUndefined()
+    expect(record.applyMs).toBeUndefined()
+  })
+
+  it('依赖缺失停在 pending 时不产生耗时', async () => {
+    const app = createApp()
+
+    const record = app.plugin(
+      definePlugin({ name: 'waiting', inject: ['missing'], apply() {} }),
+    )
+
+    await app.runtime.whenIdle()
+
+    expect(record.state).toBe('pending')
+    expect(record.activatedAt).toBeUndefined()
+  })
+})
+
 describe('作用域与隔离', () => {
   it('fork 提供同名服务时遮蔽父级', () => {
     const app = createApp()
@@ -221,5 +297,62 @@ describe('作用域与隔离', () => {
     // 晚绑定回收走 services 观察 + 微任务，需要额外让出一轮事件循环
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(unbind).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('retry 重试停住的实例', () => {
+  it('failed 实例重试成功后回到 active，并清掉旧错误', async () => {
+    const app = createApp()
+    let shouldFail = true
+
+    const record = app.plugin(
+      definePlugin({
+        name: 'flaky',
+        apply() {
+          if (shouldFail) throw new Error('boom')
+        },
+      }),
+    )
+
+    await app.runtime.whenIdle()
+    expect(record.state).toBe('failed')
+
+    shouldFail = false
+    expect(app.runtime.retry(record.id)).toBe(true)
+    await app.runtime.whenIdle()
+
+    expect(record.state).toBe('active')
+    expect(record.error).toBeUndefined()
+    expect(record.attempts).toBe(2)
+  })
+
+  it('依赖未补齐时重试仍停在 pending', async () => {
+    const app = createApp()
+
+    const record = app.plugin(
+      definePlugin({ name: 'still-waiting', inject: ['later'], apply() {} }),
+    )
+    await app.runtime.whenIdle()
+
+    expect(app.runtime.retry(record.id)).toBe(true)
+    await app.runtime.whenIdle()
+    expect(record.state).toBe('pending')
+
+    app.plugin(providerPlugin('later', { ok: true }))
+    await app.runtime.whenIdle()
+    expect(record.state).toBe('active')
+  })
+
+  it('active 与已卸载实例不接受重试', async () => {
+    const app = createApp()
+
+    const active = app.plugin(definePlugin({ name: 'healthy', apply() {} }))
+    await app.runtime.whenIdle()
+
+    expect(app.runtime.retry(active.id)).toBe(false)
+    expect(active.state).toBe('active')
+
+    app.runtime.unload(active.id)
+    expect(app.runtime.retry(active.id)).toBe(false)
   })
 })

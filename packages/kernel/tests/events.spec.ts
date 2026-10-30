@@ -1,5 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { EventDispatchRecord, PluginRecord } from '../src'
 import { EventBus } from '../src/events'
+
+function createRecord(id: string): PluginRecord {
+  return {
+    id,
+    name: id.split('#')[0] ?? id,
+    state: 'active',
+    rawConfig: undefined,
+    context: null,
+    parent: null,
+    inject: { required: [], optional: [] },
+    provides: [],
+    attempts: 1,
+  }
+}
 
 describe('EventBus', () => {
   it('emit 隔离监听器错误', () => {
@@ -58,5 +73,88 @@ describe('EventBus', () => {
     bus.emit('tick', 2)
 
     expect(listener).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('事件监视器', () => {
+  it('每个监听器产生一条记录，并带上归属插件与本次监听器数量', () => {
+    const bus = new EventBus()
+    const records: EventDispatchRecord[] = []
+    bus.monitor((record) => records.push(record))
+
+    bus.add('tick', () => {}, {}, createRecord('a#1'))
+    bus.add('tick', () => {})
+    bus.emit('tick', 1)
+
+    expect(records).toHaveLength(2)
+    expect(records[0]).toMatchObject({ name: 'tick', mode: 'emit', pluginId: 'a#1', listenerCount: 2 })
+    expect(records[1]?.pluginId).toBeUndefined()
+    expect(records[1]?.duration).toBeGreaterThanOrEqual(0)
+  })
+
+  it('抛错的监听器记录 error，其余监听器照常执行', () => {
+    const bus = new EventBus()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const records: EventDispatchRecord[] = []
+    const later = vi.fn()
+    bus.monitor((record) => records.push(record))
+
+    bus.add('tick', () => {
+      throw new Error('boom')
+    })
+    bus.add('tick', later)
+    bus.emit('tick')
+
+    expect(later).toHaveBeenCalledTimes(1)
+    expect(records[0]?.error).toBeInstanceOf(Error)
+    expect(records[1]?.error).toBeUndefined()
+    consoleError.mockRestore()
+  })
+
+  it('waterfall 上报抛错后继续向外抛', async () => {
+    const bus = new EventBus()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const records: EventDispatchRecord[] = []
+    bus.monitor((record) => records.push(record))
+
+    bus.add('pipeline', () => {
+      throw new Error('broken')
+    })
+
+    await expect(bus.waterfall('pipeline', 1)).rejects.toThrow('broken')
+    expect(records[0]).toMatchObject({ mode: 'waterfall' })
+    expect(records[0]?.error).toBeInstanceOf(Error)
+    consoleError.mockRestore()
+  })
+
+  it('监视器自身抛错不影响分发，注销后停止记录', () => {
+    const bus = new EventBus()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const received: number[] = []
+    const handle = bus.monitor(() => {
+      throw new Error('monitor down')
+    })
+
+    bus.add('tick', (value) => received.push(value))
+    bus.emit('tick', 1)
+    handle.dispose()
+    bus.emit('tick', 2)
+
+    expect(received).toEqual([1, 2])
+    expect(consoleError).toHaveBeenCalledWith('[lc] 事件监视器执行失败', expect.any(Error))
+    consoleError.mockRestore()
+  })
+
+  it('parallel 与 serial 记录各自的 mode', async () => {
+    const bus = new EventBus()
+    const modes: string[] = []
+    bus.monitor((record) => modes.push(record.mode))
+
+    bus.add('tick', async () => {})
+    await bus.parallel('tick')
+    await bus.serial('tick')
+    await bus.bail('tick')
+
+    expect(modes).toEqual(['parallel', 'serial', 'bail'])
   })
 })

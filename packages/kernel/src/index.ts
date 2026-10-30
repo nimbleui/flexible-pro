@@ -23,6 +23,7 @@ export type {
 } from './context'
 export { EffectScope } from './effect'
 export { EventBus } from './events'
+export type { DispatchMode, EventDispatchRecord, EventMonitor } from './events'
 export { Service } from './service'
 export { PluginRuntime } from './runtime'
 export { definePlugin, normalizeInject } from './types'

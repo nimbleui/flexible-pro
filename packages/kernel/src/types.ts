@@ -94,6 +94,14 @@ export interface PluginRecord<S = unknown> {
   error?: unknown
   /** 启动尝试次数，用于诊断与退避 */
   attempts: number
+  /**
+   * 本次装配进入 `applying` 的时间戳（毫秒）；从未开始过装配时不存在。
+   *
+   * 停用时不清零：devtools 需要看到「上一次尝试」的耗时，而不是空白。
+   */
+  activatedAt?: number
+  /** `apply` 的耗时（毫秒），成功与失败都记录；装配中尚未写入 */
+  applyMs?: number
 }
 
 /** 加载插件时的选项。 */
