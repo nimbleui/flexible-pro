@@ -374,6 +374,21 @@ importers:
         specifier: workspace:*
         version: link:../schema
 
+  packages/devtools:
+    dependencies:
+      '@lc/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@lc/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@lc/schema':
+        specifier: workspace:*
+        version: link:../schema
+      vue:
+        specifier: ^3.5.0
+        version: 3.5.44(typescript@5.9.3)
+
   packages/kernel: {}
 
   packages/plugins/plugin-materials-basic:
