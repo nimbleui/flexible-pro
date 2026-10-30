@@ -78,3 +78,63 @@ describe('viewport 坐标变换', () => {
     expect(bottomRight.y).toBeLessThanOrEqual(800)
   })
 })
+
+describe('视口数值防护', () => {
+  it('非有限的 zoom 不写入，矩阵保持可用', () => {
+    const viewport = createViewport({ size: { width: 400, height: 300 } })
+
+    viewport.set({ zoom: Number.NaN })
+
+    expect(viewport.state.zoom).toBe(1)
+    expect(viewport.matrix.every(Number.isFinite)).toBe(true)
+  })
+
+  it('NaN 平移量被忽略，世界坐标换算不漂移', () => {
+    const viewport = createViewport({
+      initial: { x: 10, y: 20, zoom: 2 },
+      size: { width: 400, height: 300 },
+    })
+    const before = viewport.screenToWorld({ x: 100, y: 100 })
+
+    viewport.panBy({ x: Number.NaN, y: Number.POSITIVE_INFINITY })
+
+    expect(viewport.screenToWorld({ x: 100, y: 100 })).toEqual(before)
+  })
+
+  it('fit 拒掉非有限的矩形尺寸，缩放保持原样', () => {
+    const viewport = createViewport({ size: { width: 400, height: 300 } })
+    viewport.set({ zoom: 2 })
+
+    viewport.fit({ x: 0, y: 0, width: Number.NaN, height: 100 })
+
+    expect(viewport.state.zoom).toBe(2)
+  })
+
+  it('尺寸坏值分别收敛为当前值与 0', () => {
+    const viewport = createViewport({ size: { width: 400, height: 300 } })
+
+    viewport.setSize({ width: Number.NaN, height: -5 })
+
+    expect(viewport.size).toEqual({ width: 400, height: 0 })
+  })
+
+  it('持久化恢复里的坏字段回落到缺省值', () => {
+    const viewport = createViewport({
+      initial: { x: Number.NaN, y: 5, zoom: Number.NaN, rotation: Number.NaN },
+    })
+
+    expect(viewport.state).toEqual({ x: 0, y: 5, zoom: 1, rotation: 0 })
+  })
+
+  it('被拒绝的坏值不触发多余通知', () => {
+    const viewport = createViewport({ size: { width: 400, height: 300 } })
+    let calls = 0
+    viewport.onDidChange(() => {
+      calls += 1
+    })
+
+    viewport.set({ zoom: Number.NaN })
+
+    expect(calls).toBe(0)
+  })
+})

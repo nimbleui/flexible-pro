@@ -24,7 +24,8 @@ export interface CreateViewportOptions {
   /**
    * 初始状态；缺省 origin(0,0)、zoom 1、rotation 0
    *
-   * 这里传入的 zoom 同样会被夹紧，因此可以安全地用作持久化视口的恢复值。
+   * 这里传入的 zoom 同样会被夹紧，因此可以安全地用作持久化视口的恢复值；
+   * 恢复出来的字段不是有限数时按缺省值处理，而不是让坏数据进入画面。
    * rotation 单位为弧度且不限制取值范围，调用方需要自己保证与覆盖层一致。
    */
   initial?: Partial<ViewportState>
@@ -33,7 +34,7 @@ export interface CreateViewportOptions {
    * 初始可视区尺寸 @default { width: 0, height: 0 }
    *
    * 未测量前尺寸为 0，此时 `fit` 会直接返回而不改变缩放；实际尺寸由
-   * `canvas.attach(element)` 里的 ResizeObserver 写入。
+   * `canvas.attach(element)` 里的 ResizeObserver 写入。负值与非有限值都收敛为 0。
    */
   size?: Size
 }
@@ -41,6 +42,17 @@ export interface CreateViewportOptions {
 /** 未指定 minZoom / maxZoom 时的缩放下限与上限，二者共同界定 zoomAt 的可用区间 */
 const DEFAULT_MIN_ZOOM = 0.1
 const DEFAULT_MAX_ZOOM = 4
+
+/**
+ * 非有限值回退：NaN / Infinity 一律沿用当前值。
+ *
+ * 坏值通常来自上游的一次除零或量到零尺寸容器。`clamp` 会把 NaN 原样透传，
+ * 而 NaN 一旦进入 state，矩阵就变成 `matrix(NaN, …)`，CSS 直接丢弃整条 transform：
+ * 画面整体消失、指针换算全部失真，且不抛任何错误，几乎无法定位。
+ */
+function finiteOr(value: number, current: number): number {
+  return Number.isFinite(value) ? value : current
+}
 
 /**
  * 创建视口服务。
@@ -54,12 +66,15 @@ export function createViewport(options: CreateViewportOptions = {}): ViewportSer
   const maxZoom = options.maxZoom ?? DEFAULT_MAX_ZOOM
 
   let state: ViewportState = {
-    x: options.initial?.x ?? 0,
-    y: options.initial?.y ?? 0,
-    zoom: clamp(options.initial?.zoom ?? 1, minZoom, maxZoom),
-    rotation: options.initial?.rotation ?? 0,
+    x: finiteOr(options.initial?.x ?? 0, 0),
+    y: finiteOr(options.initial?.y ?? 0, 0),
+    zoom: clamp(finiteOr(options.initial?.zoom ?? 1, 1), minZoom, maxZoom),
+    rotation: finiteOr(options.initial?.rotation ?? 0, 0),
   }
-  let size: Size = options.size ?? { width: 0, height: 0 }
+  let size: Size = {
+    width: Math.max(0, finiteOr(options.size?.width ?? 0, 0)),
+    height: Math.max(0, finiteOr(options.size?.height ?? 0, 0)),
+  }
   let matrix: Matrix2D = computeMatrix(state)
   const listeners = new Set<() => void>()
 
@@ -70,19 +85,33 @@ export function createViewport(options: CreateViewportOptions = {}): ViewportSer
    * 矩阵并通知监听；因此传入越界 zoom 不会触发额外一轮覆盖层刷新。
    * 覆盖层与状态栏都依赖这条通知链，任何绕过 commit 的赋值都会让矩阵与
    * state 失同步。
+   *
+   * 坏值按「本次不写」处理而不是抛错：视口是渲染状态，一次 NaN 不该让整条
+   * 指针手势和已正常的画面一起废掉。
    */
   function commit(next: ViewportState, nextSize?: Size): void {
-    const zoom = clamp(next.zoom, minZoom, maxZoom)
+    const zoom = clamp(finiteOr(next.zoom, state.zoom), minZoom, maxZoom)
+    const x = finiteOr(next.x, state.x)
+    const y = finiteOr(next.y, state.y)
+    const rotation = finiteOr(next.rotation, state.rotation)
+    // 尺寸坏值按「未测量」处理成 0，与 ResizeObserver 拿不到盒子时的表达保持一致
+    const resolvedSize = nextSize
+      ? {
+          width: Math.max(0, finiteOr(nextSize.width, size.width)),
+          height: Math.max(0, finiteOr(nextSize.height, size.height)),
+        }
+      : undefined
+
     const changed =
       zoom !== state.zoom ||
-      next.x !== state.x ||
-      next.y !== state.y ||
-      next.rotation !== state.rotation ||
-      (nextSize !== undefined &&
-        (nextSize.width !== size.width || nextSize.height !== size.height))
+      x !== state.x ||
+      y !== state.y ||
+      rotation !== state.rotation ||
+      (resolvedSize !== undefined &&
+        (resolvedSize.width !== size.width || resolvedSize.height !== size.height))
 
-    state = { x: next.x, y: next.y, zoom, rotation: next.rotation }
-    if (nextSize) size = { ...nextSize }
+    state = { x, y, zoom, rotation }
+    if (resolvedSize) size = resolvedSize
     if (!changed) return
 
     matrix = computeMatrix(state)
@@ -189,12 +218,15 @@ export function createViewport(options: CreateViewportOptions = {}): ViewportSer
      * 不保证一定看得见整个 rect。矩形尺寸按未旋转的轴算，视口处于旋转状态时
      * 只保证中心对齐，不保证视觉上完整包含。
      *
-     * 视口尺寸尚未测得（width/height 为 0）时静默返回，此时应先 `setSize`。
+     * 视口尺寸尚未测得（width/height 为 0）时静默返回，此时应先 `setSize`；
+     * 矩形宽高为非有限值时同样静默返回，否则 NaN 会顺着 zoom 落进矩阵。
      *
      * @param rect 需要容纳的世界坐标矩形
      * @param padding 每边留白，单位屏幕像素；未传时按 40 计算
      */
     fit(rect, padding = 40) {
+      // NaN 过不了 `<= 0` 这道判断，却会把 NaN 带进 zoom 与中心点，所以先拒掉
+      if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height)) return
       if (rect.width <= 0 || rect.height <= 0) return
       if (size.width <= 0 || size.height <= 0) return
 
@@ -229,8 +261,8 @@ export function createViewport(options: CreateViewportOptions = {}): ViewportSer
     },
 
     setSize(next) {
-      // 负值夹到 0，与「尚未测量」状态保持同一种表达
-      commit(state, { width: Math.max(0, next.width), height: Math.max(0, next.height) })
+      // 夹紧与非有限值兜底都发生在 commit 里，这里不再重复一套尺寸规则
+      commit(state, next)
     },
 
     onDidChange(listener): Disposable {
