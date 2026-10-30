@@ -23,25 +23,31 @@ export interface EventDispatchRecord {
   name: string
   /** 触发本次执行的分发模式 */
   mode: DispatchMode
-  /** 注册方插件实例 id；由 `Context.on` 注入，内核内部注册没有 */
+  /** 注册方插件实例 id；由 `Context.on` 注入，`listenerCount` 为 0 时不存在 */
   pluginId?: string
   /**
    * 监听器自身耗时（毫秒）。
    *
    * `emit` 不等返回值，因此只含同步部分；其余四种模式等到 Promise 落地。
+   * 无人监听时固定为 0。
    */
   duration: number
   /** 监听器抛错时的原始错误；除 `waterfall` 外其余监听器照常执行 */
   error?: unknown
-  /** 本次分发的监听器总数；配合记录顺序可看出当前是第几个处理者 */
+  /**
+   * 本次分发的监听器总数。
+   *
+   * 0 表示事件发出了但没人处理——这条记录是排查「事件名写错」和
+   * 「插件没挂上监听」的唯一线索，因此无人监听时也要留一条。
+   */
   listenerCount: number
 }
 
 /** 事件分发监视器。 */
 export type EventMonitor = (record: EventDispatchRecord) => void
 
-/** 监视器回调；省略 `error` 表示这次执行没有抛错。 */
-type Tracker = (entry: ListenerEntry, duration: number, error?: unknown) => void
+/** 监视器回调；`entry` 为空表示这次分发没有监听器。 */
+type Tracker = (entry: ListenerEntry | undefined, duration: number, error?: unknown) => void
 
 interface ListenerEntry {
   listener: Listener
@@ -132,6 +138,7 @@ export class EventBus {
   emit(name: string, ...args: unknown[]): void {
     const list = this.snapshot(name)
     const track = this.tracker(name, 'emit', list.length)
+    if (track && list.length === 0) track(undefined, 0)
 
     for (const entry of list) {
       const startedAt = track ? performance.now() : 0
@@ -150,6 +157,7 @@ export class EventBus {
   async parallel(name: string, ...args: unknown[]): Promise<void> {
     const list = this.snapshot(name)
     const track = this.tracker(name, 'parallel', list.length)
+    if (track && list.length === 0) track(undefined, 0)
 
     await Promise.all(
       list.map(async (entry) => {
@@ -170,6 +178,7 @@ export class EventBus {
   async serial(name: string, ...args: unknown[]): Promise<void> {
     const list = this.snapshot(name)
     const track = this.tracker(name, 'serial', list.length)
+    if (track && list.length === 0) track(undefined, 0)
 
     for (const entry of list) {
       const startedAt = track ? performance.now() : 0
@@ -188,6 +197,7 @@ export class EventBus {
   async bail<T>(name: string, ...args: unknown[]): Promise<T | undefined> {
     const list = this.snapshot(name)
     const track = this.tracker(name, 'bail', list.length)
+    if (track && list.length === 0) track(undefined, 0)
 
     for (const entry of list) {
       const startedAt = track ? performance.now() : 0
@@ -213,6 +223,7 @@ export class EventBus {
   async waterfall<T>(name: string, input: T, ...args: unknown[]): Promise<T> {
     const list = this.snapshot(name)
     const track = this.tracker(name, 'waterfall', list.length)
+    if (track && list.length === 0) track(undefined, 0)
 
     let value = input
     for (const entry of list) {
@@ -234,14 +245,18 @@ export class EventBus {
    * 无监视器时返回 undefined，让热路径跳过取时间戳与建记录；分发模式、事件名与
    * 监听器数量在分发开始前就固定，所以只创建一次闭包。
    */
-  private tracker(name: string, mode: DispatchMode, listenerCount: number): Tracker | undefined {
+  private tracker(
+    name: string,
+    mode: DispatchMode,
+    listenerCount: number,
+  ): Tracker | undefined {
     if (this.monitors.size === 0) return undefined
 
     return (entry, duration, error) => {
       const record: EventDispatchRecord = {
         name,
         mode,
-        pluginId: entry.owner?.id,
+        pluginId: entry?.owner?.id,
         duration,
         listenerCount,
       }

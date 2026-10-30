@@ -87,9 +87,26 @@ describe('事件监视器', () => {
     bus.emit('tick', 1)
 
     expect(records).toHaveLength(2)
-    expect(records[0]).toMatchObject({ name: 'tick', mode: 'emit', pluginId: 'a#1', listenerCount: 2 })
+    expect(records[0]).toMatchObject({
+      name: 'tick',
+      mode: 'emit',
+      pluginId: 'a#1',
+      listenerCount: 2,
+    })
     expect(records[1]?.pluginId).toBeUndefined()
     expect(records[1]?.duration).toBeGreaterThanOrEqual(0)
+  })
+
+  it('无人监听的事件也留一条记录，listenerCount 为 0', () => {
+    const bus = new EventBus()
+    const records: EventDispatchRecord[] = []
+    bus.monitor((record) => records.push(record))
+
+    bus.emit('nobody-listens', 1)
+
+    expect(records).toHaveLength(1)
+    expect(records[0]).toMatchObject({ name: 'nobody-listens', mode: 'emit', listenerCount: 0 })
+    expect(records[0]?.pluginId).toBeUndefined()
   })
 
   it('抛错的监听器记录 error，其余监听器照常执行', () => {
