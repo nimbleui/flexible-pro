@@ -16,6 +16,9 @@ import { manifest as canvasRotateManifest } from '@lc/canvas-plugin-rotate/manif
 import { manifest as canvasAlignManifest } from '@lc/canvas-plugin-align/manifest'
 import { manifest as canvasGuidesManifest } from '@lc/canvas-plugin-guides/manifest'
 import { manifest as canvasGridManifest } from '@lc/canvas-plugin-grid/manifest'
+import { manifest as canvasContextMenuManifest } from '@lc/canvas-plugin-context-menu/manifest'
+import { manifest as canvasRulersManifest } from '@lc/canvas-plugin-rulers/manifest'
+import { manifest as canvasMinimapManifest } from '@lc/canvas-plugin-minimap/manifest'
 import { createDemoSchema } from './demo-document'
 import { manifest as canvasCommandsManifest } from '@lc/canvas-plugin-commands/manifest'
 import { manifest as canvasDropManifest } from '@lc/canvas-plugin-drop/manifest'
@@ -68,6 +71,9 @@ const BUILTIN_PACKAGES = [
   { manifest: canvasCommandsManifest, load: () => import('@lc/canvas-plugin-commands') },
   { manifest: canvasGuidesManifest, load: () => import('@lc/canvas-plugin-guides') },
   { manifest: canvasGridManifest, load: () => import('@lc/canvas-plugin-grid') },
+  { manifest: canvasRulersManifest, load: () => import('@lc/canvas-plugin-rulers') },
+  { manifest: canvasMinimapManifest, load: () => import('@lc/canvas-plugin-minimap') },
+  { manifest: canvasContextMenuManifest, load: () => import('@lc/canvas-plugin-context-menu') },
 ] as const
 
 export interface DesignerBootstrap {

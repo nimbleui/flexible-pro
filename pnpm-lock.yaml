@@ -40,6 +40,9 @@ importers:
       '@lc/canvas-plugin-commands':
         specifier: workspace:*
         version: link:../../packages/canvas-plugins/canvas-commands
+      '@lc/canvas-plugin-context-menu':
+        specifier: workspace:*
+        version: link:../../packages/canvas-plugins/canvas-context-menu
       '@lc/canvas-plugin-drag':
         specifier: workspace:*
         version: link:../../packages/canvas-plugins/canvas-drag
@@ -52,6 +55,9 @@ importers:
       '@lc/canvas-plugin-guides':
         specifier: workspace:*
         version: link:../../packages/canvas-plugins/canvas-guides
+      '@lc/canvas-plugin-minimap':
+        specifier: workspace:*
+        version: link:../../packages/canvas-plugins/canvas-minimap
       '@lc/canvas-plugin-pan':
         specifier: workspace:*
         version: link:../../packages/canvas-plugins/canvas-pan
@@ -61,6 +67,9 @@ importers:
       '@lc/canvas-plugin-rotate':
         specifier: workspace:*
         version: link:../../packages/canvas-plugins/canvas-rotate
+      '@lc/canvas-plugin-rulers':
+        specifier: workspace:*
+        version: link:../../packages/canvas-plugins/canvas-rulers
       '@lc/canvas-plugin-selection':
         specifier: workspace:*
         version: link:../../packages/canvas-plugins/canvas-selection
@@ -146,6 +155,21 @@ importers:
         specifier: workspace:*
         version: link:../../shared
 
+  packages/canvas-plugins/canvas-context-menu:
+    dependencies:
+      '@lc/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
+      '@lc/kernel':
+        specifier: workspace:*
+        version: link:../../kernel
+      '@lc/vue':
+        specifier: workspace:*
+        version: link:../../vue
+      vue:
+        specifier: ^3.5.0
+        version: 3.5.44(typescript@5.9.3)
+
   packages/canvas-plugins/canvas-drag:
     dependencies:
       '@lc/canvas':
@@ -154,12 +178,12 @@ importers:
       '@lc/contracts':
         specifier: workspace:*
         version: link:../../contracts
-      '@lc/kernel':
-        specifier: workspace:*
-        version: link:../../kernel
       '@lc/schema':
         specifier: workspace:*
         version: link:../../schema
+      '@lc/vue':
+        specifier: workspace:*
+        version: link:../../vue
 
   packages/canvas-plugins/canvas-drop:
     dependencies:
@@ -212,6 +236,24 @@ importers:
         specifier: ^3.5.0
         version: 3.5.44(typescript@5.9.3)
 
+  packages/canvas-plugins/canvas-minimap:
+    dependencies:
+      '@lc/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
+      '@lc/schema':
+        specifier: workspace:*
+        version: link:../../schema
+      '@lc/shared':
+        specifier: workspace:*
+        version: link:../../shared
+      '@lc/vue':
+        specifier: workspace:*
+        version: link:../../vue
+      vue:
+        specifier: ^3.5.0
+        version: 3.5.44(typescript@5.9.3)
+
   packages/canvas-plugins/canvas-pan:
     dependencies:
       '@lc/contracts':
@@ -223,6 +265,9 @@ importers:
 
   packages/canvas-plugins/canvas-resize:
     dependencies:
+      '@lc/canvas':
+        specifier: workspace:*
+        version: link:../../canvas
       '@lc/contracts':
         specifier: workspace:*
         version: link:../../contracts
@@ -247,6 +292,21 @@ importers:
       '@lc/kernel':
         specifier: workspace:*
         version: link:../../kernel
+      '@lc/schema':
+        specifier: workspace:*
+        version: link:../../schema
+      '@lc/vue':
+        specifier: workspace:*
+        version: link:../../vue
+      vue:
+        specifier: ^3.5.0
+        version: 3.5.44(typescript@5.9.3)
+
+  packages/canvas-plugins/canvas-rulers:
+    dependencies:
+      '@lc/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
       '@lc/schema':
         specifier: workspace:*
         version: link:../../schema
