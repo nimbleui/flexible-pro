@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { resizeRect, resizeRotatedRect, scaleSelection } from '../src/geometry'
+import {
+  applyEdgeSnap,
+  edgeModesOf,
+  resizeRect,
+  resizeRotatedRect,
+  scaleSelection,
+} from '../src/geometry'
 
 const base = { x: 0, y: 0, width: 100, height: 50 }
 
@@ -115,5 +121,48 @@ describe('旋转感知缩放', () => {
     const anchorAfter = rotate({ x: next.x, y: next.y }, nextCenter)
     expect(anchorAfter.x).toBeCloseTo(anchorBefore.x, 6)
     expect(anchorAfter.y).toBeCloseTo(anchorBefore.y, 6)
+  })
+
+  it('手柄吸附只改动正在拖的边', () => {
+    // 东侧手柄：右边 +6，左边不动
+    expect(applyEdgeSnap(base, 'e', { x: 6, y: 0 })).toEqual({
+      x: 0,
+      y: 0,
+      width: 106,
+      height: 50,
+    })
+    // 西侧手柄：左边左移 6，宽度增加、右锚点不变
+    expect(applyEdgeSnap(base, 'w', { x: -6, y: 0 })).toEqual({
+      x: -6,
+      y: 0,
+      width: 106,
+      height: 50,
+    })
+    // 西北角：两条边同时生效
+    expect(applyEdgeSnap(base, 'nw', { x: -6, y: -4 })).toEqual({
+      x: -6,
+      y: -4,
+      width: 106,
+      height: 54,
+    })
+  })
+
+  it('吸附位移会把边长压到下限时整帧放弃吸附', () => {
+    const wide = { x: 0, y: 0, width: 10, height: 50 }
+    expect(applyEdgeSnap(wide, 'e', { x: -20, y: 0 }, 8)).toEqual(wide)
+    expect(applyEdgeSnap(wide, 'e', { x: -1, y: 0 }, 8)).toEqual({
+      x: 0,
+      y: 0,
+      width: 9,
+      height: 50,
+    })
+  })
+
+  it('手柄 id 映射到参与吸附的边', () => {
+    expect(edgeModesOf('e')).toEqual({ x: 'end' })
+    expect(edgeModesOf('w')).toEqual({ x: 'start' })
+    expect(edgeModesOf('n')).toEqual({ y: 'start' })
+    expect(edgeModesOf('se')).toEqual({ x: 'end', y: 'end' })
+    expect(edgeModesOf('nw')).toEqual({ x: 'start', y: 'start' })
   })
 })

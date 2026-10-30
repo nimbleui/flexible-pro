@@ -69,7 +69,7 @@ export const ResizeHandles = defineComponent({
       const width = bounds.width * zoom
       const height = bounds.height * zoom
 
-      return h(
+      const frame = h(
         'div',
         {
           class: 'lc-resize-handles',
@@ -105,8 +105,50 @@ export const ResizeHandles = defineComponent({
           }),
         ),
       )
+
+      return [
+        frame,
+        sizeBadge(bounds, left + width / 2, top + height + 10, selection.length > 1),
+      ]
     }
   },
 })
+
+/**
+ * 尺寸标注。
+ *
+ * 挂在框外下方而不是框内：手柄本身占着框边，标注压在框内会挡住缩放手柄的命中，
+ * 也容易和节点内容混在一起。旋转节点的框是转过的，标注仍放在世界 AABB 下方，
+ * 这是有意的——数值标注只表达尺寸，不该跟着转。
+ */
+function sizeBadge(
+  bounds: { width: number; height: number },
+  centerX: number,
+  top: number,
+  grouped: boolean,
+): ReturnType<typeof h> {
+  return h(
+    'div',
+    {
+      class: 'lc-size-badge',
+      style: {
+        position: 'absolute',
+        left: `${centerX}px`,
+        top: `${top}px`,
+        transform: 'translateX(-50%)',
+        padding: '2px 6px',
+        borderRadius: '4px',
+        background: 'var(--lc-accent, #2563eb)',
+        color: '#ffffff',
+        fontSize: '11px',
+        lineHeight: '14px',
+        fontWeight: 500,
+        whiteSpace: 'nowrap',
+        pointerEvents: 'none',
+      },
+    },
+    `${grouped ? '组 ' : ''}${Math.round(bounds.width)} × ${Math.round(bounds.height)}`,
+  )
+}
 
 export default ResizeHandles

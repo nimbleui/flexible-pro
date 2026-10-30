@@ -1,7 +1,14 @@
-import type { CanvasTransaction } from '@lc/contracts'
+import type { CanvasTransaction, SnapService } from '@lc/contracts'
 import { defineCanvasPlugin, isPointerEvent, transformableIds } from '@lc/contracts'
+import { normalizeRect } from '@lc/canvas'
 import type { Rect } from '@lc/schema'
-import { resizeRotatedRect, resizeRect, scaleSelection } from './geometry'
+import {
+  applyEdgeSnap,
+  edgeModesOf,
+  resizeRect,
+  resizeRotatedRect,
+  scaleSelection,
+} from './geometry'
 import type { SelectionNode } from './geometry'
 import ResizeHandles from './overlay'
 
@@ -20,11 +27,12 @@ const ROTATE_HANDLE_ID = 'rotate'
  */
 export default defineCanvasPlugin({
   name: 'canvas-resize',
-  inject: ['canvas', 'document'],
+  inject: { required: ['canvas', 'document'], optional: ['snap'] },
 
   apply(ctx) {
     const canvas = ctx.canvas
     const document = ctx.document
+    const snap = ctx.snap
 
     ctx.effect(() =>
       canvas.layers.register({
@@ -46,6 +54,59 @@ export default defineCanvasPlugin({
         if (rect) nodes.push({ id, rect })
       }
       return nodes
+    }
+
+    /**
+     * 视口对应的世界矩形，作为吸附候选的裁剪范围。
+     *
+     * 只换算左上、右下两角：视口 rotation 为 0 时准确，旋转后得到偏小的 AABB，
+     * 与拖拽插件同口径，按粗筛理解。
+     */
+    function viewportWorldRect(): Rect {
+      const topLeft = canvas.viewport.screenToWorld({ x: 0, y: 0 })
+      const bottomRight = canvas.viewport.screenToWorld({
+        x: canvas.viewport.size.width,
+        y: canvas.viewport.size.height,
+      })
+      return normalizeRect(topLeft, bottomRight)
+    }
+
+    /** 清空吸附结果：服务没有显式 clear，用空 rects 的解析把残留辅助线撤掉 */
+    function clearSnap(service: SnapService, ids: readonly string[]): void {
+      service.resolve({
+        rects: [],
+        zoom: canvas.viewport.state.zoom,
+        viewportRect: viewportWorldRect(),
+        movingIds: ids,
+      })
+    }
+
+    /**
+     * 手柄吸附：只吸正在拖的那条边。
+     *
+     * Shift（等比）与 Alt（临时关闭吸附）都与逐边吸附冲突，直接跳过并清掉残留
+     * 辅助线；旋转节点的边不与世界轴对齐，调用方会在旋转分支里绕开本函数。
+     */
+    function withSnap(
+      rect: Rect,
+      handleId: string,
+      move: { modifiers: { alt: boolean; shift: boolean } },
+      movingIds: readonly string[],
+    ): Rect {
+      if (!snap) return rect
+      if (move.modifiers.shift || move.modifiers.alt) {
+        clearSnap(snap, movingIds)
+        return rect
+      }
+
+      const result = snap.resolve({
+        rects: [rect],
+        zoom: canvas.viewport.state.zoom,
+        viewportRect: viewportWorldRect(),
+        movingIds,
+        edges: edgeModesOf(handleId),
+      })
+      return result.matched ? applyEdgeSnap(rect, handleId, result.delta) : rect
     }
 
     /** schema 里的 rotate 是角度，几何计算一律用弧度；节点缺失或未写旋转时取 0 */
@@ -96,13 +157,16 @@ export default defineCanvasPlugin({
 
                 // 单选：旋转感知缩放，对侧锚点在世界空间保持不动
                 if (single) {
-                  const next = resizeRotatedRect({
+                  const raw = resizeRotatedRect({
                     rect: startBounds,
                     rotation: startRotation,
                     handleId,
                     point: move.world,
                     keepAspect,
                   })
+                  // 旋转后的「边」不沿世界轴，按轴吸附会改可视尺寸而不是对齐，直接跳过
+                  const next =
+                    startRotation === 0 ? withSnap(raw, handleId, move, [single.id]) : raw
                   transaction.preview([
                     { op: 'replace', path: `/nodes/${single.id}/layout/rect`, value: next },
                   ])
@@ -110,7 +174,13 @@ export default defineCanvasPlugin({
                 }
 
                 // 多选：组框轴对齐缩放，各节点旋转保持不变
-                const nextBounds = resizeRect(startBounds, handleId, move.world, { keepAspect })
+                const bounds = resizeRect(startBounds, handleId, move.world, { keepAspect })
+                const nextBounds = withSnap(
+                  bounds,
+                  handleId,
+                  move,
+                  starts.map(({ id }) => id),
+                )
                 const scaled = scaleSelection(starts, startBounds, nextBounds)
                 transaction.preview(
                   scaled.map(({ id, rect }) => ({
@@ -121,6 +191,11 @@ export default defineCanvasPlugin({
                 )
               },
               onFinish: (commit) => {
+                if (snap)
+                  clearSnap(
+                    snap,
+                    starts.map(({ id }) => id),
+                  )
                 if (commit) transaction.commit()
                 else transaction.cancel()
               },

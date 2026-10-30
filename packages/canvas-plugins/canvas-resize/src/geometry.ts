@@ -1,3 +1,4 @@
+import type { SnapEdgeMode } from '@lc/contracts'
 import type { Rect } from '@lc/schema'
 
 /** 组/单节点缩放的最小边长（世界像素） */
@@ -229,4 +230,50 @@ export function scaleSelection(
       height: Math.max(MIN_NODE_SIZE, rect.height * scaleY),
     },
   }))
+}
+
+/** 缩放手柄决定哪条边在动：x 轴 e→end / w→start，y 轴 s→end / n→start */
+export function edgeModesOf(handleId: string): { x?: SnapEdgeMode; y?: SnapEdgeMode } {
+  const modes: { x?: SnapEdgeMode; y?: SnapEdgeMode } = {}
+  if (handleId.includes('e')) modes.x = 'end'
+  else if (handleId.includes('w')) modes.x = 'start'
+  if (handleId.includes('s')) modes.y = 'end'
+  else if (handleId.includes('n')) modes.y = 'start'
+  return modes
+}
+
+/**
+ * 把吸附位移只作用到正在拖动的边上。
+ *
+ * 吸附结果给的是「边要移动多少」，而缩放里固定边是锚点不能动：e/s 只改宽高，
+ * w/n 还要同步移动原点。碰到最小尺寸时返回原矩形——宁可这一帧不吸附，
+ * 也不能把节点压成负尺寸或翻面。
+ */
+export function applyEdgeSnap(
+  rect: Rect,
+  handleId: string,
+  delta: { x: number; y: number },
+  minSize: number = MIN_NODE_SIZE,
+): Rect {
+  let { x, y, width, height } = rect
+
+  if (handleId.includes('e')) {
+    width += delta.x
+    if (width < minSize) return rect
+  } else if (handleId.includes('w')) {
+    x += delta.x
+    width -= delta.x
+    if (width < minSize) return rect
+  }
+
+  if (handleId.includes('s')) {
+    height += delta.y
+    if (height < minSize) return rect
+  } else if (handleId.includes('n')) {
+    y += delta.y
+    height -= delta.y
+    if (height < minSize) return rect
+  }
+
+  return { x, y, width, height }
 }
