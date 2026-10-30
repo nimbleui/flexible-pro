@@ -155,9 +155,18 @@ export interface BlockedPlugin {
 export interface MissingServiceCandidate {
   /** 服务名 */
   service: string
-  /** 已登记但还没起来、且声明了该服务的实例 */
+  /**
+   * 声明了该服务的所有已登记实例，并带上各自还缺什么。
+   *
+   * 为空说明没有任何已加载插件声明提供这个服务；提供者自己也在等，就是连锁阻塞。
+   */
   providers: readonly BlockedProvider[]
-  /** 只出现在清单里、尚未加载的插件名 */
+  /**
+   * 只出现在清单里、尚未加载的插件名。
+   *
+   * 这类插件没有实例记录，光看插件树找不到它们；但「依赖的插件压根没激活」
+   * 恰恰是 pending 最常见的原因，所以按 `manifest.provides` 单独列出来。
+   */
   unactivated: readonly string[]
 }
 
@@ -199,10 +208,8 @@ export interface PluginConfigView {
   name: string
   /** 宿主传入的原始配置 */
   raw: unknown
-  /** schema 解析后的配置；未激活时不存在 */
+  /** 合并与校验后的配置；只有激活期间存在，未启动与已停用都是空 */
   resolved: unknown
-  /** 是否声明了配置校验器 */
-  hasSchema: boolean
   /** 从根到本层生效的 intercept 覆盖 */
   overrides: readonly ConfigOverride[]
 }
@@ -291,12 +298,16 @@ export interface CanvasView {
   document: {
     /** 文档 id */
     id: string
-    /** 编辑模式 */
-    mode: string
+    /** 文档标题 */
+    title: string
+    /** schema 架构版本 */
+    schemaVersion: string
+    /** 文档递增版本号 */
+    revision: number
     /** 节点数 */
     nodeCount: number
-    /** schema 版本 */
-    version: string
+    /** 是否有未保存变更 */
+    dirty: boolean
   } | null
   /** 撤销/重做 */
   history: {

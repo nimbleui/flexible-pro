@@ -20,7 +20,7 @@ const SECOND_MS = 1_000
 export function describeError(error: unknown): string {
   if (error instanceof Error) {
     const cause = error.cause
-    const suffix = cause instanceof Error ? ` ← ${cause.message}` : ''
+    const suffix = cause instanceof Error ? ` ← ${cause.name}: ${cause.message}` : ''
     return `${error.name}: ${error.message}${suffix}`
   }
   if (typeof error === 'string') return error
