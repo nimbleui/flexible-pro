@@ -129,6 +129,8 @@ export async function bootstrapDesigner(): Promise<DesignerBootstrap> {
   })
 
   const result: DesignerBootstrap = { context, editor, canvas }
-  if (import.meta.env.DEV) window.__lc = result
+  // 非生产模式都挂调试入口：vite dev 与 `vite build --mode development` 的预览包
+  // 都需要能直连服务排查，只有 production 构建才彻底移除
+  if (import.meta.env.MODE !== 'production') window.__lc = result
   return result
 }
