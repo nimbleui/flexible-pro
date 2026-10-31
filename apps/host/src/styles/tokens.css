@@ -1,0 +1,59 @@
+/**
+ * 设计器设计令牌：外壳与覆盖层只消费语义变量，不硬编码主题色。
+ *
+ * 深色霓虹体系下，画布覆盖层（手柄、辅助线、网格、右键菜单）同样直接读取这些变量，
+ * 因此既有变量名一个都不能改，只能替换取值；新增变量只服务于外壳布局。
+ */
+:root {
+  color-scheme: dark;
+
+  /* 画布与覆盖层：插件按变量名消费，改名会让手柄 / 辅助线 / 选中框失去颜色 */
+  --lc-canvas-bg: #050d1c;
+  --lc-surface: #0a1b33;
+  --lc-surface-sunken: #071528;
+  --lc-border: rgba(64, 150, 255, 0.18);
+  --lc-border-strong: rgba(64, 150, 255, 0.36);
+  --lc-text: #dbeafe;
+  --lc-text-secondary: #7f9bc2;
+  --lc-text-muted: #5f7ea6;
+  --lc-accent: #2f8cff;
+  --lc-accent-bright: #37b6ff;
+  --lc-accent-soft: rgba(47, 140, 255, 0.14);
+  --lc-success: #22d3a6;
+  --lc-warning: #f5a524;
+  --lc-danger: #ff6b81;
+  --lc-danger-surface: rgba(255, 107, 129, 0.12);
+  --lc-danger-border: rgba(255, 107, 129, 0.32);
+  --lc-radius-sm: 8px;
+  --lc-radius-md: 12px;
+  /* 辅助线用暖色，避免与蓝色网格 / 选中框混在一起 */
+  --lc-guide: #ffb454;
+  /* 深色底上手柄必须是深色，否则 resize / rotate 手柄会变成刺眼白块 */
+  --lc-handle-bg: #0b1b33;
+  --lc-grid-line: rgba(120, 190, 255, 0.07);
+  --lc-shadow: 0 24px 60px rgba(0, 6, 18, 0.55);
+  --lc-font:
+    'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* 外壳专用 */
+  --lc-app-bg: #050d1c;
+  --lc-rail-bg: #071528;
+  --lc-panel-glass: rgba(10, 30, 61, 0.72);
+  --lc-dock-bg: rgba(7, 21, 40, 0.86);
+  --lc-glow: rgba(47, 140, 255, 0.45);
+  --lc-glow-strong: rgba(55, 182, 255, 0.6);
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--lc-app-bg);
+  color: var(--lc-text);
+  font-family: var(--lc-font);
+  -webkit-font-smoothing: antialiased;
+}
