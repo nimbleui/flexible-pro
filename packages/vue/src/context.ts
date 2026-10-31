@@ -3,8 +3,15 @@ import { computed, inject, onUnmounted, ref, shallowRef, watchEffect } from 'vue
 import type { Context, Disposable } from '@lc/kernel'
 import type { Registry } from '@lc/contracts'
 
-/** 低代码 Context 的 Vue 注入键 */
-export const LC_CONTEXT: InjectionKey<Context> = Symbol('lc-context')
+/**
+ * 低代码 Context 的 Vue 注入键。
+ *
+ * 必须用 `Symbol.for`：宿主与远程模块各自打包一份 @lc/vue 时，`Symbol()` 会产生
+ * 两个互不相等的键，远程侧登记的画布覆盖层组件便注入不到宿主 provide 的上下文。
+ */
+export const LC_CONTEXT: InjectionKey<Context> = Symbol.for(
+  'lc-context',
+) as InjectionKey<Context>
 
 /**
  * 把低代码 Context 注入到 Vue 应用根部。

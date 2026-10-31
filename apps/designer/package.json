@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "description": "画布模块（Module Federation Remote）：15 项画布能力 + 舞台渲染，不独立运行",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -25,17 +26,12 @@
     "@lc/canvas-plugin-snap": "workspace:*",
     "@lc/canvas-plugin-zoom": "workspace:*",
     "@lc/contracts": "workspace:*",
-    "@lc/devtools": "workspace:*",
-    "@lc/expression": "workspace:*",
     "@lc/kernel": "workspace:*",
-    "@lc/plugin-materials-basic": "workspace:*",
-    "@lc/plugin-panel-materials": "workspace:*",
-    "@lc/plugin-panel-outline": "workspace:*",
-    "@lc/plugin-panel-properties": "workspace:*",
     "@lc/preset-canvas": "workspace:*",
-    "@lc/preset-designer": "workspace:*",
-    "@lc/schema": "workspace:*",
     "@lc/vue": "workspace:*",
     "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@module-federation/vite": "^1.23.7"
   }
 }

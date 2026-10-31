@@ -14,7 +14,9 @@ export interface RealmOptions {
   mode?: 'edit' | 'preview'
 }
 
-/** 文档级 Realm */
+/**
+ * 文档级 Realm
+ */
 export interface EditorRealm extends Disposable {
   /** Realm 唯一 id；审计/遥测/服务归属都用它 */
   readonly id: string
@@ -22,7 +24,7 @@ export interface EditorRealm extends Disposable {
   readonly documentId: string
   /** 文档级上下文：document / history / selection 必选 */
   readonly context: EditorContext
-  /** 创建该文档的主画布 Realm；每个文档一个 */
+  /** 新建一个画布视图 Realm；视口、覆盖层与交互管线由该 Realm 独立持有 */
   createCanvasRealm(): CanvasRealm
 }
 
