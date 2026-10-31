@@ -1,5 +1,5 @@
 import type { SnapContext } from '@lc/contracts'
-import type { NodeSchema, Rect } from '@lc/schema'
+import type { Rect } from '@lc/schema'
 import { describe, expect, it } from 'vitest'
 import { elementCandidates, gridCandidates } from '../src/providers'
 
@@ -17,8 +17,11 @@ function context(overrides: Partial<SnapContext> = {}): SnapContext {
   }
 }
 
-function node(id: string, rect: Rect): NodeSchema {
-  return { id, componentName: 'Box', layout: { mode: 'absolute', rect } }
+function elements(): { id: string; rect: Rect }[] {
+  return [
+    { id: 'cardA', rect: movingRect },
+    { id: 'cardB', rect: { x: 372, y: 220, width: 220, height: 150 } },
+  ]
 }
 
 describe('网格吸附候选', () => {
@@ -48,25 +51,20 @@ describe('网格吸附候选', () => {
 })
 
 describe('元素吸附候选', () => {
-  const nodes = {
-    cardA: node('cardA', movingRect),
-    cardB: node('cardB', { x: 372, y: 220, width: 220, height: 150 }),
-  }
-
   it('排除 movingIds 中的自身节点', () => {
-    const candidates = elementCandidates(context(), nodes)
+    const candidates = elementCandidates(context(), elements())
 
     expect(new Set(candidates.map((c) => c.source))).toEqual(new Set(['node:cardB']))
   })
 
   it('缺少 movingIds 时不做排除，由调用方负责传入被拖节点', () => {
-    const candidates = elementCandidates(context({ movingIds: undefined }), nodes)
+    const candidates = elementCandidates(context({ movingIds: undefined }), elements())
 
     expect(candidates.map((c) => c.source)).toContain('node:cardA')
   })
 
   it('元素候选位于网格层之上', () => {
-    const candidates = elementCandidates(context(), nodes)
+    const candidates = elementCandidates(context(), elements())
 
     expect(new Set(candidates.map((c) => c.priority))).toEqual(new Set([1]))
   })

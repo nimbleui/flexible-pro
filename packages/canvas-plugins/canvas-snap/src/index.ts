@@ -42,12 +42,12 @@ export { manifest } from './manifest'
  */
 export default defineCanvasPlugin<SnapPluginConfig>({
   name: 'canvas-snap',
-  inject: ['canvas', 'document'],
+  inject: ['canvas'],
   provides: ['snap'],
   schema,
 
   apply(ctx, config) {
-    const document = ctx.document
+    const canvas = ctx.canvas
 
     const service = createSnapService({
       thresholdScreenPx: config.thresholdScreenPx,
@@ -68,7 +68,15 @@ export default defineCanvasPlugin<SnapPluginConfig>({
     ctx.effect(() =>
       service.registerProvider({
         id: 'snap.elements',
-        getCandidates: (context) => elementCandidates(context, document.model.schema.nodes),
+        // 候选取自本画布的场景登记，而不是文档节点表：场景是画布的通用几何来源；
+        // 隐藏子树不登记几何，因此也不会被吸到。
+        getCandidates: (context) => {
+          const elements = canvas.scene.list().flatMap((id) => {
+            const rect = canvas.scene.getBounds(id)
+            return rect ? [{ id, rect }] : []
+          })
+          return elementCandidates(context, elements)
+        },
       }),
     )
   },

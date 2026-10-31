@@ -1,6 +1,6 @@
 import type { SnapCandidate, SnapContext } from '@lc/contracts'
 import { rectIntersects } from '@lc/canvas'
-import type { NodeSchema } from '@lc/schema'
+import type { Rect } from '@lc/schema'
 
 /** 判定「边已经在网格线上」的容差：这种候选等于让元素吸附到自己当前的位置 */
 const SELF_EPSILON = 1e-6
@@ -56,32 +56,34 @@ export function gridCandidates(context: SnapContext, step: number): SnapCandidat
 }
 
 /**
- * 节点吸附候选：视口内其他节点的左/中/右、上/中/下。
+ * 元素吸附候选：视口内其他元素（由调用方给出）的左/中/右、上/中/下。
  *
- * `movingIds` 里的节点被排除，避免拖拽节点吸附到自己。
+ * 入参是「本画布实际渲染的元素几何」而不是文档节点表：渲染几何不依赖节点表结构；
+ * 隐藏子树不登记几何，因此也不会被吸到。
+ *
+ * `movingIds` 里的元素被排除，避免拖拽元素吸附到自己。
  * `priority: 1` 使其位于网格层之上：对象对齐是用户看到的辅助线，优先级不该输给
  * 由自身几何推导出来的网格候选。
  */
 export function elementCandidates(
   context: SnapContext,
-  nodes: Record<string, NodeSchema>,
+  elements: readonly { id: string; rect: Rect }[],
 ): SnapCandidate[] {
-  // movingIds 缺省时不排除任何节点，会把被拖元素自己也当成候选；调用方必须传
+  // movingIds 缺省时不排除任何元素，会把被拖元素自己也当成候选；调用方必须传
   const excluded = new Set(context.movingIds ?? [])
   const candidates: SnapCandidate[] = []
 
-  for (const node of Object.values(nodes)) {
-    if (excluded.has(node.id)) continue
+  for (const element of elements) {
+    if (excluded.has(element.id)) continue
 
-    const rect = node.layout?.rect
-    if (!rect) continue
+    const rect = element.rect
     if (!rectIntersects(rect, context.viewportRect)) continue
 
     for (const value of [rect.x, rect.x + rect.width / 2, rect.x + rect.width]) {
-      candidates.push({ axis: 'x', value, source: `node:${node.id}`, priority: 1 })
+      candidates.push({ axis: 'x', value, source: `node:${element.id}`, priority: 1 })
     }
     for (const value of [rect.y, rect.y + rect.height / 2, rect.y + rect.height]) {
-      candidates.push({ axis: 'y', value, source: `node:${node.id}`, priority: 1 })
+      candidates.push({ axis: 'y', value, source: `node:${element.id}`, priority: 1 })
     }
   }
 
