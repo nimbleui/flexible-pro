@@ -47,8 +47,8 @@ function createEmptySchema(documentId: string): PageSchema {
  * Realm 不是裸 `fork()`：每个 Realm 拥有独立 service scope 与生命周期记录，
  * `dispose` 由 workspace 的 effect 托管；关闭文档会级联清空文档级与画布级插件。
  *
- * 骨架阶段 Realm 内固定装配 document / history / selection / canvas-core；
- * 生产环境可由预设按产品形态裁剪。
+ * 骨架阶段 Realm 内固定装配 document / history / selection，
+ * 画布 Realm 装页面画布核心；生产环境可由预设按产品形态裁剪。
  */
 export default definePlugin({
   name: 'service-workspace',
@@ -101,8 +101,8 @@ export default definePlugin({
          * 新建一个画布视图（CanvasRealm）。
          *
          * 每个画布有独立的视口、图层、交互管线与画布设置，文档与选中集仍来自
-         * 同一个 EditorRealm，所以两个画布会同步选中、各自保持缩放与平移。
-         * 契约把这一步描述为「主画布、每文档一个」，实现不限制调用次数。
+         * 同一个 EditorRealm。契约把这一步描述为「主画布、每文档一个」，
+         * 实现不限制调用次数。
          */
         createCanvasRealm(): CanvasRealm {
           const canvasCtx = realmCtx.fork()
