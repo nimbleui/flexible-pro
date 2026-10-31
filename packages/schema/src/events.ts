@@ -5,7 +5,6 @@
  * 2. 事件定义（EventDefinition）—— 组件可触发的事件声明
  * 3. 事件处理器（EventHandlerDef）—— 绑定到节点上的具体事件处理动作
  * 4. 事件链（EventChainStep / EventChain）—— 多个处理器按序/分支执行
- * 5. 流式事件（FlowBackedEvent）—— 通过 Flow 配置生成的事件处理链
  */
 
 import type { ExpressionString } from './expression'
@@ -97,14 +96,14 @@ export interface EventChainStep {
 /**
  * 事件链定义接口
  * 描述一个完整的事件处理链，由一组步骤及其执行模式组成。
- * 事件链可以内联定义（steps），也可以引用外部 Flow（flowId）。
  *
- * 当同时指定 steps 和 flowId 时，steps 优先（内联定义覆盖外部引用）。
+ * `EventChain` 只承载内联 steps；需要在多个事件之间复用的逻辑，应声明为独立的
+ * 动作（见 `actions.ts`），由事件连接按序引用。
  */
 export interface EventChain {
   /**
    * 事件链中包含的步骤列表
-   * 当 flowId 存在且 steps 为空时，步骤由 Flow 定义动态生成。
+   * 按 `mode` 声明的顺序或并行执行；未指定 `next`/`branches` 时依数组顺序推进。
    */
   steps: EventChainStep[]
   /**
@@ -131,16 +130,15 @@ export interface EventChain {
  * 事件处理器定义（可辨识联合类型）
  *
  * 描述绑定到某个节点上的一个具体事件处理动作。
- * 通过 `kind` 字段区分为三种互斥的处理模式：
+ * 通过 `kind` 字段区分为两种互斥的处理模式：
  *
  * 1. **ActionHandlerDef**（kind: 'action'）：单步动作模式，直接通过 action + config 定义处理动作
  * 2. **ChainHandlerDef**（kind: 'chain'）：事件链模式，通过 chain 定义多步骤处理流程
- * 3. **FlowHandlerDef**（kind: 'flow'）：流式事件模式，通过 flow 引用一个 Flow 定义
  *
- * 运行时可通过 `handler.kind` 或 `isActionHandler` / `isChainHandler` / `isFlowHandler`
+ * 运行时可通过 `handler.kind` 或 `isActionHandler` / `isChainHandler`
  * 类型守卫进行类型收窄。
  */
-export type EventHandlerDef = ActionHandlerDef | ChainHandlerDef | FlowHandlerDef
+export type EventHandlerDef = ActionHandlerDef | ChainHandlerDef
 
 /**
  * 单步动作处理器
@@ -178,39 +176,6 @@ export interface ChainHandlerDef {
   /**
    * 处理条件表达式（可选）
    * 只有当表达式求值为真时，事件链才会执行。
-   */
-  condition?: ExpressionString
-}
-
-/**
- * 流式事件处理器
- * 通过 flow 字段引用一个 Flow 定义作为处理逻辑。
- * 适用于复杂的多步骤事件处理，可通过可视化 Flow 编辑器设计。
- * Flow 可以在不同组件/事件之间复用。
- */
-export interface FlowHandlerDef {
-  /** 类型标识，固定为 'flow'，用于可辨识联合类型收窄 */
-  kind: 'flow'
-  /** 关联的 Flow 定义 ID */
-  flow: string
-  /**
-   * Flow 输入映射（可选）
-   * 定义如何将事件参数映射到 Flow 执行上下文的初始数据。
-   *
-   * 示例：
-   * ```typescript
-   * flowInputMapping: {
-   *   userId: "{{ event.payload.id }}",
-   *   userName: "{{ event.payload.name }}",
-   * }
-   * ```
-   */
-  flowInputMapping?: Record<string, string>
-  /** 处理器名称（可选），用于在编辑器中标识 */
-  name?: string
-  /**
-   * 处理条件表达式（可选）
-   * 只有当表达式求值为真时，Flow 才会执行。
    */
   condition?: ExpressionString
 }

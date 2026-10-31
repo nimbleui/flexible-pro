@@ -5,7 +5,7 @@
  * 1. 表达式值的两种承载形式 —— `ExpressionString`（`{{ a + b }}` 白名单表达式）
  *    与 `JsExpression`（宿主受信代码片段）。
  * 2. 表达式语法树（AST）的节点定义。
- * 3. 求值契约 `ExpressionEngine` —— 注入渲染器与 FlowRunner 的运行时接口。
+ * 3. 求值契约 `ExpressionEngine` —— 注入渲染器与运行时的接口。
  * 4. 求值作用域 `ExpressionScope` 与编译产物 `CompiledExpression`。
  *
  * 自定义函数的注册契约 `FunctionRegistry` 定义在 `functions.ts`，与被注册的
@@ -13,8 +13,8 @@
  * 相互引用。`import type` 在编译期被完全擦除，不产生运行时循环依赖。
  *
  * AST 之所以定义在本包而不是引擎包：`@lc/schema` 被内核、契约层、插件、运行时
- * 共同依赖且零依赖，语法树是 DSL 契约的一部分。设计器校验、编辑器补全、
- * FlowRunner 静态检查与引擎求值必须共用同一份节点定义，否则会各自演化出
+ * 共同依赖且零依赖，语法树是 DSL 契约的一部分。设计器校验、编辑器补全
+ * 与引擎求值必须共用同一份节点定义，否则会各自演化出
  * 互不兼容的语法树。引擎包（`@lc/expression`）反向依赖本包获取这些类型。
  */
 
@@ -109,7 +109,7 @@ export function createJsExpression(code: string): JsExpression {
 /**
  * 表达式求值作用域。
  * 键为表达式中可直接书写的裸标识符，值保留原始类型。
- * 由消费方（渲染器、FlowRunner、数据源管道）按自己的上下文结构构造。
+ * 由消费方（渲染器、动作执行器、数据源管道）按自己的上下文结构构造。
  */
 export type ExpressionScope = Record<string, unknown>
 
@@ -255,7 +255,7 @@ export type ExpressionAst = ExpressionNode
  *
  * 存在的原因是 schema 里两处已写明的承诺：
  *  - `functions.ts` 「内部通过 engine.compile 一次编译反复调用」
- *  - FlowRunner 在循环执行节点时不能每轮重新解析同一串文本
+ *  - 动作执行器在循环执行动作时不能每轮重新解析同一串文本
  *
  * `ast` 暴露给设计器校验与编辑器补全使用，渲染路径不应依赖它。
  */
@@ -269,7 +269,7 @@ export interface CompiledExpression {
    *
    * 与 `ExpressionEngine.evaluate` 的关键差别：**本方法会抛错**。
    * 引擎顶层方法面向渲染，必须吞掉异常并上报诊断以免白屏；
-   * 本方法面向 FlowRunner、自定义函数等需要区分「结果为假」与「求值失败」的调用方，
+   * 本方法面向动作执行器、自定义函数等需要区分「结果为假」与「求值失败」的调用方，
    * 异常语义必须由调用方决定。
    *
    * @throws 语法错误已由 `compile` 提前抛出；此处只抛运行期错误
@@ -280,7 +280,7 @@ export interface CompiledExpression {
 
 /**
  * 表达式求值引擎的接口定义。
- * 注入到渲染器与 FlowRunner 上下文中，负责表达式求值、模板插值与自定义函数注册。
+ * 注入到渲染器与运行时上下文中，负责表达式求值、模板插值与自定义函数注册。
  */
 export interface ExpressionEngine {
   /**
@@ -326,8 +326,8 @@ export interface ExpressionEngine {
   /**
    * 递归解析一个 schema 值：表达式对象、`{{ }}` 字符串、数组与嵌套对象全部求值。
    *
-   * 抽到引擎的原因是同一套解析规则已有三个潜在使用者（渲染树、Flow 的
-   * `FlowNodeDef.config`、数据源的参数映射），而各写一遍必然在
+   * 抽到引擎的原因是同一套解析规则已有三个潜在使用者（渲染树、
+   * `ActionDeclaration.config`、数据源的参数映射），而各写一遍必然在
    * 「数组里的字符串要不要插值」这类细节上分叉。
    *
    * 边界行为：递归深度超过上限时该子树原样返回并上报诊断，不抛错，

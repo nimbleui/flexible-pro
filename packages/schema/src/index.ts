@@ -11,7 +11,6 @@ export type {
   DefaultComponentPropsMap,
   Directive,
   EventBindingValue,
-  FlowEventBinding,
   LoopConfig,
   NodeProps,
   NodeSchema,
@@ -38,11 +37,22 @@ export type {
   EventDefinition,
   EventHandlerDef,
   EventParameter,
-  FlowHandlerDef,
 } from './events'
 
-// -------------------- 流程图 -------------------- //
-export type { FlowDefinition, FlowEdgeDef, FlowNodeDef, FlowNodeKind } from './flow'
+// -------------------- 事件与动作 -------------------- //
+export type {
+  ActionDeclaration,
+  ActionDefinition,
+  ActionFieldSchema,
+  EventConnection,
+  PageEventName,
+} from './actions'
+export {
+  BUILTIN_ACTIONS,
+  PAGE_EVENTS,
+  PAGE_EVENT_SOURCE,
+  findActionDefinition,
+} from './actions'
 
 // -------------------- 表达式 -------------------- //
 export type {
@@ -146,11 +156,14 @@ export {
 // -------------------- 补丁 / 校验 / 迁移 -------------------- //
 export type { SchemaPatch, SchemaPatchOp, SchemaPatches } from './patch'
 export {
+  actionPath,
   applyPatches,
   applySchemaPatches,
+  connectionPath,
   createNodeLayoutPatch,
   getAtPath,
   isNodePatch,
+  nodeEventPath,
   nodePath,
 } from './patch'
 

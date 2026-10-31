@@ -1,3 +1,4 @@
+import type { ActionDeclaration, EventConnection } from './actions'
 import type { ComponentSchema } from './component'
 import type { DataSourceSchemaDef } from './datasource'
 import type { FunctionSchema } from './functions'
@@ -58,6 +59,17 @@ export interface PageSchema<T extends ComponentPropsMap = DefaultComponentPropsM
    * 渲染器根据节点中的 componentName 在此列表中查找对应的组件定义。
    */
   components: ComponentSchema<T>[]
+  /**
+   * 页面动作表（可选）
+   * 键为动作 id。动作是「事件连接」的执行单元：连接只存 id 列表，动作本体独立成表，
+   * 便于同一动作被多个事件复用、也便于单独做版本迁移与审计。
+   */
+  actions?: Record<string, ActionDeclaration>
+  /**
+   * 事件连接表（可选）
+   * 键为连接 id。一条连接 = 「某节点的某事件 → 按序执行一串动作」，顺序即执行顺序。
+   */
+  connections?: Record<string, EventConnection>
   /**
    * 页面的数据源配置列表（可选）
    * 用于声明页面级别的数据获取和状态管理。

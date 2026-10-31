@@ -57,7 +57,7 @@ describe('表达式服务', () => {
     expect(permissive.resolveValue({ type: 'js', code: 'count + 1' }, { count: 1 })).toBe(2)
   })
 
-  it('递归解析 schema 值，供渲染树与 Flow 配置共用', async () => {
+  it('递归解析 schema 值，供渲染树与动作配置共用', async () => {
     const engine = await createEngine()
     const resolved = engine.resolveValue(
       {

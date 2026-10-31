@@ -63,33 +63,12 @@ export interface LoopConfig {
 }
 
 /**
- * 流式事件绑定接口
- * 用于将节点事件直接绑定到一个 Flow 定义。
- * 当事件触发时，Flow 引擎将执行指定的流程来处理事件。
- */
-export interface FlowEventBinding {
-  /** 引用的 Flow 定义 ID */
-  flowId: string
-  /**
-   * 输入参数映射（可选）
-   * 键为 Flow 上下文中的变量名，值为事件参数路径表达式。
-   * 例如：{ "userId": "{{ payload.id }}" }
-   */
-  inputMapping?: Record<string, string>
-  /**
-   * 表达式可访问的数据作用域
-   */
-  scope?: Record<string, any>
-}
-
-/**
  * 事件绑定值联合类型
- * 节点事件映射表中每个事件名对应值支持三种形式：
+ * 节点事件映射表中每个事件名对应值支持两种形式：
  * 1. EventHandlerDef[] —— 简单处理器列表（向后兼容的默认模式）
  * 2. EventChain —— 事件处理链（支持多步骤、分支、并行等复杂流程）
- * 3. FlowEventBinding —— 流式事件绑定（通过 Flow 配置生成处理逻辑）
  */
-export type EventBindingValue = EventHandlerDef[] | EventChain | FlowEventBinding
+export type EventBindingValue = EventHandlerDef[] | EventChain
 
 /**
  * 组件属性映射表
@@ -148,10 +127,9 @@ export interface NodeSchemaBase {
    * 事件绑定映射表（可选）
    * 键为事件名称（如 'click'），值为该事件的绑定配置。
    *
-   * 支持三种绑定形式：
+   * 支持两种绑定形式：
    * - EventHandlerDef[]：简单处理器列表，按顺序依次执行（向后兼容）
    * - EventChain：事件处理链，支持多步骤、条件分支、并行执行
-   * - FlowEventBinding：引用一个 Flow 定义，由 Flow 引擎执行处理逻辑
    *
    * 当节点触发指定事件时，运行时根据绑定类型执行相应逻辑。
    */

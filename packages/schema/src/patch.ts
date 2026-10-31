@@ -149,11 +149,26 @@ export function nodePath(nodeId: string, suffix = ''): string {
 /**
  * 文档补丁的类型收窄工具：确认 patch 的目标是节点表内路径。
  *
- * 事务提交前用它拒绝「补丁写到 flows/components」这类越权路径。
+ * 事务提交前用它拒绝「补丁写到 components/actions」这类越权路径。
  */
 export function isNodePatch(patch: SchemaPatch): boolean {
   const segments = parsePath(patch.path)
   return segments[0] === 'nodes' && segments.length >= 2
+}
+
+/** 把节点事件绑定定位为 patch 路径片段。 */
+export function nodeEventPath(nodeId: string, eventName: string): string {
+  return nodePath(nodeId, `events/${encodeSegment(eventName)}`)
+}
+
+/** 把动作定位为 patch 路径片段。 */
+export function actionPath(actionId: string, suffix = ''): string {
+  return `/actions/${encodeSegment(actionId)}${suffix ? `/${suffix}` : ''}`
+}
+
+/** 把事件连接定位为 patch 路径片段。 */
+export function connectionPath(connectionId: string, suffix = ''): string {
+  return `/connections/${encodeSegment(connectionId)}${suffix ? `/${suffix}` : ''}`
 }
 
 /** PageSchema 的 patch 应用入口；保留泛型以便未来文档结构扩展。 */
