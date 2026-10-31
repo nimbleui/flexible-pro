@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ExpressionEngine, FunctionRegistration } from '@lc/schema'
 import type { ExpressionError, ExpressionErrorKind } from '../src/index'
-import { createExpressionEngine } from '../src/index'
+import { createExpressionEngine, isBuiltinFunction, isValidFunctionName } from '../src/index'
 
 function withDiagnostics(): { engine: ExpressionEngine; kinds: ExpressionErrorKind[] } {
   const kinds: ExpressionErrorKind[] = []
@@ -81,6 +81,21 @@ describe('声明式函数：注册与调用', () => {
 })
 
 describe('声明式函数：层级与注销', () => {
+  it('层级从低到高为 global → material → page，逐层覆盖并逐层回落', () => {
+    const { engine } = withDiagnostics()
+    const global = engine.functions.register({ name: 'fmt', body: "'global'" }, 'global')
+    const material = engine.functions.register({ name: 'fmt', body: "'material'" }, 'material')
+    const page = engine.functions.register({ name: 'fmt', body: "'page'" }, 'page')
+
+    expect(engine.evaluate('fmt()', {})).toBe('page')
+    page.dispose()
+    expect(engine.evaluate('fmt()', {})).toBe('material')
+    material.dispose()
+    expect(engine.evaluate('fmt()', {})).toBe('global')
+    global.dispose()
+    expect(engine.evaluate('fmt()', {})).toBeUndefined()
+  })
+
   it('页面级覆盖物料级，注销页面级后恢复物料级', () => {
     const { engine } = withDiagnostics()
     const material: FunctionRegistration = engine.functions.register(
@@ -165,6 +180,17 @@ describe('声明式函数：注册失败的处理', () => {
     expect(engine.functions.has('null')).toBe(false)
     expect(engine.functions.has('a b')).toBe(false)
     expect(engine.evaluate('null', {})).toBeNull()
+  })
+
+  it('编辑器侧名字校验与注册表使用同一套规则', () => {
+    expect(isValidFunctionName('progress')).toBe(true)
+    expect(isValidFunctionName('_fmt$2')).toBe(true)
+    expect(isValidFunctionName('1abc')).toBe(false)
+    expect(isValidFunctionName('a b')).toBe(false)
+    expect(isValidFunctionName('null')).toBe(false)
+
+    expect(isBuiltinFunction('round')).toBe(true)
+    expect(isBuiltinFunction('progress')).toBe(false)
   })
 
   it('has 覆盖内置与已注册函数', () => {

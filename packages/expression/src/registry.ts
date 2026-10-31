@@ -33,13 +33,34 @@ export type ResolvedFunction =
 type DiagnosticSink = (error: unknown, detail: Record<string, unknown>) => void
 
 const LEVEL_ORDER: Readonly<Record<FunctionScopeLevel, number>> = {
-  material: 1,
-  page: 2,
+  global: 1,
+  material: 2,
+  page: 3,
 }
 
 const RESERVED_NAMES: ReadonlySet<string> = new Set(['true', 'false', 'null', 'undefined'])
 
 const NAME_PATTERN = /^[_$\p{L}][_$\p{L}\p{N}]*$/uy
+
+/**
+ * 判断名字能否作为自定义函数名或形参名。
+ *
+ * 与注册表共用同一套规则，供设计器在写文档前拦截非法输入 ——
+ * 两处各写一份正则，迟早会出现「编辑页允许、注册时被拒」的静默失败。
+ *
+ * @param name 待校验的名字
+ * @returns 非空、不是字面量关键字且符合标识符规则时为 true
+ */
+export function isValidFunctionName(name: string): boolean {
+  if (name === '' || RESERVED_NAMES.has(name)) return false
+  NAME_PATTERN.lastIndex = 0
+  return NAME_PATTERN.test(name)
+}
+
+/** 判断名字是否已被内置函数占用；自定义函数不允许覆盖内置语义。 */
+export function isBuiltinFunction(name: string): boolean {
+  return BUILTIN_NAMES.has(name)
+}
 
 interface Entry {
   readonly token: symbol
@@ -97,13 +118,12 @@ export function createFunctionRegistry(onDiagnostic: DiagnosticSink): {
       return undefined
     }
 
-    NAME_PATTERN.lastIndex = 0
-    if (RESERVED_NAMES.has(schema.name) || !NAME_PATTERN.test(schema.name)) {
+    if (!isValidFunctionName(schema.name)) {
       report(`自定义函数名字非法: ${schema.name}`, { function: schema.name, stage: 'register' })
       return undefined
     }
 
-    if (BUILTIN_NAMES.has(schema.name)) {
+    if (isBuiltinFunction(schema.name)) {
       report(`自定义函数不能覆盖内置函数: ${schema.name}`, {
         function: schema.name,
         stage: 'register',

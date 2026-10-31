@@ -2,7 +2,7 @@
  * 表达式引擎（`@lc/expression`）
  * ---
  * 白名单解释器的框架无关实现：词法、语法、求值、函数注册表与缓存。
- * 不依赖 Vue、DOM 与插件内核，因此运行时播放器、FlowRunner 与设计器可以共用同一份。
+ * 不依赖 Vue、DOM 与插件内核，因此运行时播放器与设计器可以共用同一份。
  *
  * 语言契约（语法树、`ExpressionEngine`、`FunctionRegistry`）全部在 `@lc/schema`，
  * 本包只实现它们，不重新定义它们。
@@ -10,6 +10,14 @@
 
 export type { ExpressionDiagnosticSink, ExpressionEngineOptions } from './engine'
 export { createExpressionEngine } from './engine'
+
+/**
+ * 自定义函数名的编辑器侧校验。
+ *
+ * 设计器在写入 schema 前调用它们拦截内置重名与非法标识符；
+ * 注册表内部仍会再校验一次，这里导出的是同一份规则而不是副本。
+ */
+export { isBuiltinFunction, isValidFunctionName } from './registry'
 
 export type { ExpressionErrorKind } from './errors'
 export { ExpressionError, isExpressionError } from './errors'

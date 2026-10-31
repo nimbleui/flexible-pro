@@ -104,7 +104,7 @@ type CompiledSegment =
  *
  * @param options 能力开关与预算配置
  * @returns 满足 `ExpressionEngine` 契约的实例；同一进程内可以有多个实例
- *   （预览沙箱、FlowRunner 各自持有独立注册表与缓存），因此不注册全局单例
+ *   （预览沙箱、动作执行器各自持有独立注册表与缓存），因此不注册全局单例
  */
 export function createExpressionEngine(
   options: ExpressionEngineOptions = {},

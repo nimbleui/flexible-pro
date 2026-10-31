@@ -19,11 +19,11 @@
  *
  * 然后节点里：`{ "text": "进度：{{ progress(todos) }}" }`
  *
- * 与 `EventChain / Flow` 的区别：
+ * 与 `EventChain / Action` 的区别：
  *  - 事件链是"有副作用的动作流水"
  *  - FunctionSchema 是"纯函数"（只输入输出，不产生副作用）
  *
- * 若要复杂副作用请用 Action / Flow；此声明形式设计用于表达式内。
+ * 若要复杂副作用请用 Action / 事件连接；此声明形式设计用于表达式内。
  */
 
 import type { ExpressionString } from './expression'
@@ -63,8 +63,9 @@ export interface FunctionSchema {
 }
 
 /**
- * 自定义函数的注册层级，从低到高固定为 `material` → `page`。
+ * 自定义函数的注册层级，从低到高固定为 `global` → `material` → `page`。
  *
+ * - `global`：应用级共享函数（函数管理页维护），对所有文档可见
  * - `material`：`ComponentSchema.functions`，随物料实例注册与注销
  * - `page`：`PageSchema.functions`，随文档切换注册与注销
  *
@@ -77,7 +78,7 @@ export interface FunctionSchema {
  * 否则单个页面就能改变 `round`、`isEmpty` 等全局语义，
  * 而这类改动在设计器里对其他人是不可见的。
  */
-export type FunctionScopeLevel = 'material' | 'page'
+export type FunctionScopeLevel = 'global' | 'material' | 'page'
 
 /** 一次注册的句柄；dispose 幂等，重复调用不会撤销后续注册 */
 export interface FunctionRegistration {
@@ -88,8 +89,8 @@ export interface FunctionRegistration {
 /**
  * 自定义函数注册表。
  *
- * 保持为「四层查找表 + 注销句柄」，不做成插件扩展点：
- * 内置函数由引擎自身提供，宿主/物料/页面三层由注册方按层级声明，
+ * 保持为「内置表 + 按名字分栈 + 注销句柄」，不做成插件扩展点：
+ * 内置函数由引擎自身提供，全局/物料/页面三层由注册方按层级声明，
  * 没有第五种来源，因此不提供 `registerProvider` 一类的通用机制。
  */
 export interface FunctionRegistry {
@@ -116,7 +117,7 @@ export interface FunctionRegistry {
   registerAll(fns: readonly FunctionSchema[], level?: FunctionScopeLevel): FunctionRegistration
 
   /**
-   * 判断函数名是否可解析，供编辑器补全与 FlowRunner 静态检查使用。
+   * 判断函数名是否可解析，供编辑器补全与运行时静态检查使用。
    * @param name - 函数名
    */
   has(name: string): boolean
