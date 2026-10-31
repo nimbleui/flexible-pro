@@ -270,7 +270,7 @@ load ──→ loading ──→ [schedule] ──→ applying ──→ active 
 | 步  | 位置                                            | 内核行为                                                                                                                                                 |
 | --- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | `bootstrap.ts:97` → `context.ts:617`            | 在 `Context.prototype` 上装服务 getter，把声明合并接到 `get`（模块级 Set 保证只装一次）                                                                  |
-| 2   | `bootstrap.ts:99` → `app.ts:26`                 | 建根 Context（空 scope、两条总线）→ `new PluginRuntime` → **构造即订阅 `service`** → 逐条 `grant(GRANTS)`                                                |
+| 2   | `apps/host/src/bootstrap.ts:67` → `app.ts:26`   | 建根 Context（空 scope、两条总线）→ `new PluginRuntime` → **构造即订阅 `service`** → 逐条 `grant(GRANTS)`                                                |
 | 3   | `:101` `context.plugin(presetDesigner)`         | 只登记，返回 `loading`；不检查依赖、不建 Context                                                                                                         |
 | 4   | `:102` `await whenIdle()`                       | 微任务批里跑 `apply`，九个服务插件并入同一批；依赖齐的激活并 `provide`，缺依赖的停在 `pending`，服务一出现就被重新调度                                   |
 | 5   | `:107-113` `createEditorRealm`                  | `ctx.fork()` 出新层，层内挂 document/history/selection（保留服务各写各层，互不冲突）                                                                     |

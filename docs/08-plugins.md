@@ -1,6 +1,6 @@
 # 08 插件层
 
-19 个已登记插件包 + 2 个预设。全部通过 `manifest.contributes` 声明入口，宿主与预设不认识任何一个具体插件。
+20 个已登记插件包 + 2 个预设。全部通过 `manifest.contributes` 声明入口，宿主与预设不认识任何一个具体插件。
 
 ## 1. 装配路径回顾
 
@@ -22,25 +22,25 @@ preset-designer（应用级，静态 import 9 个服务插件）
 
 ### `@lc/preset-canvas`
 
-`packages/presets/preset-canvas/src/index.ts:14-51`：
+`packages/presets/preset-canvas/src/index.ts:11-60`：
 
 ```ts
 inject: ['canvas', 'contribution', 'modules']
-// apply（async）
+// apply 直接返回 installCanvasFeatures 的 Promise
 contribution.list('canvasFeatures')
-  .filter(item => item.value.defaultEnabled !== false)      // :24
-  .sort((a, b) => (a.value.order ?? 0) - (b.value.order ?? 0)) // :25
+  .filter(item => item.value.defaultEnabled !== false)      // :17
+  .sort((a, b) => (a.value.order ?? 0) - (b.value.order ?? 0)) // :18
 for (const feature of features)
-  module = await modules.load(moduleKey(feature.plugin, feature.value.module))  // :29
-  if (!module.default) → 诊断 + continue                    // :32-38
-  ctx.plugin(module.default, feature.value.config)          // :41
+  module = await modules.load(moduleKey(feature.plugin, feature.value.module))  // :22
+  if (!module.default) → 诊断 + continue                    // :25-31
+  ctx.plugin(module.default, feature.value.config)          // :34
 ```
 
-三条要点：**每个 CanvasRealm 独立实例**（注释 `:40`：实例注册关系挂在画布上，文档关闭自动卸载）；配置来自 manifest 的 `config` 字段；单个能力失败不影响其余。
+三条要点：**每个 CanvasRealm 独立实例**（注释 `:33`：实例注册关系挂在画布上，文档关闭自动卸载）；配置来自 manifest 的 `config` 字段；单个能力失败不影响其余。
 
 `@lc/preset-canvas` 的依赖只有 `contracts` 与 `kernel`，**不认识任何画布插件**——这是「新增画布能力不需要改宿主」的结构保证。
 
-## 3. 业务插件（4 个）
+## 3. 业务插件（5 个）
 
 | 包                            | manifest.name      | 贡献点      | 条目 | 关键属性                                                                                                                           |
 | ----------------------------- | ------------------ | ----------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -48,8 +48,9 @@ for (const feature of features)
 | `@lc/plugin-panel-outline`    | `panel-outline`    | `panels`    | 1    | slot `designer.leftPanel`、`order: 10`、`activationEvents: ['onPanel:outline']`                                                    |
 | `@lc/plugin-panel-materials`  | `panel-materials`  | `panels`    | 1    | slot `designer.leftPanel`、`order: 20`、`onPanel:materials`                                                                        |
 | `@lc/plugin-panel-properties` | `panel-properties` | `panels`    | 1    | slot `designer.rightPanel`、`order: 10`、`onPanel:properties`                                                                      |
+| `@lc/plugin-panel-eventflow`  | `panel-eventflow`  | `panels`    | 1    | slot `designer.bottomPanel`、`order: 10`、`onPanel:eventflow`（`plugin-panel-eventflow/src/manifest.ts:3-22`）                     |
 
-左槽最终顺序：大纲在前、物料在后（`order` 10 < 20）。
+左槽最终顺序：大纲在前、物料在后（`order` 10 < 20）；底槽只有事件流一个贡献者。
 
 ### 3.1 `materials-basic`：四个物料
 

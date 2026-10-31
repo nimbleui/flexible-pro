@@ -5,7 +5,8 @@
 ```text
 new-cordis/
 ├─ apps/
-│  └─ designer/                 唯一可运行应用：设计器宿主（Vue 3 + Vite）
+│  ├─ host/                   主应用（MF Host）：外壳、路由、页面列表、文档 Realm
+│  └─ designer/               画布模块（MF Remote）：只暴露 ./CanvasModule，不独立运行
 ├─ packages/
 │  ├─ kernel/                   @lc/kernel              应用插件内核（零依赖）
 │  ├─ contracts/                @lc/contracts           平台契约：manifest、贡献点、服务接口
@@ -28,7 +29,7 @@ new-cordis/
 
 ## 2. 包清单与依赖边
 
-按层级排列。「运行时依赖」为 `package.json > dependencies` 实测结果（41 个包 + 1 个应用 = 42）。
+按层级排列。「运行时依赖」为 `package.json > dependencies` 实测结果（41 个包 + 2 个应用 = 43）。两个应用之间的 Module Federation 边界见 [12](./12-module-federation.md)。
 
 ### L0 基础层（不依赖任何平台包）
 
@@ -55,7 +56,7 @@ new-cordis/
 | `@lc/vue`        | `@lc/contracts`、`@lc/kernel`、`@lc/schema`（另有 devDependency `@lc/expression`，仅渲染接线测试用） |
 | `@lc/devtools`   | `@lc/contracts`、`@lc/kernel`（`vue` 为 peer）                                                       |
 
-`@lc/expression` 放引擎层的理由：它只依赖 `@lc/schema`（语法树与求值契约都在那里），不含 Vue、DOM 与内核引用。因此运行时播放器、FlowRunner 与数据源管道可以直接引用它求值，不必拉起插件内核；把它包进 `@lc/service-expression` 的那一层只负责装配与诊断桥接（见 [07](./07-services.md)）。这也是 Worker 沙箱（设计稿 §19.4）的前置条件——纯数据进出、无全局状态，整包可以搬进独立 realm。
+`@lc/expression` 放引擎层的理由：它只依赖 `@lc/schema`（语法树与求值契约都在那里），不含 Vue、DOM 与内核引用。因此动作执行器（尚未实现）、运行时播放器与数据源管道可以直接引用它求值，不必拉起插件内核；把它包进 `@lc/service-expression` 的那一层只负责装配与诊断桥接（见 [07](./07-services.md)）。这也是 Worker 沙箱（设计稿 §19.4）的前置条件——纯数据进出、无全局状态，整包可以搬进独立 realm。
 
 `@lc/canvas` 依赖 contracts 只为拿接口类型与 `ViewportState` 等数据结构；它自己不做任何框架绑定，DOM 挂载点由宿主传入（`interaction.attach(element)`，`packages/canvas/src/interaction/pipeline.ts:428`）。
 
@@ -93,23 +94,28 @@ new-cordis/
 
 ### L5 预设与应用
 
-| 包                    | 运行时依赖                                                                        |
-| --------------------- | --------------------------------------------------------------------------------- |
-| `@lc/preset-designer` | kernel、8 个 service-*、vue                                                       |
-| `@lc/preset-canvas`   | contracts、kernel（**不依赖任何画布插件**）                                       |
-| `@lc/designer`        | kernel、contracts、schema、vue、devtools、2 presets、4 plugins、15 canvas-plugins |
+| 包                    | 运行时依赖                                                                       |
+| --------------------- | -------------------------------------------------------------------------------- |
+| `@lc/preset-designer` | kernel、8 个 service-*、vue                                                      |
+| `@lc/preset-canvas`   | contracts、kernel（**不依赖任何画布插件**）                                      |
+| `@lc/host`            | kernel、contracts、schema、vue、devtools、expression、preset-designer、4 plugins |
+| `@lc/designer`        | kernel、contracts、vue、preset-canvas、15 canvas-plugins                         |
+
+宿主不再依赖 `preset-canvas`，远程不依赖 `preset-designer`：两边只共享 `@lc/contracts` 里的类型与字符串常量，边界见 [12](./12-module-federation.md#1-拆分结果)。
 
 `preset-canvas` 没有画布插件依赖是结构上的关键约束：它只读 `contribution.list('canvasFeatures')` 并 `modules.load()`（`presets/preset-canvas/src/index.ts:22-31`），新增画布能力不需要改预设、不需要改宿主。
 
 ## 3. 分层规则
 
 ```text
-apps/designer
-   ↓
-presets ──→ plugins / canvas-plugins ──→ services
-   ↓                                        ↓
-        vue（宿主适配）                  canvas（画布内核）
-   ↓                                        ↓
+apps/host ────MF────→ apps/designer
+   ↓                        ↓
+preset-designer        preset-canvas
+   ↓                        ↓
+     plugins / canvas-plugins ──→ services
+   ↓                        ↓
+        vue（宿主适配）    canvas（画布内核）
+   ↓                        ↓
               contracts（唯一的公共契约面）
                         ↓
         kernel ────────┼──────── schema
@@ -127,7 +133,7 @@ presets ──→ plugins / canvas-plugins ──→ services
 
 ### 包解析：源码级 workspace，无构建产物
 
-- 依赖一律写成 `"workspace:*"`（`apps/designer/package.json:11-38`）。
+- 依赖一律写成 `"workspace:*"`（`apps/host/package.json:13-25`、`apps/designer/package.json:11-31`）。
 - 每个包的 `exports` **直接指向 `.ts` 源码**（例：`packages/vue/package.json:6-13`），没有 `dist`、没有预构建步骤。`plugin-materials-basic/package.json:8-17` 额外暴露 `./manifest` 子路径，供宿主在启动期只引清单不引实现。
 - 结果：改任何包立即在 `pnpm dev` 中生效；代价是宿主 Vite 需要能编译全部 workspace 源码（本仓库确实如此，见下）。
 
@@ -139,7 +145,7 @@ presets ──→ plugins / canvas-plugins ──→ services
 
 ### Vite
 
-`apps/designer/vite.config.ts:5-12` 极简：只有 `@vitejs/plugin-vue`、`resolve.dedupe: ['vue']`、`server.port 5173`，**没有任何 alias**。`dedupe` 是必要的：多个 workspace 包各自声明 vue 依赖时，单例被破坏会导致 `provide/inject` 失效。
+两个应用都是 `@vitejs/plugin-vue` + `resolve.dedupe: ['vue']` + `@module-federation/vite` 的 `federation()`，**没有任何 alias**。`dedupe` 与 MF 的 `shared.vue: { singleton: true, eager: true }` 是同一件事的两道保险：多个 workspace 包各自声明 vue 依赖、或宿主与远程各带一份 Vue 时，单例被破坏会导致 `provide/inject` 与远程 vnode 渲染同时失效。宿主按 `VITE_DESIGNER_ENTRY` 解析远程地址，默认 `http://<本机第一个非回环 IPv4>:5174/remoteEntry.js`（`apps/host/vite.config.ts:16-29`）：dev/preview 监听 `0.0.0.0`，地址不能写 localhost，否则非本机浏览器会把 localhost 解析到自己。多网卡用 `LC_DEV_HOST` 指定。差异与必需项见 [12](./12-module-federation.md#6-运行与部署)。
 
 ### 测试
 
@@ -150,12 +156,14 @@ presets ──→ plugins / canvas-plugins ──→ services
 
 ### 质量闸门
 
-| 命令                             | 实际执行                            |
-| -------------------------------- | ----------------------------------- |
-| `pnpm dev` / `build` / `preview` | `pnpm --filter @lc/designer …`      |
-| `pnpm typecheck`                 | `vue-tsc --noEmit -p tsconfig.json` |
-| `pnpm test`                      | `vitest run`                        |
-| `pnpm format` / `format:check`   | prettier（配置见 `.prettierrc`）    |
+| 命令                           | 实际执行                                                      |
+| ------------------------------ | ------------------------------------------------------------- |
+| `pnpm dev`                     | `pnpm --parallel --filter @lc/host --filter @lc/designer dev` |
+| `pnpm build`                   | 先 `--filter @lc/designer build` 再 `--filter @lc/host build` |
+| `pnpm preview`                 | 两个应用并行 `vite preview`                                   |
+| `pnpm typecheck`               | `vue-tsc --noEmit -p tsconfig.json`                           |
+| `pnpm test`                    | `vitest run`                                                  |
+| `pnpm format` / `format:check` | prettier（配置见 `.prettierrc`）                              |
 
 ### 文件规模（实测）
 
@@ -171,7 +179,8 @@ presets ──→ plugins / canvas-plugins ──→ services
 | packages/plugins        | 11       | 0          |
 | packages/canvas-plugins | 53       | 9          |
 | packages/presets        | 2        | 0          |
-| apps/designer           | 9        | 0          |
+| apps/host               | 15       | 0          |
+| apps/designer           | 2        | 0          |
 
 平台核心（kernel + contracts + schema + shared + canvas + vue）共 79 个 src 文件；服务与插件共 79 个。规模最大的文件依次是 `packages/canvas/src/interaction/pipeline.ts`（704 行）、`plugin-panel-outline/src/OutlinePanel.vue`（472）、`packages/schema/src/tree.ts`（465）、`packages/kernel/src/context.ts`（441）、`plugin-panel-properties/src/PropertiesPanel.vue`（435）。服务包中最长为 `service-loader/src/index.ts`（356 行）。
 

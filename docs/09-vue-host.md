@@ -1,6 +1,6 @@
 # 09 Vue 宿主与渲染
 
-`@lc/vue`（10 个源文件）是**唯一持有 Vue 运行时的平台包**；`@lc/designer`（9 个源文件）是产品外壳。分工遵循 `Core → Framework Adapter → Component` 的边界：内核与画布内核不含任何 `ref/computed/onMounted`。
+`@lc/vue`（10 个源文件）是**唯一持有 Vue 运行时的平台包**；`@lc/host`（apps/host）是产品外壳，`@lc/designer`（apps/designer）是只出画布的远程模块。分工遵循 `Core → Framework Adapter → Component` 的边界：内核与画布内核不含任何 `ref/computed/onMounted`。
 
 ## 1. `@lc/vue` 导出面
 
@@ -12,18 +12,18 @@
 | 组件     | `LcSlot`、`ContextScope`、`PluginBoundary`、`CanvasStage`、`LayerHost`           |
 | 服务插件 | `rendererPlugin`（插件名 `service-renderer`）                                    |
 
-`package.json:19-21` 用 `peerDependencies` 声明 `vue ^3.5`，配合宿主 `resolve.dedupe: ['vue']`（`apps/designer/vite.config.ts:5-12`）保证 Vue 单例——多实例会直接击穿 `provide/inject`。
+`package.json:19-21` 用 `peerDependencies` 声明 `vue ^3.5`，配合两个应用的 `resolve.dedupe: ['vue']`（`apps/host/vite.config.ts:34-37`、`apps/designer/vite.config.ts:31-33`）与 MF `shared.vue: { singleton: true, eager: true }` 保证 Vue 单例——多实例会直接击穿 `provide/inject`，并让远程组件的 vnode 在宿主应用里渲染失败。
 
 ## 2. Context 桥接
 
 ### `LC_CONTEXT` 与两级注入
 
-`packages/vue/src/context.ts:7`：`const LC_CONTEXT: InjectionKey<Context> = Symbol('lc-context')`。
+`packages/vue/src/context.ts:12`：`const LC_CONTEXT: InjectionKey<Context> = Symbol.for('lc-context')`。必须是 `Symbol.for`：宿主与远程各打包一份 `@lc/vue`，`Symbol()` 产生的两个键互不相等，远程侧的画布覆盖层组件就注入不到上下文（详见 [12](./12-module-federation.md#3-画布能力如何跨边界进宿主内核)）。
 
 - `provideContext(app, context)`（`:14-16`）**只在应用根调用一次**，注入的是 AppContext。
 - `ContextScope.vue:6-16` 用**组件级 `provide`** 再注入一层。注释点明关键理由：「同一应用里可以按子树注入不同的 Realm，嵌套时子组件取到的是最近一层（画布作用域会再注入一次）」。
 
-所以 `App.vue:23` 的 `<ContextScope :context="editorContext">` 之下的面板调用 `useAppContext()`（`:19-25`，**未注入即抛错，不静默返回 undefined**）拿到的是 **EditorRealm 上下文**，于是 `ctx.get('document')` 才成立。这是多 Realm 支持的落地方式，而不是靠约定「只有一个编辑器」。
+所以 `views/DesignerView.vue:81` 的 `<ContextScope :context="editor.context">` 之下的面板调用 `useAppContext()`（`:19-25`，**未注入即抛错，不静默返回 undefined**）拿到的是 **EditorRealm 上下文**，于是 `ctx.get('document')` 才成立。这是多 Realm 支持的落地方式，而不是靠约定「只有一个编辑器」。
 
 ### `useService` / `useRegistryList`
 
@@ -198,24 +198,34 @@ element.focus()                     // :259 键盘挂在舞台上
 
 ### 布局
 
-`apps/designer/src/App.vue`：
+外壳拆成两个文件：`apps/host/src/App.vue`（34 行）只放跨路由的壳，`apps/host/src/views/DesignerView.vue`（124 行）放一个文档的设计器界面。
 
 ```text
-ContextScope(editorContext)                       :23
+apps/host/src/App.vue                                   外壳
 └ .lc-app
-  ├ header.lc-app__header                          :25-35
-  │   brand（LC / LowCode Studio / 插件化设计器徽章）:26-30
-  │   ToolbarStock                                  :31
-  │   button「命令 ⌘K」→ appCtx.emit('palette:toggle') :17-19、:32-34
-  ├ main.lc-app__body                              :37-57
-  │   aside.lc-app__panel      > LcSlot name="designer.leftPanel"   :38-45
-  │   CanvasStage(:context="canvasContext")                         :47
-  │   aside.lc-app__panel--right > LcSlot name="designer.rightPanel" :49-56
-  ├ StatusBar(:canvas-context)                     :59
-  └ CommandPalette                                 :60
+  ├ header.lc-app__header                               :15-29
+  │   brand（LC / LowCode Studio / 微前端宿主徽章）      :16-20
+  │   nav > RouterLink「页面」                           :22-24
+  │   button「命令 ⌘K」→ appCtx.emit('palette:toggle')   :8-10、:26-28
+  └ RouterView :key="route.path"                        :32   换文档即整页重建
+
+apps/host/src/views/DesignerView.vue                    设计器视图
+<div v-if="!ready" .lc-designer__loading>               :79   就绪门，见 12 号文档 §5
+ContextScope(editor.context)                            :81
+└ .lc-designer
+  ├ .lc-designer__toolbar > ToolbarStock + 开发者工具按钮 :83-93
+  ├ main.lc-app__body                                    :95-123
+  │   aside.lc-app__panel > LcSlot name="designer.leftPanel"    :96-103
+  │   <CanvasModule :app-context :canvas-context>               :105  远程画布（内部渲染 CanvasStage）
+  │   aside--right > LcSlot name="designer.rightPanel"          :107-114
+  │   LcDevtools(v-if)                                          :116-122
+  ├ StatusBar(:canvas-context)                            :125
+  └ CommandPalette                                        :129
 ```
 
-**当前没有活动栏（activity bar）**：面板直接堆在左 240px / 右 280px 的 `aside` 里（`apps/designer/src/styles/app.css:126`/`:134`/`:149`），每个 `aside` 顶部只有一个静态标题「面板」/「属性」。插槽为空时用 `#empty` 具名插槽显示「暂无面板贡献」。
+宿主侧不再直接引用 `CanvasStage`：舞台由远程模块 `apps/designer/src/CanvasModule.vue:40` 渲染，`CanvasStage` / `LayerHost` 仍是 `@lc/vue` 的导出，只是消费者换成了远程包。
+
+**当前没有活动栏（activity bar）**：面板直接堆在左 240px / 右 280px 的 `aside` 里（`apps/host/src/styles/app.css:127`/`:135`/`:150`），每个 `aside` 顶部只有一个静态标题「面板」/「属性」。插槽为空时用 `#empty` 具名插槽显示「暂无面板贡献」。
 
 ### 三个宿主组件
 
@@ -225,16 +235,16 @@ ContextScope(editorContext)                       :23
 | `StatusBar.vue`      | `canvas.viewport.state.zoom`、`selection.ids.length`、`document.model.dirty`（`:20-21`、`:56-69`）、`history.canUndo/canRedo`（`:71-78`） | setup 阶段同步订阅（`:26-35`，原因见上）；显示 `已同步/未保存`、`选中 N/未选中`、缩放百分比；**底部两个撤销/重做按钮用 `:disabled="!canUndo"` 表达可用性**（`:91-100`）——这是宿主里唯一直接操作历史的 UI 入口                |
 | `CommandPalette.vue` | `ctx.command.list()` + `ctx.keybinding.keyFor(id)`（`:61-79`）                                                                            | 订阅 `palette:toggle` 做开/合（`:27`）；查询词小写匹配 `title` 或 `id`（`:66-72`）；`watch(items)` 变化时把 `activeIndex` 归 0（`:81-83`）；打开时 `nextTick` 聚焦输入框（`:21-23`）；执行前关闭面板（`:85-88`）             |
 
-命令面板是**应用级**能力，所以它的命令注册在 `bootstrap.ts:120-129` 而不是某个插件里；`Mod+K` 快捷键同样应用级。
+命令面板是**应用级**能力，所以它的命令注册在 `apps/host/src/bootstrap.ts:83-92` 而不是某个插件里；`Mod+K` 快捷键同样应用级。面板组件本身渲染在设计器视图的编辑器作用域内（`views/DesignerView.vue:129`），因为要用文档级服务。
 
 ### 演示文档
 
-`apps/designer/src/demo-document.ts:13-40+`：`createDemoSchema()` 返回 `version: SCHEMA_VERSION`、`nodeId: 'board'`、根 `Box` 820×540，`children: ['title','subtitle','cards','circle','badge','watermark','note']`。头注释说明它刻意包含**一个分组、一个锁定节点、一个隐藏节点**，并埋了深链 `board → cards → cardB → cardBList → 文本`，用来验证变换类手势作用在容器上时是否连带整棵子树。
+`apps/host/src/demo-document.ts:13-40+`：`createDemoSchema()` 返回 `version: SCHEMA_VERSION`、`nodeId: 'board'`、根 `Box` 820×540，`children: ['title','subtitle','cards','circle','badge','watermark','note']`。头注释说明它刻意包含**一个分组、一个锁定节点、一个隐藏节点**，并埋了深链 `board → cards → cardB → cardBList → 文本`，用来验证变换类手势作用在容器上时是否连带整棵子树。`apps/host/src/pages.ts` 把它和一份只含根容器的空白页组成页面列表，路由按 `documentId` 取用。
 
 ### 样式
 
-- 设计令牌：`apps/designer/src/styles/tokens.css:4-24` 共 **18 个 `--lc-*` 变量**（画布底色、surface、border、text、accent、danger、radius、guide、handle、grid line、shadow、font）。头注释即规则：「外壳与覆盖层只消费语义变量，不硬编码主题色」。
-- 布局样式：`apps/designer/src/styles/app.css`（232 行）定义 `.lc-app*`、`.lc-toolbar*`、`.lc-status*` 等宿主类。
+- 设计令牌：`apps/host/src/styles/tokens.css:4-24` 共 **18 个 `--lc-*` 变量**（画布底色、surface、border、text、accent、danger、radius、guide、handle、grid line、shadow、font）。头注释即规则：「外壳与覆盖层只消费语义变量，不硬编码主题色」。令牌由宿主提供，远程画布只读变量——换一个宿主复用画布时必须自带同一套令牌。
+- 布局样式：`apps/host/src/styles/app.css`（392 行）定义 `.lc-app*`、`.lc-app__nav*`、`.lc-designer*`、`.lc-pages*`、`.lc-toolbar*`、`.lc-status*` 等宿主类。
 - **每个可复用组件都带 `<style scoped>`**：`CanvasStage.vue:290`、`LayerHost.vue:204`、`PluginBoundary.vue:46`、`Slot.vue:139`、`CommandPalette.vue:144`、`OutlinePanel.vue:335`、`PropertiesPanel.vue:353`。`ToolbarStock.vue`/`StatusBar.vue`/`App.vue` 无 style 块，走全局 `app.css`——它们本来就是宿主壳层。
 - **画布覆盖层是 `.ts` 渲染函数，用内联 `style` 对象 + CSS 变量兜底**：例 `canvas-selection/src/overlay.ts:107-118` 的 `border: 1px solid var(--lc-accent, #2563eb)`、`canvas-grid/src/overlay.ts:58-60` 的 `var(--lc-grid-line, rgba(15,23,42,0.08))`。这样插件在没有宿主持色文件时仍能自洽显示。一处不一致：hover 描边硬编码 `rgba(37, 99, 235, 0.55)`（`canvas-selection/src/overlay.ts:95`）未走变量。
 - 没有 `prefers-reduced-motion` / `prefers-color-scheme` 适配（两个样式文件里均无），深色模式与动效降级属于未做项。

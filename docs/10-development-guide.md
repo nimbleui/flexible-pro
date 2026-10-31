@@ -12,13 +12,23 @@
 
 ```bash
 pnpm install
-pnpm dev            # pnpm --filter @lc/designer dev → http://localhost:5173
+pnpm dev            # 并行拉起 @lc/host(5173) 与 @lc/designer(5174)，绑 0.0.0.0
+                    # 本机 http://localhost:5173，局域网 http://<本机 IPv4>:5173
+pnpm dev:host       # 只起主应用；此时画布区域显示「画布模块不可用」提示
+pnpm dev:canvas     # 只起画布远程模块（无独立页面，只能被宿主取模块）
+pnpm build          # 先 build 远程，再 build 宿主；生产必须带 VITE_DESIGNER_ENTRY
+pnpm preview        # 两个应用并行 vite preview，同样绑 0.0.0.0
 pnpm typecheck      # vue-tsc --noEmit -p tsconfig.json（全仓）
 pnpm test           # vitest run
 pnpm test:watch
 pnpm format         # prettier --write .
 pnpm format:check
 ```
+
+| 变量                  | 作用期 | 说明                                                                                       | 出处                             |
+| --------------------- | ------ | ------------------------------------------------------------------------------------------ | -------------------------------- |
+| `LC_DEV_HOST`         | 运行期 | 多网卡时指定 dev 用哪个 IP 作为远程地址基准（默认取第一个非回环 IPv4）；改了要重启 dev     | `apps/host/vite.config.ts:16-27` |
+| `VITE_DESIGNER_ENTRY` | 构建期 | 宿主里远程 `remoteEntry.js` 的地址；**不设置就把构建机的 IP 烧进产物**，生产部署必须显式给 | `apps/host/vite.config.ts:28-29` |
 
 没有 lint（仓库未配置 ESLint），质量闸门是 **prettier + vue-tsc + vitest** 三件。
 
@@ -166,7 +176,7 @@ const rows = computed(() => {
 
 写回只有一个入口：`document.apply(patches, { record: true, label })`，**不允许直接改 `document.model.schema`**。
 
-`activationEvents` 必须写 `onPanel:<panelId>`，否则 `Slot.vue:95` 的懒激活不会触发；`slot` 只能取 `SLOT` 里的四个值之一（`packages/contracts/src/slots.ts:7-16`）。
+`activationEvents` 必须写 `onPanel:<panelId>`，否则 `Slot.vue:95` 的懒激活不会触发；`slot` 只能取 `SLOT` 里的五个值之一（`packages/contracts/src/slots.ts:7-23`）。
 
 ## 4. 加一个物料包
 
@@ -201,13 +211,13 @@ export default { components }
 
 ## 5. 扩展平台契约（**有摩擦，是故意的**）
 
-| 要加的东西  | 必须同时改的位置                                                                                                                                                                                                  |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 服务名      | `Context` 接口（`contracts/src/contexts.ts:25-58`）+ `SERVICE_NAMES`（`:99-115`）+ 若属内核语义则加 `RESERVED_SERVICES`（`kernel/src/context.ts:67-92`）+ 宿主 `GRANTS`（`apps/designer/src/bootstrap.ts:41-54`） |
-| 业务事件    | 只允许改 `contracts/src/events.ts`（头注释禁止插件自行 `declare module`）                                                                                                                                         |
-| 宿主插槽    | 先加 `SLOT` 常量 → 再加宿主渲染点 → 才允许插件声明（`contracts/src/slots.ts:3-6`）                                                                                                                                |
-| 贡献点      | 加 `ContributionValueMap` 条目 + 消费方；若该贡献带模块，还要检查 `collectModules`（`service-loader/src/index.ts:165-174`）是否覆盖到新的点                                                                       |
-| `LayerBand` | 契约联合类型 + `BAND_ORDER` **两处必须同时改**，否则 sort 得到 NaN（`canvas/src/layers.ts:4-19`）                                                                                                                 |
+| 要加的东西  | 必须同时改的位置                                                                                                                                                                                                                                                                       |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 服务名      | `Context` 接口（`contracts/src/contexts.ts:25-58`）+ `SERVICE_NAMES`（`:99-115`）+ 若属内核语义则加 `RESERVED_SERVICES`（`kernel/src/context.ts:67-92`）+ 宿主 `GRANTS`（`apps/host/src/bootstrap.ts:28-40`）；画布插件的授权由远程自签（`apps/designer/src/canvas-plugins.ts:49-52`） |
+| 业务事件    | 只允许改 `contracts/src/events.ts`（头注释禁止插件自行 `declare module`）                                                                                                                                                                                                              |
+| 宿主插槽    | 先加 `SLOT` 常量 → 再加宿主渲染点 → 才允许插件声明（`contracts/src/slots.ts:3-6`）                                                                                                                                                                                                     |
+| 贡献点      | 加 `ContributionValueMap` 条目 + 消费方；若该贡献带模块，还要检查 `collectModules`（`service-loader/src/index.ts:165-174`）是否覆盖到新的点                                                                                                                                            |
+| `LayerBand` | 契约联合类型 + `BAND_ORDER` **两处必须同时改**，否则 sort 得到 NaN（`canvas/src/layers.ts:4-19`）                                                                                                                                                                                      |
 
 ## 6. 编码规范（本项目实际遵循的）
 
@@ -231,15 +241,17 @@ export default { components }
 ## 8. 调试
 
 ```js
-// 非 production 构建下可用（bootstrap.ts:132-134）
-__lc.context // AppContext
-__lc.editor.context // EditorContext（含 document / history / selection）
-__lc.canvas.context // CanvasContext（含 canvas）
-__lc.context.diagnostics.list() // 最近 200 条诊断
-__lc.context.command.list() // 30 条命令
-__lc.context.contribution.list('canvasFeatures') // 装配了什么
-__lc.editor.context.document.model // { version, dirty, schema }
+// 非 production 构建下可用（apps/host/src/bootstrap.ts:95-97）
+__lc.context // AppContext（宿主根上下文）
+__lc.canvas // 当前活动 CanvasRealm，随路由切换写入/清空；未进设计器时 undefined
+__lc.context.workspace.listEditors() // 已打开的 EditorRealm 列表
+__lc.context.workspace.getEditor('demo-doc').context // EditorContext（含 document / history / selection）
 __lc.canvas.context.canvas.viewport.state // { x, y, zoom, rotation }
+__lc.canvas.context.document.model // { version, dirty, schema }
+__lc.context.diagnostics.list() // 最近 200 条诊断
+__lc.context.command.list() // 命令表
+__lc.context.loader.scan() // 20 个包 = 宿主侧 5 个 + 远程画布 15 个
+__lc.context.contribution.list('canvasFeatures') // 画布能力装配了什么
 ```
 
 **面板优先于控制台**：设计器头部「开发者工具」按钮打开 `@lc/devtools`（覆盖式抽屉，不挤压画布）。七个标签页——插件树、服务表、依赖图、事件日志、配置、诊断、画布——数据来自内核观测面（[04 §13](./04-plugin-kernel.md#13-观测面devtools-与错误面板用)），动作只有重试（`pending`/`failed`）、卸载、清空日志。`pending` 先看依赖图（缺哪个服务、候选提供者是谁、有没有环），`failed` 看插件树上的错误行与 `attempts`；事件日志能看出「事件发了但没人监听」（`listenerCount = 0`）与超过单帧预算（16ms）的监听器。接入与边界见 [11](./11-devtools.md)。
@@ -261,16 +273,16 @@ __lc.canvas.context.canvas.viewport.state // { x, y, zoom, rotation }
 
 ### 9.1 设计稿有、代码无
 
-| 项                                                                           | 现状                                                                                                                        |
-| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| 租户/权限/审计/审批、插件市场与签名校验、`iframe`/`worker`/`server` 执行隔离 | 仅有契约字段（`manifest.certification` / `executionProfile` / `uiReview` / `permissions`），**无实现**                      |
-| 控制面签发 `ServiceGrant`、`engines.lowcode` 版本比较                        | GRANTS 由 `bootstrap.ts` 手工预置；`engines.lowcode` 只校验存在性                                                           |
-| Vite 插件扫描 `package.json.lowcode` 生成 `virtual:lowcode-plugins`          | `BUILTIN_PACKAGES` 手工数组（`bootstrap.ts:57-77`）                                                                         |
-| `canvasProfiles` 贡献点                                                      | 契约完整（`canvas-contributions.ts:343-361`），**无贡献者、无消费方**                                                       |
-| 设置持久化与 `lockable` 策略锁定                                             | `settings.ts` 单层内存；`scope` 字段只登记不使用                                                                            |
-| 面板 `when` 条件求值                                                         | 字段保留，宿主注释已声明「骨架阶段暂未求值」（`contribution.ts:28-29`）                                                     |
-| 表达式/数据源/生命周期/Flow/事件的运行时执行                                 | 设计态求值只有 props/condition/loop/directives；`datasources`、`lifecycles`、`functions`、`events`、`flow` **只随文档存取** |
-| `migrateDocument` 接入                                                       | 函数与环检测已实现，无调用点                                                                                                |
+| 项                                                                           | 现状                                                                                                                                                                                                                    |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 租户/权限/审计/审批、插件市场与签名校验、`iframe`/`worker`/`server` 执行隔离 | 仅有契约字段（`manifest.certification` / `executionProfile` / `uiReview` / `permissions`），**无实现**                                                                                                                  |
+| 控制面签发 `ServiceGrant`、`engines.lowcode` 版本比较                        | GRANTS 由 `bootstrap.ts` 手工预置；`engines.lowcode` 只校验存在性                                                                                                                                                       |
+| Vite 插件扫描 `package.json.lowcode` 生成 `virtual:lowcode-plugins`          | `BUILTIN_PACKAGES` 手工数组（`bootstrap.ts:57-77`）                                                                                                                                                                     |
+| `canvasProfiles` 贡献点                                                      | 契约完整（`canvas-contributions.ts:343-361`），**无贡献者、无消费方**                                                                                                                                                   |
+| 设置持久化与 `lockable` 策略锁定                                             | `settings.ts` 单层内存；`scope` 字段只登记不使用                                                                                                                                                                        |
+| 面板 `when` 条件求值                                                         | 字段保留，宿主注释已声明「骨架阶段暂未求值」（`contribution.ts:28-29`）                                                                                                                                                 |
+| 表达式/数据源/生命周期/事件动作的运行时执行                                  | 设计态求值只有 props/condition/loop/directives；`datasources`、`lifecycles`、`functions`、`events` **只随文档存取**；事件连接 + 动作链有设计态编辑器（底部停靠面板 `@lc/plugin-panel-eventflow`），但**没有动作执行器** |
+| `migrateDocument` 接入                                                       | 函数与环检测已实现，无调用点                                                                                                                                                                                            |
 
 ### 9.2 实现与注释/契约不一致
 

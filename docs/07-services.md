@@ -136,7 +136,7 @@ notify()           // version += 1
 
 ## `expression` — 求值服务（装配层）
 
-语言实现已移出本插件，在 `packages/expression`（词法 / 语法 / 求值 / 白名单方法表 / 函数注册表 / 缓存 / 三重预算）。本插件只剩三件事：读配置、把诊断桥到 `ctx.diagnostics`、注册服务。分成两层的原因是运行时播放器与 FlowRunner 不需要插件内核也能求值。
+语言实现已移出本插件，在 `packages/expression`（词法 / 语法 / 求值 / 白名单方法表 / 函数注册表 / 缓存 / 三重预算）。本插件只剩三件事：读配置、把诊断桥到 `ctx.diagnostics`、注册服务。分成两层的原因是动作执行器与运行时播放器不需要插件内核也能求值。
 
 `packages/services/service-expression/src/index.ts`
 
