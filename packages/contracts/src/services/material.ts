@@ -22,6 +22,13 @@ export interface MaterialContribution {
   module: string
   /** 拖入画布时生成的默认节点；缺省由 props 默认值生成 */
   snippet?: NodeSchema
+  /**
+   * 点击时执行的命令 id。
+   *
+   * 设置后该条目是「打开编辑器 UI」的入口而不是画布节点：面板不发起拖拽，
+   * 点击直接交给命令服务。适用于自定义函数这类无需在画布上占位的物料。
+   */
+  clickCommand?: string
   /** 是否可作为容器接收子节点 */
   container?: boolean
   /** 允许的父物料；空表示不限制 */

@@ -1,5 +1,5 @@
 import { defineComponent, h, onMounted, onUnmounted, ref } from 'vue'
-import type { MaterialEntry, MaterialService } from '@lc/contracts'
+import type { CommandService, MaterialEntry, MaterialService } from '@lc/contracts'
 import { toMaterialDragType } from '@lc/contracts'
 import { useAppContext } from '@lc/vue'
 
@@ -20,6 +20,7 @@ export default defineComponent({
   setup() {
     const ctx = useAppContext()
     const material = ctx.get<MaterialService>('material')
+    const command = ctx.get<CommandService>('command')
     const version = ref(0)
     let off: { dispose(): void } | null = null
 
@@ -48,10 +49,20 @@ export default defineComponent({
     }
 
     function onDragStart(event: DragEvent, entry: MaterialEntry): void {
+      // 命令型物料是编辑器入口而不是画布节点，不允许拖出幽灵节点
+      if (entry.clickCommand) {
+        event.preventDefault()
+        return
+      }
       if (!event.dataTransfer) return
       event.dataTransfer.setData(toMaterialDragType(entry.name), entry.name)
       event.dataTransfer.setData('text/plain', entry.name)
       event.dataTransfer.effectAllowed = 'copy'
+    }
+
+    function onClick(entry: MaterialEntry): void {
+      if (!entry.clickCommand || !command) return
+      void command.execute(entry.clickCommand)
     }
 
     return () => {
@@ -84,9 +95,10 @@ export default defineComponent({
                       key: entry.name,
                       type: 'button',
                       class: 'lc-materials__item',
-                      draggable: true,
-                      title: entry.title,
+                      draggable: entry.clickCommand === undefined,
+                      title: entry.clickCommand ? `${entry.title}（点击打开）` : entry.title,
                       'data-material': entry.name,
+                      onClick: () => onClick(entry),
                       onDragstart: (event: DragEvent) => onDragStart(event, entry),
                       style: {
                         display: 'flex',
@@ -98,7 +110,7 @@ export default defineComponent({
                         background: 'var(--lc-surface, #fff)',
                         color: 'var(--lc-text, #0f172a)',
                         fontSize: '12px',
-                        cursor: 'grab',
+                        cursor: entry.clickCommand ? 'pointer' : 'grab',
                         textAlign: 'left',
                       },
                     },

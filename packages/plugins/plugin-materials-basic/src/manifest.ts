@@ -78,6 +78,17 @@ export const manifest: PluginManifest = {
         },
       },
       {
+        // 纯入口物料：不生成画布节点，点击命令打开页面函数弹框
+        name: 'CustomFunction',
+        title: '自定义函数',
+        category: '功能',
+        icon: 'function',
+        props: { type: 'object', properties: {} },
+        module: './src/index.ts',
+        clickCommand: 'pageFunction.openDialog',
+        priority: 10,
+      },
+      {
         // 组合命令产出的节点类型；同时提供空白分组，方便手工往里放节点
         name: 'Group',
         title: '分组',

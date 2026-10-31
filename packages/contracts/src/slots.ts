@@ -11,6 +11,13 @@ export const SLOT = {
   designerRightPanel: 'designer.rightPanel',
   /** 设计器顶部工具栏 */
   designerToolbar: 'designer.toolbar',
+  /**
+   * 设计器底部停靠面板（事件流、数据绑定、代码）
+   *
+   * 事件流是「页面/节点事件 → 动作序列」的编辑面，与左侧面板并列而不是它的一个页签：
+   * 两者经常需要同时可见（左边选节点、下边配事件），互相挤占高度会让这个组合无法成立。
+   */
+  designerBottomPanel: 'designer.bottomPanel',
   /** 设计器底部状态栏 */
   designerStatusBar: 'designer.statusBar',
 } as const
