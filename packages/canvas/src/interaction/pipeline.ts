@@ -691,7 +691,9 @@ export function createInteractionPipeline(
 }
 
 /** 取按下时解析到的命中信息；避免把 screen/delta 重复展开到新事件上。 */
-function downTarget(value: { targetNodeId?: string; targetHandleId?: string } | null): {
+function downTarget(
+  value: { targetNodeId?: string; targetHandleId?: string } | null,
+): {
   targetNodeId?: string
   targetHandleId?: string
 } {
