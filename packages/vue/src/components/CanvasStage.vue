@@ -15,12 +15,14 @@ import type {
   CanvasContext,
   CanvasDropPayload,
   CanvasService,
+  DataSourceService,
   DocumentService,
   Point,
   RendererService,
 } from '@lc/contracts'
 import { CANVAS_DROP_PREVIEW_SETTING, materialNameFromDragTypes } from '@lc/contracts'
 import type { ExpressionEngine } from '@lc/schema'
+import { buildPageData } from '@lc/schema'
 import { buildRenderTree } from '../render/tree'
 import type { RenderNode } from '../render/tree'
 import LayerHost from './LayerHost.vue'
@@ -28,12 +30,19 @@ import LayerHost from './LayerHost.vue'
 const props = defineProps<{
   /** 画布 Realm 上下文；document / selection / canvas 均在作用域内 */
   context: CanvasContext
+  /**
+   * 宿主注入的额外表达式作用域，例如 `$route` / `$params` / `$query`。
+   *
+   * 页面自身的 `data` 与 `page` 由本组件按 schema 装配，不能被宿主覆盖。
+   */
+  scope?: Record<string, unknown>
 }>()
 
 const canvas = props.context.require<CanvasService>('canvas')
 const document = props.context.require<DocumentService>('document')
 const renderer = props.context.require<RendererService>('renderer')
 const expression = props.context.require<ExpressionEngine>('expression')
+const dataSource = props.context.get<DataSourceService>('dataSource')
 
 const rootRef = ref<HTMLElement | null>(null)
 
@@ -44,20 +53,31 @@ const matrix = shallowRef('matrix(1, 0, 0, 1, 0, 0)')
 // 文档服务不是响应式源，用自增计数把 onDidChange 桥接成 Vue 依赖
 const docVersion = ref(0)
 
+// 数据源状态同样不是响应式源；loading/error/loaded 变化需要触发重渲染
+const dataVersion = ref(0)
+
 const components = reactive(new Map<string, Component | null>())
 
 // 只做并发去重，不参与渲染，因此故意不放进响应式系统
 const loading = new Set<string>()
 
-const disposables: Array<{ dispose(): void }> = []
+const disposables: Array<{
+  /** 释放该条订阅或挂载；卸载时按注册逆序调用，重复调用由注册方保证幂等 */
+  dispose(): void
+}> = []
 const rootOrigin: Point = { x: 0, y: 0 }
 
 const tree = computed<RenderNode[]>(() => {
   docVersion.value
+  dataVersion.value
   const schema = document.model.schema
   return buildRenderTree({
     schema,
-    scope: { data: {}, page: schema.metadata ?? {} },
+    scope: {
+      ...(props.scope ?? {}),
+      data: buildPageData(schema, dataSource?.states()),
+      page: schema.metadata ?? {},
+    },
     resolveValue: expression.resolveValue,
   })
 })
@@ -153,10 +173,36 @@ function refreshMatrix(): void {
   matrix.value = `matrix(${canvas.viewport.matrix.join(', ')})`
 }
 
+/**
+ * 首帧把文档摆到视口中心，缩放保持默认的 100%。
+ *
+ * 不用 `viewport.fit`：fit 会为了塞下整张画幅把 zoom 夹到下限，容器一窄就直接掉到
+ * 10%，节点文字糊成一团；需要看全貌时用户有「适应画布」命令。
+ * 尺寸未测得时不写原点，否则会把文档中心对到屏幕左上角。
+ */
+function centerRootAtCurrentZoom(): void {
+  const { width, height } = canvas.viewport.size
+  if (width === 0 || height === 0) return
+
+  const root = canvas.scene.getRootBounds()
+  const { zoom } = canvas.viewport.state
+
+  canvas.viewport.set({
+    x: root.x + root.width / 2 - width / 2 / zoom,
+    y: root.y + root.height / 2 - height / 2 / zoom,
+  })
+}
+
 function dragMaterialName(event: DragEvent): string | null {
   return materialNameFromDragTypes(event.dataTransfer?.types ?? [])
 }
 
+/**
+ * 落点坐标；两个坐标系同源于本次 drop 事件，供 canvas-drop 直接写进节点布局。
+ *
+ * @returns screen 为舞台本地屏幕坐标（供覆盖层与容器命中），world 为换算后的世界坐标
+ * （供新建节点写入 layout.rect）；舞台元素尚未挂载时返回 null，调用方据此放弃本次拖拽预览与投放。
+ */
 function dropPoint(event: DragEvent): { screen: Point; world: Point } | null {
   const element = rootRef.value
   if (!element) return null
@@ -217,7 +263,7 @@ onMounted(() => {
   const element = rootRef.value
   if (!element) return
 
-  // attach 会同步写入一次尺寸，因此紧随其后的 fit 才能算出正确缩放
+  // attach 会同步写入一次尺寸，紧随其后的居中才能拿到真实视口宽高
   disposables.push(canvas.attach(element))
   disposables.push(canvas.scheduler.onFrame(refreshMatrix))
   disposables.push(
@@ -226,13 +272,20 @@ onMounted(() => {
       syncComponents()
     }),
   )
+  if (dataSource) {
+    disposables.push(
+      dataSource.onDidChange(() => {
+        dataVersion.value += 1
+      }),
+    )
+  }
   window.addEventListener('dragend', clearDropPreview)
   disposables.push({ dispose: () => window.removeEventListener('dragend', clearDropPreview) })
 
   refreshMatrix()
   syncComponents()
-  // 首次挂载：让文档完整落入视口
-  canvas.viewport.fit(canvas.scene.getRootBounds(), 64)
+  // 首次挂载：按 100% 展示，只把文档居中
+  centerRootAtCurrentZoom()
 
   // 键盘事件挂在舞台元素上，不聚焦就收不到快捷键
   element.focus()

@@ -12,6 +12,7 @@ import { SCHEMA_VERSION } from '@lc/schema'
 import type { PageSchema } from '@lc/schema'
 import { createId } from '@lc/shared'
 import canvasCorePlugin from '@lc/service-canvas-core'
+import dataSourcePlugin from '@lc/service-datasource'
 import documentPlugin from '@lc/service-document'
 import historyPlugin from '@lc/service-history'
 import selectionPlugin from '@lc/service-selection'
@@ -63,6 +64,29 @@ export default definePlugin({
     }
 
     /**
+     * fork 出文档级隔离作用域并装配固定四件套。
+     *
+     * 装配顺序是硬依赖：history 声明注入 document，dataSource 声明注入 document，
+     * 必须先完成 document 注册；顺序写死在这里而不是参数化，防止调用方
+     * 装配出「history 找不到 document」的半成品 Realm。作用域隔离由 fork 保证，
+     * 不同文档的服务互不可见。
+     */
+    function installRealmPlugins(options: RealmOptions) {
+      const realmCtx = ctx.fork()
+      realmCtx.plugin(documentPlugin, {
+        id: options.documentId,
+        schema: options.schema ?? createEmptySchema(options.documentId),
+        title: options.title,
+        mode: options.mode ?? 'edit',
+      })
+      realmCtx.plugin(historyPlugin)
+      realmCtx.plugin(selectionPlugin)
+      realmCtx.plugin(dataSourcePlugin)
+
+      return realmCtx
+    }
+
+    /**
      * 打开一个文档并建立它的 EditorRealm。
      *
      * fork 出的子作用域拥有独立 service scope，文档级插件互不串台。装配顺序是
@@ -75,15 +99,7 @@ export default definePlugin({
         throw new Error(`[workspace] 文档已打开: ${options.documentId}`)
       }
 
-      const realmCtx = ctx.fork()
-      realmCtx.plugin(documentPlugin, {
-        id: options.documentId,
-        schema: options.schema ?? createEmptySchema(options.documentId),
-        title: options.title,
-        mode: options.mode ?? 'edit',
-      })
-      realmCtx.plugin(historyPlugin)
-      realmCtx.plugin(selectionPlugin)
+      const realmCtx = installRealmPlugins(options)
 
       // 一个文档可以有多个画布视图；关闭文档时按创建顺序反向回收
       const canvases: CanvasRealm[] = []

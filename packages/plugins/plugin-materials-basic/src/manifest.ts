@@ -89,6 +89,17 @@ export const manifest: PluginManifest = {
         priority: 10,
       },
       {
+        // 纯入口物料：录入页面变量、接口数据示例与路由声明
+        name: 'PageData',
+        title: '页面数据',
+        category: '功能',
+        icon: 'database',
+        props: { type: 'object', properties: {} },
+        module: './src/index.ts',
+        clickCommand: 'pageData.openDialog',
+        priority: 10,
+      },
+      {
         // 组合命令产出的节点类型；同时提供空白分组，方便手工往里放节点
         name: 'Group',
         title: '分组',

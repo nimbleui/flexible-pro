@@ -11,6 +11,8 @@ const props = defineProps<{
   appContext: Context
   /** 宿主创建的 CanvasRealm 上下文；canvas / document / selection 服务已就位 */
   canvasContext: CanvasContext
+  /** 宿主注入的表达式作用域，如路由参数与查询参数 */
+  scope?: Record<string, unknown>
 }>()
 
 /** 画布能力就绪标记；就绪前不渲染舞台，避免出现没有网格、标尺与选择的半成品首帧 */
@@ -37,7 +39,7 @@ void openCanvas()
 </script>
 
 <template>
-  <CanvasStage v-if="ready" :context="props.canvasContext" />
+  <CanvasStage v-if="ready" :context="props.canvasContext" :scope="props.scope" />
   <div v-else class="lc-canvas-boot">画布能力装载中…</div>
 </template>
 

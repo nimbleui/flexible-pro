@@ -16,6 +16,7 @@
     "@lc/kernel": "workspace:*",
     "@lc/schema": "workspace:*",
     "@lc/service-canvas-core": "workspace:*",
+    "@lc/service-datasource": "workspace:*",
     "@lc/service-document": "workspace:*",
     "@lc/service-history": "workspace:*",
     "@lc/service-selection": "workspace:*",

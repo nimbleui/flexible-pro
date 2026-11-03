@@ -4,6 +4,7 @@ import type { ExpressionEngine } from '@lc/schema'
 import type { ContributionService } from './contribution'
 import type { CanvasService, SnapService } from './services/canvas'
 import type { CommandService } from './services/command'
+import type { DataSourceService } from './services/datasource'
 import type { DocumentService } from './services/document'
 import type { HistoryService } from './services/history'
 import type { KeybindingService } from './services/keybinding'
@@ -51,6 +52,8 @@ declare module '@lc/kernel' {
     history?: HistoryService
     /** 选中集；EditorContext 中必选 */
     selection?: SelectionService
+    /** 数据源运行时；EditorContext 中由 workspace 装载 */
+    dataSource?: DataSourceService
     /** 画布微内核；CanvasContext 中必选 */
     canvas?: CanvasService
     /** 吸附服务；仅安装 canvas-snap 后存在 */
@@ -69,6 +72,8 @@ export interface EditorContext extends Context {
   history: HistoryService
   /** 选中集 */
   selection: SelectionService
+  /** 数据源运行时 */
+  dataSource: DataSourceService
 }
 
 /** 画布级上下文：CanvasRealm 内画布服务必选 */
@@ -110,6 +115,7 @@ export const SERVICE_NAMES = [
   'document',
   'history',
   'selection',
+  'dataSource',
   'canvas',
   'snap',
 ] as const
