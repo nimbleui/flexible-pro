@@ -2,18 +2,23 @@ import type { Context, PluginDefinition } from '@lc/kernel'
 import { installServiceAccessors } from '@lc/kernel'
 import type { ExpressionEngine } from '@lc/schema'
 import type { ContributionService } from './contribution'
+import type { ActionService } from './services/action'
 import type { CanvasService, SnapService } from './services/canvas'
 import type { CommandService } from './services/command'
 import type { DataSourceService } from './services/datasource'
 import type { DocumentService } from './services/document'
+import type { FlowService } from './services/flow'
 import type { HistoryService } from './services/history'
 import type { KeybindingService } from './services/keybinding'
 import type { LoaderService } from './services/loader'
 import type { MaterialService } from './services/material'
 import type { ModuleService } from './services/modules'
+import type { NavigationService } from './services/navigation'
 import type { RendererService } from './services/renderer'
 import type { SelectionService } from './services/selection'
 import type { SetterService } from './services/setter'
+import type { StateService } from './services/state'
+import type { ToastService } from './services/toast'
 import type { WorkspaceService } from './services/workspace'
 
 /**
@@ -46,6 +51,13 @@ declare module '@lc/kernel' {
     /** 快捷键服务；应用级 */
     keybinding: KeybindingService
 
+    /** 轻提示；由宿主 UI 提供，无 DOM 环境不存在 */
+    toast?: ToastService
+    /** 路由跳转；由宿主路由提供，无宿主路由环境不存在 */
+    navigation?: NavigationService
+    /** 流程图仓库；由宿主的流程存储提供，没有流程编排能力时不存在 */
+    flow?: FlowService
+
     /** 文档服务；EditorContext 中必选 */
     document?: DocumentService
     /** 撤销/重做；EditorContext 中必选 */
@@ -54,6 +66,10 @@ declare module '@lc/kernel' {
     selection?: SelectionService
     /** 数据源运行时；EditorContext 中由 workspace 装载 */
     dataSource?: DataSourceService
+    /** 页面状态运行时；EditorContext 中由 workspace 装载 */
+    pageState?: StateService
+    /** 动作执行器；EditorContext 中由 workspace 装载 */
+    action?: ActionService
     /** 画布微内核；CanvasContext 中必选 */
     canvas?: CanvasService
     /** 吸附服务；仅安装 canvas-snap 后存在 */
@@ -74,6 +90,10 @@ export interface EditorContext extends Context {
   selection: SelectionService
   /** 数据源运行时 */
   dataSource: DataSourceService
+  /** 页面状态运行时 */
+  pageState: StateService
+  /** 动作执行器 */
+  action: ActionService
 }
 
 /** 画布级上下文：CanvasRealm 内画布服务必选 */
@@ -116,6 +136,11 @@ export const SERVICE_NAMES = [
   'history',
   'selection',
   'dataSource',
+  'pageState',
+  'action',
+  'toast',
+  'navigation',
+  'flow',
   'canvas',
   'snap',
 ] as const
