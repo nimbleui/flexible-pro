@@ -62,13 +62,16 @@ export interface ProvideOptions {
  * 名单比契约层的 15 个服务名更宽，两处差异都是有意的：
  * - `http`、`storage`、`telemetry` 等尚未实现的名字先占住，避免将来加入平台能力时
  *   撞上「第三方插件早已提供同名服务」的破坏性变更；
- * - `expression`、`keybinding` 不列入，这两类允许插件替换自己的实现。
+ * - `expression`、`keybinding` 不列入，这两类允许插件替换自己的实现；
+ * - `toast`、`navigation` 同样不列入：它们是宿主 UI 能力的适配位，插件提供更好看的
+ *   提示实现或接管跳转是正当用法，不像 `canvas`、`history` 那样承载内核语义。
  */
 export const RESERVED_SERVICES: ReadonlySet<string> = new Set([
   'material',
   'setter',
   'renderer',
   'dataSource',
+  'pageState',
   'command',
   'action',
   'document',
