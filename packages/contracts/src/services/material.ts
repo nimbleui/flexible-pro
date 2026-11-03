@@ -1,5 +1,5 @@
+import type { EventDefinition, NodeSchema } from '@lc/schema'
 import type { JsonSchema } from '../json'
-import type { NodeSchema } from '@lc/schema'
 import type { Registry } from './registry'
 
 /**
@@ -33,6 +33,14 @@ export interface MaterialContribution {
   container?: boolean
   /** 允许的父物料；空表示不限制 */
   allowedParents?: string[]
+  /**
+   * 组件对外事件声明。
+   *
+   * 事件流面板据此列出可选的事件名；它只是设计态声明——平台当前没有动作执行器，
+   * 声明的事件不会因为组件内部行为而自动触发（见 docs/05 的「已建模、未执行」）。
+   * 复合物料靠这个字段把自己蓝图里的交互暴露给页面。
+   */
+  events?: EventDefinition[]
   /** 同名物料冲突时的优先级，默认先注册者胜出 */
   priority?: number
 }
