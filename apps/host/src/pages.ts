@@ -1,6 +1,7 @@
 import type { PageSchema } from '@lc/schema'
 import { SCHEMA_VERSION } from '@lc/schema'
 import { createDemoSchema } from './demo-document'
+import { createEventDemoSchema } from './event-demo-document'
 
 /** 主应用可打开的页面；真实项目由服务端页面接口提供，这里保持同构的数据形状 */
 export interface DesignerPage {
@@ -42,6 +43,7 @@ function createBlankSchema(): PageSchema {
 
 export const PAGES: readonly DesignerPage[] = [
   { documentId: 'demo-doc', title: '示例页面', createSchema: createDemoSchema },
+  { documentId: 'event-doc', title: '事件链演示', createSchema: createEventDemoSchema },
   { documentId: 'blank-doc', title: '空白页面', createSchema: createBlankSchema },
 ]
 
