@@ -1,9 +1,9 @@
-import { Box, Circle, Group, Text } from './components'
+import { Box, Button, Circle, Group, Text } from './components'
 
-export { Box, Circle, Group, Text }
+export { Box, Button, Circle, Group, Text }
 
 /** 物料模块约定导出：物料名 → 组件 */
-export const components = { Box, Text, Circle, Group }
+export const components = { Box, Text, Circle, Group, Button }
 
 export default { components }
 

@@ -1,9 +1,11 @@
 import { defineComponent, h } from 'vue'
 
 /**
- * 基础物料示例：纯展示组件，不依赖设计器 UI。
+ * 基础物料示例：不依赖设计器 UI。
  *
- * 物料组件只消费自身 props，不读取 Context；交互由画布插件统一处理。
+ * 物料组件只消费自身 props，不读取 Context。交互走标准 emit：组件把自己触发的
+ * 事件名与参数在 manifest 的 `events` 里声明出来，由运行时渲染器接给动作执行器——
+ * 画布上的选中、拖拽等设计器交互仍由画布插件统一处理，物料不参与。
  */
 
 export const Box = defineComponent({
@@ -125,5 +127,78 @@ export const Group = defineComponent({
         class: 'lc-material-group',
         style: { width: '100%', height: '100%', pointerEvents: 'none' },
       })
+  },
+})
+
+/** 按钮配色：一个 `tone` 取值对应的一组样式 */
+interface ButtonTone {
+  background: string
+  borderColor: string
+  color: string
+}
+
+const BUTTON_TONES: Record<string, ButtonTone> = {
+  primary: { background: '#2f6bff', borderColor: '#2f6bff', color: '#ffffff' },
+  neutral: { background: '#ffffff', borderColor: 'rgba(37, 99, 235, 0.35)', color: '#1e293b' },
+  danger: { background: '#dc2626', borderColor: '#dc2626', color: '#ffffff' },
+}
+
+/** 未知 `tone` 取值回落到主色：属性面板允许写表达式，运行期可能拿到没预料到的字符串 */
+function toneOf(name: string): ButtonTone {
+  return BUTTON_TONES[name] ?? BUTTON_TONES.primary
+}
+
+/**
+ * 按钮：基础物料里唯一对外发事件的组件。
+ *
+ * `click` 刻意不带参数——按钮点击本身不产生页面需要的数据，文案是页面自己知道的
+ * 属性。需要把值交给动作链的交互（例如输入框的 `change`）应当在 manifest 里声明
+ * `parameters`，运行时按位置折叠成表达式里的 `event`。
+ */
+export const Button = defineComponent({
+  name: 'LcMaterialButton',
+  props: {
+    /** 按钮文案 */
+    label: { type: String, default: '按钮' },
+    /** 配色：primary / neutral / danger */
+    tone: { type: String, default: 'primary' },
+    /** 禁用态；禁用后不再 emit click */
+    disabled: { type: Boolean, default: false },
+  },
+  emits: {
+    click: () => true,
+  },
+  setup(props, { emit }) {
+    return () => {
+      const tone = toneOf(props.tone)
+
+      return h(
+        'button',
+        {
+          type: 'button',
+          class: 'lc-material-button',
+          disabled: props.disabled,
+          style: {
+            width: '100%',
+            height: '100%',
+            boxSizing: 'border-box',
+            padding: '0 14px',
+            border: `1px solid ${tone.borderColor}`,
+            borderRadius: '8px',
+            background: tone.background,
+            color: tone.color,
+            fontSize: '13px',
+            fontWeight: '500',
+            cursor: props.disabled ? 'not-allowed' : 'pointer',
+            opacity: props.disabled ? '0.5' : '1',
+          },
+          onClick: () => {
+            if (props.disabled) return
+            emit('click')
+          },
+        },
+        props.label,
+      )
+    }
   },
 })

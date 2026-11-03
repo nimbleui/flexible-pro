@@ -12,7 +12,7 @@ export const manifest: PluginManifest = {
     panels: [
       {
         id: 'materials',
-        title: '物料',
+        title: '组件库',
         slot: 'designer.leftPanel',
         module: './src/index.ts',
         order: 20,

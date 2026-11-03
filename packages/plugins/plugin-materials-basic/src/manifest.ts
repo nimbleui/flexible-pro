@@ -115,6 +115,30 @@ export const manifest: PluginManifest = {
           layout: { mode: 'absolute', rect: { x: 0, y: 0, width: 240, height: 160 } },
         },
       },
+      {
+        // 基础物料里唯一对外发事件的组件：预览页上点它才会跑动作链
+        name: 'Button',
+        title: '按钮',
+        category: '交互',
+        icon: 'square',
+        props: {
+          type: 'object',
+          properties: {
+            label: { type: 'string', title: '文案' },
+            tone: { type: 'string', title: '配色', description: 'primary / neutral / danger' },
+            disabled: { type: 'boolean', title: '禁用' },
+          },
+        },
+        module: './src/index.ts',
+        events: [{ name: 'click', title: '点击', description: '用户点击按钮时触发' }],
+        snippet: {
+          id: 'button-1',
+          componentName: 'Button',
+          name: '按钮',
+          layout: { mode: 'absolute', rect: { x: 0, y: 0, width: 120, height: 40 } },
+          props: { label: '按钮', tone: 'primary' },
+        },
+      },
     ],
   },
 }
