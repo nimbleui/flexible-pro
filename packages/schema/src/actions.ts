@@ -84,8 +84,18 @@ export interface ActionFieldSchema {
   kind: 'text' | 'number' | 'select' | 'toggle' | 'json'
   /** 是否必填 */
   required?: boolean
-  /** `select` 的候选项 */
-  options?: ReadonlyArray<{ value: string; label: string }>
+  /**
+   * `select` 的候选项；仅 `kind === 'select'` 时被表单读取。
+   *
+   * 候选值固定为字符串：动作 config 整体是 JSON，执行器拿到的就是这份文本，
+   * 协议层不做数字转换，避免「表单里是 300、config 里存 "300"」这类隐性差异。
+   */
+  options?: ReadonlyArray<{
+    /** 写入动作 config 的值 */
+    value: string
+    /** 选项在表单里的展示名 */
+    label: string
+  }>
   /** 占位提示 */
   placeholder?: string
 }
@@ -115,7 +125,13 @@ export const BUILTIN_ACTIONS: readonly ActionDefinition[] = [
     description: '写入页面状态变量',
     fields: [
       { key: 'key', label: '变量名', kind: 'text', required: true, placeholder: '如 keyword' },
-      { key: 'value', label: '值', kind: 'text', required: true, placeholder: '支持 {{ }} 表达式' },
+      {
+        key: 'value',
+        label: '值',
+        kind: 'text',
+        required: true,
+        placeholder: '支持 {{ }} 表达式',
+      },
     ],
   },
   {
@@ -166,7 +182,13 @@ export const BUILTIN_ACTIONS: readonly ActionDefinition[] = [
     title: '条件分支',
     description: '按表达式结果决定后续走向',
     fields: [
-      { key: 'expression', label: '条件', kind: 'text', required: true, placeholder: '{{ count > 0 }}' },
+      {
+        key: 'expression',
+        label: '条件',
+        kind: 'text',
+        required: true,
+        placeholder: '{{ count > 0 }}',
+      },
       { key: 'trueActionId', label: '成立时执行', kind: 'text' },
       { key: 'falseActionId', label: '不成立时执行', kind: 'text' },
     ],

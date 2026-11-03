@@ -22,7 +22,17 @@ export type CSSValue = string | number
  * 2. 结构化对象格式：可分别指定上右下左四个方向的值
  */
 export type SpacingValue =
-  string | { top?: string; right?: string; bottom?: string; left?: string }
+  | string
+  | {
+      /** 上侧间距，原样写入 CSS 长度（px / rem / %），不是画布逻辑坐标；缺省表示该方向不设值 */
+      top?: string
+      /** 右侧间距，取值约束同 top */
+      right?: string
+      /** 下侧间距，取值约束同 top */
+      bottom?: string
+      /** 左侧间距，取值约束同 top */
+      left?: string
+    }
 
 /**
  * 边框值类型

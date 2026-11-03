@@ -24,6 +24,7 @@ export interface NodePosition {
 
 /** 图层树条目 */
 export interface OutlineItem {
+  /** 对应的 schema 节点；面板直接读它的显示名、显隐与锁定状态 */
   node: NodeSchema
   /** 子条目：children 在前、具名插槽按插槽键顺序在后 */
   children: OutlineItem[]
@@ -36,12 +37,19 @@ export type OrderMode = 'front' | 'forward' | 'backward' | 'back'
 
 /** 设计态开关；写成 false 而不是删除字段，便于图层树直接反映状态 */
 export interface NodeFlagChange {
+  /** 目标显隐状态；省略表示本次不改写该开关，与 `false`（显式显示）不同 */
   hidden?: boolean
+  /** 目标锁定状态；省略语义同 hidden */
   locked?: boolean
 }
 
 /** 组合结果 */
 export interface GroupResult {
+  /**
+   * 需要按数组顺序依次应用的 patch：摘除成员引用 → 新增组节点 → 把组挂回锚点。
+   *
+   * 后写的同路径 patch 覆盖先写的，因此调用方不能自行重排或并行下发。
+   */
   patches: SchemaPatch[]
   /** 新组节点 id，调用方据此选中新组 */
   groupId: string
@@ -220,6 +228,11 @@ function clamp(value: number, min: number, max: number): number {
  * 下标按「先移除再插入」解释：调用方拿到的 `to` 是去掉被拖条目之后数组里的位置，
  * 这样跨越边界时（从上往下拖）不必让调用方自己减一。
  * 父级或下标不合法时返回空 patch，不做任何写入。
+ *
+ * @param options.parentId 目标父节点 id；不存在时不产生 patch
+ * @param options.slot 具名插槽；省略表示 `children` 数组
+ * @param options.from 被拖条目在原数组中的下标
+ * @param options.to 取出被拖条目之后，它在剩余数组里的目标下标
  */
 export function reorderChildren(
   schema: PageSchema,
@@ -259,7 +272,12 @@ export function changeOrders(
   const patches: SchemaPatch[] = []
   for (const [parentId, node] of Object.entries(schema.nodes)) {
     // children 与各具名插槽各自是一层序列：层叠只在同一数组里有意义
-    const lists: Array<{ slot?: string; items: string[] }> = []
+    const lists: Array<{
+      /** 具名插槽；省略表示 `children` 数组 */
+      slot?: string
+      /** 该序列当前的节点 id，按渲染顺序 */
+      items: string[]
+    }> = []
     if (node.children) lists.push({ items: node.children })
     for (const [slot, items] of Object.entries(node.slots ?? {})) lists.push({ slot, items })
 
@@ -317,6 +335,91 @@ function unionRects(rects: readonly Rect[]): Rect | undefined {
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
 }
 
+/** 选中集里的最外层成员：框选常同时圈中容器与它的子节点，后代已随父级一起进组 */
+function outermostMembers(schema: PageSchema, ids: readonly string[]): string[] {
+  const present = ids.filter((id) => id !== schema.nodeId && schema.nodes[id] !== undefined)
+  const descendants = new Set<string>()
+  for (const id of present) {
+    const node = schema.nodes[id]
+    if (node)
+      for (const childId of collectSubtree(schema, childRefs(node))) descendants.add(childId)
+  }
+  return present.filter((id) => !descendants.has(id))
+}
+
+/** 成员在原父级里最靠前的位置；新组接替它，层叠位置才不会随选中顺序漂移 */
+function findGroupAnchor(
+  schema: PageSchema,
+  members: readonly string[],
+): NodePosition | undefined {
+  let anchor: NodePosition | undefined
+  for (const id of members) {
+    const position = findPosition(schema, id)
+    if (position && (!anchor || position.index < anchor.index)) anchor = position
+  }
+  return anchor
+}
+
+/** 成员矩形的并集，作为新组的几何边界；没有 layout.rect 的成员不参与计算 */
+function groupBounds(schema: PageSchema, members: readonly string[]): Rect | undefined {
+  return unionRects(
+    members
+      .map((id) => schema.nodes[id]?.layout?.rect)
+      .filter((item): item is Rect => item !== undefined),
+  )
+}
+
+/** 把新组插回锚点所在数组；成员已摘除，插入下标要按摘除后的长度夹住 */
+function attachAtAnchor(
+  schema: PageSchema,
+  anchor: NodePosition,
+  groupId: string,
+  members: readonly string[],
+): SchemaPatch[] {
+  const parent = schema.nodes[anchor.parentId]
+  const siblings = childArray(parent, anchor.slot).filter((id) => !members.includes(id))
+  return [
+    {
+      op: 'replace',
+      path: childPath(anchor.parentId, anchor.slot),
+      value: insertAt(siblings, groupId, Math.min(anchor.index, siblings.length)),
+    },
+  ]
+}
+
+/** 成员全是游离节点时的兜底：新组挂到文档根，否则它在树里无处安放 */
+function attachToDocumentRoot(schema: PageSchema, groupId: string): SchemaPatch[] {
+  const root = schema.nodes[schema.nodeId]
+  return [
+    {
+      op: 'replace',
+      path: `${nodePath(schema.nodeId)}/children`,
+      value: [...(root?.children ?? []), groupId],
+    },
+  ]
+}
+
+/**
+ * 新建的组节点：absolute 布局，rect 取成员并集。
+ *
+ * 成员无有效 `layout.rect` 时 `rect` 缺省（不写 `undefined` 键），交由渲染层回落到
+ * 默认几何；组内顺序沿用传入的 members（即选中集顺序）。
+ */
+function buildGroupNode(
+  groupId: string,
+  name: string,
+  members: string[],
+  rect: Rect | undefined,
+): NodeSchema {
+  return {
+    id: groupId,
+    componentName: 'Group',
+    name,
+    children: members,
+    layout: { mode: 'absolute', ...(rect ? { rect } : {}) },
+  }
+}
+
 /**
  * 把一组节点包进新分组。
  *
@@ -324,67 +427,30 @@ function unionRects(rects: readonly Rect[]): Rect | undefined {
  * 视觉位置，跨父级的选中集也能直接组合。新组接替成员里最靠前的那个位置（层叠
  * 位置不随选中顺序漂移），组内顺序沿用传入顺序（即选中集顺序）。
  * 少于 2 个有效节点、或节点不在文档里时返回 undefined，调用方据此不做任何写入。
+ *
+ * @param options.createId 新组 id 的生成器；由调用方注入，树操作层不自行造 id，以免与命令历史里的 id 源分叉
+ * @param options.name 图层树显示名；未传时写「分组」，传空串则原样保留空名
  */
 export function groupNodes(
   schema: PageSchema,
   ids: readonly string[],
   options: { createId: () => string; name?: string },
 ): GroupResult | undefined {
-  const present = ids.filter((id) => id !== schema.nodeId && schema.nodes[id] !== undefined)
-  // 框选能同时圈中容器和它的子节点：只留最外层的几个，后代已经跟着父级一起进组
-  const descendants = new Set<string>()
-  for (const id of present) {
-    const node = schema.nodes[id]
-    if (node)
-      for (const childId of collectSubtree(schema, childRefs(node))) descendants.add(childId)
-  }
-  const members = present.filter((id) => !descendants.has(id))
+  const members = outermostMembers(schema, ids)
   if (members.length < 2) return undefined
 
   const groupId = options.createId()
-  // 锚点取成员在原父级里最靠前的位置：新组接替它，层叠位置不随选中顺序漂移
-  let anchor: NodePosition | undefined
-  for (const id of members) {
-    const position = findPosition(schema, id)
-    if (position && (!anchor || position.index < anchor.index)) anchor = position
-  }
-  const rect = unionRects(
-    members
-      .map((id) => schema.nodes[id]?.layout?.rect)
-      .filter((item): item is Rect => item !== undefined),
-  )
-
-  const group: NodeSchema = {
-    id: groupId,
-    componentName: 'Group',
-    name: options.name ?? '分组',
-    children: members,
-    layout: { mode: 'absolute', ...(rect ? { rect } : {}) },
-  }
+  const anchor = findGroupAnchor(schema, members)
+  const rect = groupBounds(schema, members)
+  const group = buildGroupNode(groupId, options.name ?? '分组', members, rect)
 
   const patches: SchemaPatch[] = [
     ...detachFromParents(schema, new Set(members)),
     { op: 'add', path: nodePath(groupId), value: group },
+    ...(anchor
+      ? attachAtAnchor(schema, anchor, groupId, members)
+      : attachToDocumentRoot(schema, groupId)),
   ]
-
-  if (anchor) {
-    const parent = schema.nodes[anchor.parentId]
-    const siblings = childArray(parent, anchor.slot).filter((id) => !members.includes(id))
-    patches.push({
-      op: 'replace',
-      path: childPath(anchor.parentId, anchor.slot),
-      value: insertAt(siblings, groupId, Math.min(anchor.index, siblings.length)),
-    })
-  } else {
-    // 成员都是游离节点：新组挂到文档根，否则它在树里无处安放
-    const root = schema.nodes[schema.nodeId]
-    const children = [...(root?.children ?? []), groupId]
-    patches.push({
-      op: 'replace',
-      path: `${nodePath(schema.nodeId)}/children`,
-      value: children,
-    })
-  }
 
   return { patches, groupId }
 }

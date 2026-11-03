@@ -75,15 +75,19 @@ export type EventBindingValue = EventHandlerDef[] | EventChain
  * 描述「组件名 -> 该组件的属性类型」的映射关系，
  * 作为 NodeSchema 的泛型参数，用于根据 componentName 自动推导 props 的类型。
  *
+ * 值约束取 `object` 而不是 `Record<string, unknown>`：后者会把用 `interface`
+ * 声明的 props 类型挡在门外（接口没有隐式索引签名），而 `any` 等于放弃约束。
+ * 属性形状本身由 `NodeProps<T[K]>` 逐键展开，这里不需要再限定值类型。
+ *
  * 例如：
  * ```ts
- * interface AppComponents {
+ * type AppComponents = {
  *   Badge: { value: string | number; max: string | number; dot?: boolean };
  *   Button: { text: string; disabled?: boolean };
- * }
+ * };
  * ```
  */
-export type ComponentPropsMap = Record<string, Record<string, any>>
+export type ComponentPropsMap = Record<string, object>
 
 /**
  * NodeSchema 默认使用的组件属性映射表
@@ -199,7 +203,7 @@ export interface NodeSchemaBase {
  *
  * 例如：
  * ```ts
- * interface AppComponents {
+ * type AppComponents = {
  *   Badge: { value: string | number; max: string | number };
  * }
  *
