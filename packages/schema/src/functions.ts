@@ -19,11 +19,11 @@
  *
  * 然后节点里：`{ "text": "进度：{{ progress(todos) }}" }`
  *
- * 与 `EventChain / Action` 的区别：
- *  - 事件链是"有副作用的动作流水"
- *  - FunctionSchema 是"纯函数"（只输入输出，不产生副作用）
+ * 与 `ActionDeclaration`（见 `actions.ts`）的区别：
+ *  - 动作是「有副作用的操作流水」，由事件连接按序触发
+ *  - FunctionSchema 是「纯函数」，只输入输出，不产生副作用
  *
- * 若要复杂副作用请用 Action / 事件连接；此声明形式设计用于表达式内。
+ * 若要副作用请用动作 / 事件连接；此声明形式设计用于表达式内。
  */
 
 import type { ExpressionString } from './expression'

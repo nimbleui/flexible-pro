@@ -1,4 +1,5 @@
 import type { DataSourceSchemaDef } from './datasource'
+import type { ExpressionScope } from './expression'
 import type { PageSchema } from './page'
 
 /**
@@ -43,10 +44,14 @@ export function resolveDataSourceValue(source: DataSourceSchemaDef): unknown {
  *
  * @param schema 页面 schema
  * @param states 数据源服务提供的运行时状态；缺省时按声明生成静态/未取数状态
+ * @param variables 状态服务提供的变量当前值；缺省时回落到声明的 `defaultValue`。
+ *   设计态没有状态服务，走缺省分支即可得到「所见即初值」的效果；运行时必须传入，
+ *   否则 `state.set` 写进去的值在后续表达式里读不到。
  */
 export function buildPageData(
   schema: PageSchema,
   states?: Readonly<Record<string, DataSourceRuntimeState>>,
+  variables?: Readonly<Record<string, unknown>>,
 ): Record<string, unknown> {
   const data: Record<string, unknown> = Object.create(null)
 
@@ -60,8 +65,47 @@ export function buildPageData(
   }
 
   for (const variable of schema.variables ?? []) {
-    data[variable.name] = variable.defaultValue
+    data[variable.name] =
+      variables && variable.name in variables ? variables[variable.name] : variable.defaultValue
   }
 
   return data
+}
+
+/** 装配表达式作用域所需的输入 */
+export interface ExpressionScopeInput {
+  /** 页面 schema */
+  schema: PageSchema
+  /** 数据源运行时状态 */
+  dataSources?: Readonly<Record<string, DataSourceRuntimeState>>
+  /** 页面变量当前值 */
+  variables?: Readonly<Record<string, unknown>>
+  /** 本次事件的参数；缺省时表达式里的 `event` 是空对象而不是 undefined */
+  event?: Readonly<Record<string, unknown>>
+  /** 宿主贡献的作用域（如 `$route`）；后于内置键展开会被覆盖，故先展开 */
+  base?: ExpressionScope
+}
+
+/**
+ * 装配一次求值所需的完整表达式作用域。
+ *
+ * 渲染层与动作执行器共用这一个装配函数，是因为作用域形状必须只有一份定义：
+ * 两边各拼一次，早晚会在「`event` 到底是对象还是 undefined」这类细节上分叉，
+ * 而这种分叉只在运行时暴露。
+ *
+ * 顶层键固定为 `data` / `page` / `event`，宿主键（`$route` 等）由 `base` 带入。
+ * `event` 恒为对象：事件参数缺省时表达式写 `event.value` 得到 undefined，
+ * 而不是在访问 `undefined.value` 时抛错。
+ *
+ * @param input 装配输入
+ * @returns 可直接交给 `ExpressionEngine` 的作用域对象
+ */
+export function buildExpressionScope(input: ExpressionScopeInput): ExpressionScope {
+  const scope: Record<string, unknown> = { ...(input.base ?? {}) }
+
+  scope.data = buildPageData(input.schema, input.dataSources, input.variables)
+  scope.page = input.schema.metadata
+  scope.event = { ...(input.event ?? {}) }
+
+  return scope
 }

@@ -6,14 +6,30 @@
  *  - `EventConnection` 只描述「哪个节点的哪个事件，按顺序执行哪些动作」；
  *  - `ActionDeclaration` 独立成集合，由 id 被连接引用，便于复用与单独迁移。
  *
- * 顺序即执行顺序（`actionIds` 的数组顺序），条件分支由动作类型 `flow.condition` 表达，
- * 因此不需要额外的图结构：一张「事件流」在数据上就是一条动作序列。
+ * 顺序即执行顺序（`actionIds` 的数组顺序），分支由 `flow.condition` 动作表达，
+ * 因此不需要图结构：一张「事件流」在数据上就是一条动作序列。
+ *
+ * ## 分支语义：if/else，不是 goto
+ *
+ * `flow.condition` 执行完选中分支后**回到原链继续执行后续动作**，与语句级 if/else 一致。
+ * 曾经有两种可选语义，选这一种的原因：
+ *  - 「跳转后不再回来」会让一条链的实际执行顺序无法从 `actionIds` 数组读出，
+ *    面板上排的顺序与真实执行顺序不一致，调试时无从对照；
+ *  - 需要提前终止的场景由显式的 `flow.end` 表达，读 schema 就能看出链在哪里断。
+ *
+ * ## 动作之间的引用
+ *
+ * 控制流动作会引用其他动作 id（分支目标、序列成员），失败策略 `fallback` 也会。
+ * 这些引用统一由 {@link referencedActionIds} 提取，供校验做悬空引用检查与环检测。
+ * 插件自定义的动作若在自己的 `config` 里引用动作 id，本函数无法感知——因此执行器
+ * 另有步数上限兜底，环检测不是唯一防线。
  */
 
 import type { ExpressionString } from './expression'
 
 /**
- * 动作声明
+ * 动作声明。
+ *
  * 一个可序列化的原子操作；`type` 决定 `config` 的结构与执行器。
  */
 export interface ActionDeclaration {
@@ -25,21 +41,41 @@ export interface ActionDeclaration {
   name?: string
   /** 动作配置；字段随 `type` 而定，只允许 JSON 可序列化值 */
   config: Record<string, unknown>
-  /** 执行条件（可选）：求值为假时跳过本动作，不影响后续动作 */
+  /**
+   * 执行条件（可选）：求值为假时**跳过本动作，继续执行后续动作**。
+   *
+   * 跳过不等于失败，因此不触发 `onError`。求值本身抛错时按失败处理，
+   * 因为「条件写错了」与「条件为假」必须可区分，否则表达式里的拼写错误
+   * 会静默变成一条永远不执行的分支。
+   */
   condition?: ExpressionString
   /**
    * 失败策略（可选）。
+   *
    * - `stop`：中断整条事件流（默认）
-   * - `continue`：忽略本次失败继续执行后续动作
-   * - `fallback`：执行 `config.fallbackActionId` 指定的补救动作
+   * - `continue`：忽略本次失败，继续执行后续动作
+   * - `fallback`：转而执行 {@link ActionDeclaration.fallbackActionId} 指定的补救动作，
+   *   补救动作执行完同样回到原链继续
    *
    * @default 'stop'
    */
-  onError?: 'stop' | 'continue' | 'fallback'
+  onError?: ActionErrorStrategy
+  /**
+   * 补救动作 id；仅当 `onError === 'fallback'` 时有意义。
+   *
+   * 放在动作顶层而不是塞进 `config`：它是失败策略的一部分，与动作类型无关，
+   * 且校验需要无条件检查这个引用是否悬空——藏在 `config` 里就得先知道每种
+   * 动作类型的 config 形状才能校验。
+   */
+  fallbackActionId?: string
 }
 
+/** 动作失败后的处置方式 */
+export type ActionErrorStrategy = 'stop' | 'continue' | 'fallback'
+
 /**
- * 事件连接
+ * 事件连接。
+ *
  * 描述「某个节点的某个事件 → 一串按序执行的动作」。
  */
 export interface EventConnection {
@@ -53,7 +89,12 @@ export interface EventConnection {
    * 共同表达——两者不一致时校验也无从判断谁对。
    */
   sourceNodeId: string
-  /** 事件名；节点事件取自物料的事件声明，页面级事件取自 {@link PAGE_EVENTS} */
+  /**
+   * 事件名。
+   *
+   * 节点事件取自物料的 `ComponentSchema.events` 声明，页面级事件取自 {@link PAGE_EVENTS}。
+   * 组件生命周期若需要被绑定，同样由物料声明成普通事件走这条路径。
+   */
   eventName: string
   /** 按顺序执行的动作 id 列表；空数组表示「事件已绑定但暂不执行任何动作」 */
   actionIds: string[]
@@ -70,6 +111,11 @@ export const PAGE_EVENTS = ['pageLoad', 'pageUnload'] as const
 /** 页面级事件名 */
 export type PageEventName = (typeof PAGE_EVENTS)[number]
 
+/** 控制流动作类型；这些类型的 `config` 里含动作 id 引用，见 {@link referencedActionIds} */
+export const FLOW_CONDITION = 'flow.condition'
+export const FLOW_SEQUENCE = 'flow.sequence'
+export const FLOW_END = 'flow.end'
+
 /**
  * 内置动作的配置字段描述。
  *
@@ -81,7 +127,7 @@ export interface ActionFieldSchema {
   /** 表单标题 */
   label: string
   /** 控件形态，与属性面板的 setter 分类对齐 */
-  kind: 'text' | 'number' | 'select' | 'toggle' | 'json'
+  kind: ActionFieldKind
   /** 是否必填 */
   required?: boolean
   /**
@@ -100,6 +146,19 @@ export interface ActionFieldSchema {
   placeholder?: string
 }
 
+/**
+ * 配置字段的控件形态。
+ *
+ * `action` 是「从本页动作表里选一个」的下拉，而不是自由文本：分支目标写错一个字符
+ * 就会静默变成不执行的分支，必须让面板只允许选已存在的动作。
+ *
+ * `expression` 与 `text` 的差别只在面板用哪个编辑器，执行器一律解析。但校验会额外
+ * 要求它的值是真正的表达式对象：条件位置上的裸文本永远为真，是个不会报错但行为
+ * 完全不对的陷阱，必须设计期拦下（见 `validate.ts` 的 `checkExpressionFields`）。
+ */
+export type ActionFieldKind =
+  'text' | 'number' | 'select' | 'toggle' | 'json' | 'action' | 'expression'
+
 /** 内置动作的元数据 */
 export interface ActionDefinition {
   /** 动作类型标识 */
@@ -108,12 +167,12 @@ export interface ActionDefinition {
   title: string
   /** 一句话说明，用于动作选择器 */
   description: string
-  /** 配置字段 */
+  /** 配置字段；空数组表示该动作无需配置 */
   fields: readonly ActionFieldSchema[]
 }
 
 /**
- * 首期内置动作（协议 §2.8 建议清单）。
+ * 内置动作清单（协议 §2.8 建议项 + `flow.end`）。
  *
  * 每种动作都必须有独立的参数描述；`plugin.invoke` 只按声明调用插件服务，
  * 不允许直接访问插件内部对象，因此它的配置里只有服务名与方法名。
@@ -122,7 +181,7 @@ export const BUILTIN_ACTIONS: readonly ActionDefinition[] = [
   {
     type: 'state.set',
     title: '更新状态',
-    description: '写入页面状态变量',
+    description: '写入页面状态变量；表达式里按 data.<变量名> 读取',
     fields: [
       { key: 'key', label: '变量名', kind: 'text', required: true, placeholder: '如 keyword' },
       {
@@ -178,26 +237,32 @@ export const BUILTIN_ACTIONS: readonly ActionDefinition[] = [
     ],
   },
   {
-    type: 'flow.condition',
+    type: FLOW_CONDITION,
     title: '条件分支',
-    description: '按表达式结果决定后续走向',
+    description: '按表达式结果执行其中一条分支，之后继续原链',
     fields: [
       {
         key: 'expression',
         label: '条件',
-        kind: 'text',
+        kind: 'expression',
         required: true,
         placeholder: '{{ count > 0 }}',
       },
-      { key: 'trueActionId', label: '成立时执行', kind: 'text' },
-      { key: 'falseActionId', label: '不成立时执行', kind: 'text' },
+      { key: 'trueActionId', label: '成立时执行', kind: 'action' },
+      { key: 'falseActionId', label: '不成立时执行', kind: 'action' },
     ],
   },
   {
-    type: 'flow.sequence',
+    type: FLOW_SEQUENCE,
     title: '顺序执行',
-    description: '按顺序执行一组动作',
+    description: '按顺序执行一组动作，作为分支目标复用',
     fields: [{ key: 'actionIds', label: '动作列表', kind: 'json', required: true }],
+  },
+  {
+    type: FLOW_END,
+    title: '结束事件流',
+    description: '提前终止当前链，后续动作不再执行',
+    fields: [],
   },
   {
     type: 'plugin.invoke',
@@ -214,4 +279,44 @@ export const BUILTIN_ACTIONS: readonly ActionDefinition[] = [
 /** 按类型取内置动作元数据；自定义类型返回 undefined */
 export function findActionDefinition(type: string): ActionDefinition | undefined {
   return BUILTIN_ACTIONS.find((item) => item.type === type)
+}
+
+/**
+ * 提取一个动作引用到的其他动作 id。
+ *
+ * 引用有三个来源：`flow.condition` 的两个分支目标、`flow.sequence` 的成员列表、
+ * 以及 `onError: 'fallback'` 的补救动作。校验据此做悬空引用检查与环检测，
+ * 因此**新增任何会引用动作 id 的内置类型时，必须同步改这里**，否则新类型的环
+ * 只能在运行时被步数上限拦下，设计期不会报错。
+ *
+ * 边界行为：config 里不是字符串的值直接丢弃而不是报错——形状错误由字段校验负责，
+ * 本函数只回答「引用了谁」。
+ *
+ * @param action 待分析的动作声明
+ * @returns 被引用的动作 id，含重复项；无引用时为空数组
+ */
+export function referencedActionIds(action: ActionDeclaration): string[] {
+  const refs: string[] = []
+
+  if (action.onError === 'fallback' && typeof action.fallbackActionId === 'string') {
+    refs.push(action.fallbackActionId)
+  }
+
+  if (action.type === FLOW_CONDITION) {
+    for (const key of ['trueActionId', 'falseActionId']) {
+      const value = action.config[key]
+      if (typeof value === 'string' && value) refs.push(value)
+    }
+  }
+
+  if (action.type === FLOW_SEQUENCE) {
+    const members = action.config.actionIds
+    if (Array.isArray(members)) {
+      for (const member of members) {
+        if (typeof member === 'string' && member) refs.push(member)
+      }
+    }
+  }
+
+  return refs
 }

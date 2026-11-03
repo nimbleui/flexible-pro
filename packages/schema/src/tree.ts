@@ -194,6 +194,38 @@ export function buildOutlineTree(schema: PageSchema): OutlineItem[] {
 }
 
 /**
+ * 图层树按关键词裁剪：只留下命中的节点，以及通往它们的祖先路径。
+ *
+ * 命中判定同时看显示名与组件名，因为大量节点没有改名，只搜 `name` 会搜不到。
+ * 命中的容器不会自动带出整棵子树——否则搜「区域」会把画布塞满，
+ * 面板要的是「这几处匹配在哪」，父级出现只是为了保住缩进能读出层级。
+ * 关键词为空（含只有空白）时原样返回，调用方因此不需要为「没在搜」写分支。
+ *
+ * @param items `buildOutlineTree` 的结果
+ * @param keyword 用户输入的关键词；大小写不敏感
+ * @returns 新的条目数组；条目对象是重建的，但 `node` 仍引用 schema 里的原对象
+ */
+export function filterOutlineTree(
+  items: readonly OutlineItem[],
+  keyword: string,
+): OutlineItem[] {
+  const needle = keyword.trim().toLowerCase()
+  if (needle.length === 0) return [...items]
+
+  const kept: OutlineItem[] = []
+  for (const item of items) {
+    const children = filterOutlineTree(item.children, needle)
+    const selfHit = `${item.node.name ?? ''} ${item.node.componentName}`
+      .toLowerCase()
+      .includes(needle)
+    if (selfHit || children.length > 0) {
+      kept.push({ node: item.node, children, position: item.position })
+    }
+  }
+  return kept
+}
+
+/**
  * 绘制顺序的节点 id 序列（父在前、子在后），命中测试与 DOM 层叠共用这一套结论。
  *
  * 隐藏子树整体跳过：隐藏节点既不渲染也不该被点中，留在场景里会出现

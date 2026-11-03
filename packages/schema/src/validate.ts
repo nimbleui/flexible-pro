@@ -6,8 +6,9 @@
  * 不属于纯 schema 包。
  */
 
-import { PAGE_EVENT_SOURCE } from './actions'
-import type { ActionDeclaration, EventConnection } from './actions'
+import { PAGE_EVENT_SOURCE, findActionDefinition, referencedActionIds } from './actions'
+import type { ActionDeclaration, ActionFieldSchema, EventConnection } from './actions'
+import { isExpressionString } from './expression'
 import type { NodeSchema } from './node'
 import type { PageSchema } from './page'
 
@@ -24,7 +25,63 @@ export interface ValidationIssue {
   severity: ValidationSeverity
 }
 
-/** 动作表自身的一致性：键必须等于 id，type 决定执行器所以不能缺 */
+/**
+ * 表达式形态字段的形状检查。
+ *
+ * `kind: 'expression'` 的字段在执行器里走「解析后取真值」的路径：值若是裸文本
+ * `'count > 0'`，解析结果是一个非空字符串、恒为真，分支会永远走成立一侧且不报任何错。
+ * 所以这类字段必须是真正的表达式对象。
+ *
+ * 字段声明由调用方给出而不是在这里按 type 查表：同一份检查同时服务于页面动作
+ * （声明在 `BUILTIN_ACTIONS`）和流程图节点（声明在 `FLOW_NODE_FIELDS`），
+ * 查表规则各自不同，但「表达式不能是裸文本」这条约束是同一个。
+ *
+ * @param action 待检查的动作或流程节点（节点继承动作声明，形状一致）
+ * @param fields 该类型的字段声明
+ * @param basePath 问题路径前缀，如 `/actions/a1`；产出的路径为 `<basePath>/config/<key>`
+ * @returns 表达式字段的缺失与形状问题
+ */
+export function checkExpressionFields(
+  action: ActionDeclaration,
+  fields: readonly ActionFieldSchema[],
+  basePath: string,
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = []
+
+  for (const field of fields) {
+    if (field.kind !== 'expression') continue
+
+    const value = action.config[field.key]
+    if (value === undefined) {
+      if (field.required) {
+        issues.push({
+          path: `${basePath}/config/${field.key}`,
+          message: `${field.label}未填写`,
+          severity: 'error',
+        })
+      }
+      continue
+    }
+
+    if (!isExpressionString(value)) {
+      issues.push({
+        path: `${basePath}/config/${field.key}`,
+        message: `${field.label}必须是 {{ }} 表达式；裸文本会被当作常量而恒为真`,
+        severity: 'error',
+      })
+    }
+  }
+
+  return issues
+}
+
+/**
+ * 动作表自身的一致性。
+ *
+ * 检查四件事：键与 id 一致、type 非空、`onError: 'fallback'` 必须带补救动作、
+ * 动作引用的其他动作必须存在。引用环单独由 {@link detectActionCycles} 处理，
+ * 因为环是整张引用图的性质，逐条动作看不出来。
+ */
 function validateActions(
   actions: Readonly<Record<string, ActionDeclaration>>,
 ): ValidationIssue[] {
@@ -38,6 +95,7 @@ function validateActions(
         severity: 'error',
       })
     }
+
     if (!action.type) {
       issues.push({
         path: `/actions/${key}/type`,
@@ -45,9 +103,118 @@ function validateActions(
         severity: 'error',
       })
     }
+
+    if (action.onError === 'fallback' && !action.fallbackActionId) {
+      issues.push({
+        path: `/actions/${key}/fallbackActionId`,
+        message: '失败策略为 fallback，但未指定补救动作',
+        severity: 'error',
+      })
+    }
+
+    for (const ref of referencedActionIds(action)) {
+      if (!actions[ref]) {
+        issues.push({
+          path: `/actions/${key}`,
+          message: `引用的动作 "${ref}" 不存在`,
+          severity: 'error',
+        })
+      }
+    }
+
+    issues.push(
+      ...checkExpressionFields(
+        action,
+        findActionDefinition(action.type)?.fields ?? [],
+        `/actions/${action.id}`,
+      ),
+    )
   }
 
   return issues
+}
+
+/**
+ * 检测动作引用图里的环。
+ *
+ * `flow.condition` 的分支目标、`flow.sequence` 的成员和 `fallback` 补救动作都能指向
+ * 另一个动作，因此引用图可以成环；环一旦成立，执行器只能靠步数上限硬停，用户看到的
+ * 是「点了没反应」而不是「这里配错了」。设计期必须拦住。
+ *
+ * 用三色 DFS：栈上节点被再次访问即为环。同一个环从不同入口会被走到多次，
+ * 按环上节点集合去重，只报一次。
+ *
+ * 递归深度等于动作引用链长度，页面级动作表规模为数十条，不需要改成显式栈。
+ */
+function detectActionCycles(
+  actions: Readonly<Record<string, ActionDeclaration>>,
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = []
+  const finished = new Set<string>()
+  const onStack = new Set<string>()
+  const stack: string[] = []
+  const reported = new Set<string>()
+
+  const visit = (id: string): void => {
+    if (finished.has(id)) return
+
+    if (onStack.has(id)) {
+      const cycle = stack.slice(stack.indexOf(id))
+      const key = [...cycle].sort().join('\u0000')
+      if (reported.has(key)) return
+
+      reported.add(key)
+      issues.push({
+        path: `/actions/${id}`,
+        message: `动作引用形成环：${[...cycle, id].join(' → ')}`,
+        severity: 'error',
+      })
+      return
+    }
+
+    const action = actions[id]
+    // 悬空引用已由 validateActions 报错，这里直接跳过，避免同一个问题报两次
+    if (!action) return
+
+    onStack.add(id)
+    stack.push(id)
+
+    for (const next of referencedActionIds(action)) visit(next)
+
+    stack.pop()
+    onStack.delete(id)
+    finished.add(id)
+  }
+
+  for (const id of Object.keys(actions)) visit(id)
+
+  return issues
+}
+
+/**
+ * 把「被连接直接引用」的动作集合扩展为传递闭包。
+ *
+ * 只被某个 `flow.sequence` 成员引用、而自身没出现在任何连接里的动作是活配置，
+ * 不该被报成孤儿。用工作列表而不是递归，闭包规模与动作数同阶。
+ */
+function expandUsedActions(
+  actions: Readonly<Record<string, ActionDeclaration>>,
+  used: Set<string>,
+): void {
+  const pending = [...used]
+
+  while (pending.length > 0) {
+    const id = pending.pop() as string
+    const action = actions[id]
+    if (!action) continue
+
+    for (const ref of referencedActionIds(action)) {
+      if (used.has(ref)) continue
+
+      used.add(ref)
+      pending.push(ref)
+    }
+  }
 }
 
 /**
@@ -280,10 +447,12 @@ function checkRootNode(
  * - 节点表键与节点自身 id 必须一致
  * - children / slots 引用的节点必须存在
  * - 节点必须声明非空 componentName
- * - 事件连接引用的动作与节点必须存在
+ * - 动作表键与动作 id 必须一致、type 非空、fallback 策略带补救动作
+ * - 动作引用的动作必须存在，且引用图无环
+ * - 事件连接引用的动作与节点必须存在，同一事件不可被重复绑定
  *
- * 问题顺序即返回顺序（版本 → 动作 → 连接 → 组件树），面板按此顺序展示，
- * 拆分检查项时不要改变产出顺序。
+ * 问题顺序即返回顺序（版本 → 动作 → 动作环 → 连接 → 孤儿动作 → 组件树），
+ * 面板按此顺序展示，拆分检查项时不要改变产出顺序。
  *
  * @returns 问题列表；空数组表示结构合法。
  */
@@ -300,7 +469,14 @@ export function validateDocument(schema: PageSchema): ValidationIssue[] {
   // 事件连接引用的动作与节点都必须存在，且先于组件树校验：
   // 否则空页面会提前返回，把「连到已删除节点的事件」整体漏掉。
   const connections = validateConnections(schema.connections ?? {}, nodes, actions)
-  issues.push(...validateActions(actions), ...connections.issues)
+  // 孤儿判定要在闭包之后：只被 flow.sequence 引用的动作不算孤儿
+  expandUsedActions(actions, connections.usedActions)
+
+  issues.push(
+    ...validateActions(actions),
+    ...detectActionCycles(actions),
+    ...connections.issues,
+  )
   issues.push(...validateUnusedActions(actions, connections.usedActions))
 
   if (Object.keys(nodes).length === 0) {

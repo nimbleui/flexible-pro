@@ -6,14 +6,15 @@
  * - 属性绑定（props）
  * - 子节点嵌套（children）
  * - 插槽分发（slots）
- * - 事件绑定（events）
  * - 指令系统（directives）：条件显示/隐藏/禁用等
  * - 条件渲染（condition）
  * - 循环渲染（loop）
  * - 样式与类名（style / className）
+ *
+ * 节点**不**承载事件绑定：「某节点的某事件触发后做什么」统一写在页面级的
+ * `PageSchema.connections` 里（见 `actions.ts`），节点自身只负责 emit。
  */
 
-import type { EventChain, EventHandlerDef } from './events'
 import type { ExpressionString } from './expression'
 import type { PropValue } from './props'
 import type { StyleSchema, LayoutSchema } from './styles'
@@ -61,14 +62,6 @@ export interface LoopConfig {
    */
   key?: string
 }
-
-/**
- * 事件绑定值联合类型
- * 节点事件映射表中每个事件名对应值支持两种形式：
- * 1. EventHandlerDef[] —— 简单处理器列表（向后兼容的默认模式）
- * 2. EventChain —— 事件处理链（支持多步骤、分支、并行等复杂流程）
- */
-export type EventBindingValue = EventHandlerDef[] | EventChain
 
 /**
  * 组件属性映射表
@@ -127,17 +120,6 @@ export interface NodeSchemaBase {
    * 用于组件的内容分发，类似于 Vue 的具名插槽或 React 的 children prop。
    */
   slots?: Record<string, string[]>
-  /**
-   * 事件绑定映射表（可选）
-   * 键为事件名称（如 'click'），值为该事件的绑定配置。
-   *
-   * 支持两种绑定形式：
-   * - EventHandlerDef[]：简单处理器列表，按顺序依次执行（向后兼容）
-   * - EventChain：事件处理链，支持多步骤、条件分支、并行执行
-   *
-   * 当节点触发指定事件时，运行时根据绑定类型执行相应逻辑。
-   */
-  events?: Record<string, EventBindingValue>
   /** 节点上应用的条件指令列表（可选），按数组顺序依次评估 */
   directives?: Directive[]
   /**

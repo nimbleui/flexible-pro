@@ -156,11 +156,6 @@ export function isNodePatch(patch: SchemaPatch): boolean {
   return segments[0] === 'nodes' && segments.length >= 2
 }
 
-/** 把节点事件绑定定位为 patch 路径片段。 */
-export function nodeEventPath(nodeId: string, eventName: string): string {
-  return nodePath(nodeId, `events/${encodeSegment(eventName)}`)
-}
-
 /** 把动作定位为 patch 路径片段。 */
 export function actionPath(actionId: string, suffix = ''): string {
   return `/actions/${encodeSegment(actionId)}${suffix ? `/${suffix}` : ''}`

@@ -1,181 +1,78 @@
 /**
- * 事件（Event）架构定义
- * 本文件定义了组件事件系统的核心概念，涵盖：
- * 1. 事件参数（EventParameter）—— 事件触发时携带的数据字段
- * 2. 事件定义（EventDefinition）—— 组件可触发的事件声明
- * 3. 事件处理器（EventHandlerDef）—— 绑定到节点上的具体事件处理动作
- * 4. 事件链（EventChainStep / EventChain）—— 多个处理器按序/分支执行
+ * 事件声明（Event Declaration）
+ * ---
+ * 本文件只描述「一个组件能触发哪些事件、每个事件带什么参数」，属于**设计态声明**：
+ * 物料在 manifest 里登记，事件流面板据此列出候选事件名与参数，表达式编辑器据此补全
+ * `event.xxx`。
+ *
+ * 这里**不含**任何「事件触发后做什么」的模型。「做什么」统一由 `actions.ts` 的
+ * 「事件连接 + 动作链」表达（`PageSchema.connections` / `PageSchema.actions`）。
+ *
+ * 曾经本文件还并存一套 `EventChainStep` / `EventChain` / `EventHandlerDef` 内联事件链，
+ * 与动作链构成两个互相竞争的事件模型：同一个节点的事件既可能写在 `NodeSchema.events`
+ * 里，也可能写在 `PageSchema.connections` 里，校验无从判断谁生效。那套模型从未有运行时
+ * 消费者，已整体删除，事件绑定只保留 `connections` 一条路径。
  */
-
-import type { ExpressionString } from './expression'
 
 /**
- * 事件参数定义接口
- * 描述事件触发时携带的某个参数的名称、类型和说明。
- * 用于在编辑器中为事件处理提供参数提示和类型校验。
+ * 事件参数定义。
+ *
+ * 描述事件触发时携带的某个字段，供编辑器补全与类型校验使用。
+ * `type` 是给人看的文本标注（如 `'string'`、`'MouseEvent'`），不是运行时类型系统：
+ * 真实 payload 由组件 emit 决定，声明与实现不符时以实现为准。
  */
 export interface EventParameter {
-  /** 参数名称 */
+  /** 参数名；在表达式里以 `event.<name>` 访问 */
   name: string
-  /** 参数的数据类型（如 'string', 'number', 'MouseEvent' 等） */
+  /** 参数的数据类型标注，如 `'string'`、`'number'`、`'MouseEvent'` */
   type: string
-  /** 参数的描述说明（可选） */
+  /** 参数用途说明（可选），显示在补全详情里 */
   description?: string
 }
 
 /**
- * 事件定义接口
- * 声明一个组件可以触发的某个事件，包括事件名称、显示标题、
- * 携带的参数列表和描述信息。用于在编辑器中配置事件绑定时展示。
+ * 事件定义。
+ *
+ * 声明一个组件可以触发的某个事件。物料通过 `MaterialContribution.events` 登记，
+ * 页面级事件（`pageLoad` / `pageUnload`）由 `actions.ts` 的 `PAGE_EVENTS` 单独给出，
+ * 不走物料声明。
  */
 export interface EventDefinition {
-  /** 事件名称标识，如 'click'、'change' */
+  /** 事件名标识，如 `'click'`、`'change'`；与 `EventConnection.eventName` 对应 */
   name: string
-  /** 事件在编辑器中的显示标题，如 '点击事件' */
+  /** 事件在编辑器里的显示标题，如 `'点击事件'` */
   title: string
   /** 事件触发时携带的参数列表（可选） */
   parameters?: EventParameter[]
-  /** 事件的用途描述（可选） */
+  /** 事件用途描述（可选） */
   description?: string
 }
 
 /**
- * 事件链步骤接口
- * 事件链中的一个执行步骤，描述了一个原子操作。
- * 多个步骤按照链式结构组织，支持顺序执行、条件分支和跳转。
+ * 把组件 emit 出来的实参列表折叠成表达式里的 `event`。
  *
- * 事件链步骤通过 `next` 和 `branches` 字段定义执行流转：
- * - 当 `next` 为单个字符串时，执行完当前步骤后跳转到指定步骤
- * - 当 `next` 为数组时，并行执行所有指定的下一步骤
- * - 当 `branches` 存在时，根据条件表达式的结果决定跳转方向
- * - 当 `next` 和 `branches` 均未指定时，按数组顺序执行下一个步骤
+ * 参数名取自物料的事件声明，按位置对齐：声明了 2 个而组件只 emit 1 个，另一位取
+ * `undefined`；组件多发出的实参丢弃。
+ *
+ * 刻意不做「没声明就塞进 `$args`」这类兜底：那会把「物料忘了声明参数」表现成
+ * 表达式里凭空少一个变量、要跑到运行时才发现，而不是在设计期就能从参数表里看出来。
+ *
+ * 用 null 原型对象承载：参数名来自物料作者输入，直接放进普通对象可能触发
+ * `__proto__` 之类的原型污染。
+ *
+ * @param parameters 事件声明的参数列表；未声明时结果为空对象
+ * @param args 组件实际 emit 的实参
+ * @returns 以参数名为键的事件载荷
  */
-export interface EventChainStep {
-  /** 步骤唯一标识（在链内唯一），用于后继步骤引用 */
-  id: string
-  /** 动作类型标识，如 'navigate'、'setVariable'、'callApi'、'showToast' 等 */
-  action: string
-  /** 动作的配置参数，不同类型动作有不同的配置结构 */
-  config: Record<string, unknown>
-  /** 步骤显示名称（可选），用于编辑器中标识该步骤 */
-  name?: string
-  /**
-   * 步骤执行的条件表达式（可选）
-   * 只有当表达式求值为真时，该步骤才会执行。
-   * 如果步骤被跳过，其后续链也会被跳过。
-   */
-  condition?: ExpressionString
-  /**
-   * 后继步骤 ID 或 ID 列表（可选）
-   * - 字符串：执行完当前步骤后，跳转到该 ID 对应的步骤
-   * - 字符串数组：执行完当前步骤后，并行触发所有指定的步骤
-   * - 未指定：默认按 steps 数组中的下一个步骤继续执行
-   */
-  next?: string | string[]
-  /**
-   * 条件分支目标（可选）
-   * 根据 condition 表达式的结果决定跳转方向。
-   * 当 condition 求值为 true 时跳转到 true 分支，
-   * 为 false 时可选择跳转到 false 分支。
-   * 优先级高于 `next` 字段。
-   */
-  branches?: {
-    /** 条件为真时执行的步骤 ID */
-    true: string
-    /** 条件为假时执行的步骤 ID（可选） */
-    false?: string
+export function buildEventPayload(
+  parameters: readonly EventParameter[] | undefined,
+  args: readonly unknown[],
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = Object.create(null)
+
+  for (const [index, parameter] of (parameters ?? []).entries()) {
+    payload[parameter.name] = args[index]
   }
-  /**
-   * 是否异步执行该步骤（可选）
-   * 为 true 时，引擎不会等待该步骤完成即继续执行下一个步骤。
-   * 默认为 false（同步等待）。
-   */
-  async?: boolean
-}
 
-/**
- * 事件链定义接口
- * 描述一个完整的事件处理链，由一组步骤及其执行模式组成。
- *
- * `EventChain` 只承载内联 steps；需要在多个事件之间复用的逻辑，应声明为独立的
- * 动作（见 `actions.ts`），由事件连接按序引用。
- */
-export interface EventChain {
-  /**
-   * 事件链中包含的步骤列表
-   * 按 `mode` 声明的顺序或并行执行；未指定 `next`/`branches` 时依数组顺序推进。
-   */
-  steps: EventChainStep[]
-  /**
-   * 链的执行模式：
-   * - 'sequential'：按顺序依次执行步骤（默认）
-   * - 'parallel'：所有步骤并行执行
-   */
-  mode?: 'sequential' | 'parallel'
-  /**
-   * 错误处理策略（可选）：
-   * - 'stop'：出现错误时停止整个链（默认）
-   * - 'continue'：即使某个步骤出错也继续执行后续步骤
-   * - 'rollback'：出现错误时回滚已执行的步骤
-   */
-  onError?: 'stop' | 'continue' | 'rollback'
-  /**
-   * 链执行超时时间（毫秒，可选）
-   * 超出此时间未完成则中止执行。
-   */
-  timeout?: number
-}
-
-/**
- * 事件处理器定义（可辨识联合类型）
- *
- * 描述绑定到某个节点上的一个具体事件处理动作。
- * 通过 `kind` 字段区分为两种互斥的处理模式：
- *
- * 1. **ActionHandlerDef**（kind: 'action'）：单步动作模式，直接通过 action + config 定义处理动作
- * 2. **ChainHandlerDef**（kind: 'chain'）：事件链模式，通过 chain 定义多步骤处理流程
- *
- * 运行时可通过 `handler.kind` 或 `isActionHandler` / `isChainHandler`
- * 类型守卫进行类型收窄。
- */
-export type EventHandlerDef = ActionHandlerDef | ChainHandlerDef
-
-/**
- * 单步动作处理器
- * 直接通过 action + config 定义单个处理动作。
- * 这是最常见的事件处理形式，适用于简单的单步操作。
- */
-export interface ActionHandlerDef {
-  /** 类型标识，固定为 'action'，用于可辨识联合类型收窄 */
-  kind: 'action'
-  /** 动作类型标识，如 'navigate'、'setVariable'、'callApi' 等 */
-  action: string
-  /** 动作的配置参数，不同类型动作有不同的配置结构 */
-  config: Record<string, unknown>
-  /** 处理器名称（可选），用于在编辑器中标识 */
-  name?: string
-  /**
-   * 处理条件表达式（可选）
-   * 只有当表达式求值为真时，事件处理才会执行。
-   */
-  condition?: ExpressionString
-}
-
-/**
- * 事件链处理器
- * 通过 chain 字段定义多步骤的链式处理流程。
- * 支持条件分支、并行执行和错误处理等复杂流程控制。
- */
-export interface ChainHandlerDef {
-  /** 类型标识，固定为 'chain'，用于可辨识联合类型收窄 */
-  kind: 'chain'
-  /** 事件链配置，定义多步骤处理流程 */
-  chain: EventChain
-  /** 处理器名称（可选），用于在编辑器中标识 */
-  name?: string
-  /**
-   * 处理条件表达式（可选）
-   * 只有当表达式求值为真时，事件链才会执行。
-   */
-  condition?: ExpressionString
+  return payload
 }

@@ -2,12 +2,14 @@ import type { NodeSchema } from '../src/node'
 import type { PageSchema } from '../src/page'
 import type { SchemaPatch } from '../src/patch'
 import type { Rect } from '../src/styles'
+import type { OutlineItem } from '../src/tree'
 import { applyPatches } from '../src/patch'
 import { SCHEMA_VERSION } from '../src/version'
 import { describe, expect, it } from 'vitest'
 import {
   buildOutlineTree,
   changeOrders,
+  filterOutlineTree,
   groupNodes,
   paintOrder,
   reorderChildren,
@@ -79,6 +81,52 @@ describe('图层树构建', () => {
     ])
 
     expect(paintOrder(schema)).toEqual(['root', 'a', 'a1'])
+  })
+})
+
+describe('图层树搜索裁剪', () => {
+  const schema = page([
+    node('root', { children: ['header', 'content'] }),
+    node('header', { name: 'Header 区域', children: ['logo'] }),
+    node('logo', { name: 'Logo' }),
+    node('content', { children: ['card'] }),
+    node('card', { componentName: 'Text', name: '统计卡片' }),
+  ])
+  const tree = buildOutlineTree(schema)
+
+  /** 深度优先收集 id，断言时一次看整棵裁剪结果 */
+  function flatten(items: OutlineItem[]): string[] {
+    return items.flatMap((item) => [item.node.id, ...flatten(item.children)])
+  }
+
+  it('空关键词与只有空白的关键词都原样返回', () => {
+    expect(flatten(filterOutlineTree(tree, ''))).toEqual([
+      'root',
+      'header',
+      'logo',
+      'content',
+      'card',
+    ])
+    expect(flatten(filterOutlineTree(tree, '   '))).toEqual(flatten(tree))
+  })
+
+  it('命中深层节点时保留祖先路径，未命中的兄弟支整支剔除', () => {
+    expect(flatten(filterOutlineTree(tree, '统计'))).toEqual(['root', 'content', 'card'])
+  })
+
+  it('命中的容器不自动带出子节点，显示名与组件名都参与匹配且忽略大小写', () => {
+    expect(flatten(filterOutlineTree(tree, 'header'))).toEqual(['root', 'header'])
+    expect(flatten(filterOutlineTree(tree, 'HEADER'))).toEqual(['root', 'header'])
+    expect(flatten(filterOutlineTree(tree, 'text'))).toEqual(['root', 'content', 'card'])
+  })
+
+  it('无命中时返回空树', () => {
+    expect(filterOutlineTree(tree, '不存在的名字')).toEqual([])
+  })
+
+  it('裁剪后仍保留父级位置，拖拽重排拿得到落点', () => {
+    const card = filterOutlineTree(tree, '统计')[0]?.children[0]
+    expect(card?.children[0]?.position).toEqual({ parentId: 'content', index: 0 })
   })
 })
 
