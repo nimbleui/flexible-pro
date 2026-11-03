@@ -1,11 +1,13 @@
 import type { CanvasRealm, LoaderService, MaterialService, ModuleService } from '@lc/contracts'
 import { installContextServices } from '@lc/contracts'
 import type { Context } from '@lc/kernel'
-import { createApp } from '@lc/kernel'
+import { createApp, definePlugin } from '@lc/kernel'
 import type { ExpressionEngine } from '@lc/schema'
 import presetDesigner from '@lc/preset-designer'
 import { installCustomComponents } from './custom-components/custom-components'
 import { installGlobalFunctions } from './functions/global-functions'
+import { navigationService } from './navigation'
+import { toastService } from './toast'
 import { manifest as materialsBasicManifest } from '@lc/plugin-materials-basic/manifest'
 import { manifest as materialsPanelManifest } from '@lc/plugin-panel-materials/manifest'
 import { manifest as eventFlowPanelManifest } from '@lc/plugin-panel-eventflow/manifest'
@@ -77,6 +79,28 @@ function registerBuiltinPackages(loader: LoaderService): void {
 }
 
 /**
+ * 挂载宿主 UI 能力：提示与路由跳转。
+ *
+ * 这两个服务名刻意不在 `RESERVED_SERVICES` 里（与 `expression`、`keybinding` 同类）：
+ * 插件提供更好看的提示实现、或接管跳转去接自己的埋点，都是正当用法，不像 `canvas`、
+ * `history` 那样承载内核语义。
+ *
+ * 动作执行器把它们当**可选**依赖在调用时读取，所以没有宿主的运行环境（纯逻辑测试、
+ * 无 DOM 渲染）里装不上它们也只会让对应动作报错，不会让整条链跑不起来。
+ */
+function installHostShellUi(context: Context): void {
+  context.plugin(
+    definePlugin({
+      name: 'host-shell-ui',
+      apply(ctx) {
+        ctx.effect(() => ctx.provide('toast', toastService))
+        ctx.effect(() => ctx.provide('navigation', navigationService))
+      },
+    }),
+  )
+}
+
+/**
  * 注册应用级命令与快捷键。
  *
  * 命令面板本身是应用级 UI，命令也挂在应用 Context 上：文档 Realm 关闭时
@@ -108,6 +132,7 @@ function exposeDebugHandle(result: HostBootstrap): void {
 /**
  * 启动主应用外壳：
  * 1. createApp → 安装 preset-designer（modules / loader / material / command / renderer / workspace）
+ *    与宿主 UI 能力（toast / navigation）
  * 2. loader 登记宿主侧插件包的 manifest 与模块
  * 3. 注册应用级命令与快捷键
  *
@@ -122,6 +147,7 @@ export async function bootstrapHost(): Promise<HostBootstrap> {
   const context = createApp({ id: 'host', grants: GRANTS })
 
   context.plugin(presetDesigner)
+  installHostShellUi(context)
   await context.runtime.whenIdle()
 
   // 全局函数是应用级能力：启动时注册一次，管理页修改后由订阅重新注册
