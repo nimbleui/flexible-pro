@@ -32,6 +32,7 @@ import { FORBIDDEN_KEYS, resolveMethodTable } from './host'
 
 /** 一层作用域。用帧数组而不是原型链做作用域嵌套，正是为了不借用 JS 的查找机制 */
 interface Frame {
+  /** 本层的名字 → 值表；查找按帧数组从内到外遍历，不沿原型链 */
   readonly vars: ExpressionScope
 }
 
@@ -42,16 +43,23 @@ interface Frame {
  * 所以它不会作为结果值泄漏进渲染输出。
  */
 interface Lambda {
+  /** 判别字段；`isLambda` 按它识别中间形态，宿主永远拿不到这个值 */
   readonly kind: 'lambda'
+  /** 形参名；与回调实参按位置对齐 */
   readonly params: readonly string[]
+  /** 箭头函数体 AST，回调每次调用时在新帧里求值 */
   readonly body: ExpressionNode
+  /** 创建 lambda 时捕获的作用域帧链，实现闭包语义 */
   readonly frames: readonly Frame[]
 }
 
 /** 一次顶层求值的预算与错误上下文 */
 interface Runtime {
+  /** 表达式原文，仅用于错误文案定位 */
   readonly source: string
+  /** 剩余步数预算；每访问一个语法树节点递减 1 */
   steps: number
+  /** 当前函数调用深度，与 `callDepthLimit` 比较 */
   depth: number
   /** 本次顶层求值的起点时钟读数 */
   readonly startedAt: number
@@ -67,6 +75,12 @@ interface Runtime {
  */
 const TIME_CHECK_INTERVAL = 256
 
+/**
+ * 求值器的预算与外部能力配置。
+ *
+ * 全部字段必填（除可选回调外）且不做默认：求值器由 `createExpressionEngine`
+ * 统一装配默认值，这里再给一份默认只会造成两处口径漂移。
+ */
 export interface EvaluatorOptions {
   /** 单次顶层求值允许访问的语法树节点次数上限 */
   stepBudget: number
@@ -97,6 +111,12 @@ export interface EvaluatorOptions {
   onUnboundIdentifier?(name: string, source: string): void
 }
 
+/**
+ * 白名单求值器实例。
+ *
+ * 只有一个入口 `run`，没有缓存也没有状态：预算与错误上下文都在每次顶层
+ * 求值时重建，同一实例可安全并发用于不同表达式与作用域。
+ */
 export interface Evaluator {
   /**
    * 求值一棵语法树。
@@ -140,6 +160,18 @@ function ownValue(target: object, key: string): unknown {
   return Object.hasOwn(target, key) ? (target as ExpressionScope)[key] : undefined
 }
 
+/**
+ * 创建白名单求值器。
+ *
+ * 工厂而不是类：求值逻辑是纯递归下降（`evaluateNode` 按 AST 类别分派），
+ * 没有需要封装的可变实例状态；帧链与预算以参数显式传递，方便单测直接构造。
+ *
+ * 安全约束的实现点集中在本函数内部：属性读取走 `ownValue`（永不沿原型链）、
+ * 方法调用走 `host.ts` 白名单表、函数与深度受预算闸门限制。详见文件头注释。
+ *
+ * @param options 预算、时钟与函数解析回调；全部字段直接生效，不做默认
+ * @returns 无状态的求值器实例，可复用于任意数量的顶层求值
+ */
 export function createEvaluator(options: EvaluatorOptions): Evaluator {
   function lookup(frames: readonly Frame[], name: string): unknown {
     for (const frame of frames) {
@@ -353,6 +385,78 @@ export function createEvaluator(options: EvaluatorOptions): Evaluator {
       )
   }
 
+  /** 直接按名调用：注册表函数（内置 / 声明式）优先于作用域里的函数值 */
+  function evalIdentifierCall(
+    name: string,
+    node: ExpressionCallNode,
+    frames: readonly Frame[],
+    runtime: Runtime,
+    invokeArgs: (thisArg: unknown, fn: CallableFunction) => unknown,
+  ): unknown {
+    const resolved = options.resolveFunction(name)
+    if (resolved) {
+      return withCallDepth(runtime, () => {
+        const args = node.args.map((arg) => evaluateNode(arg, frames, runtime))
+        if (resolved.kind === 'builtin') return resolved.apply(args, runtime.source)
+        // 声明式函数只看得见形参，不回链调用处帧：见 schema/functions.ts 的 body 注释
+        return evaluateNode(
+          resolved.body,
+          [{ vars: bindParams(resolved.params, args) }],
+          runtime,
+        )
+      })
+    }
+
+    const value = lookup(frames, name)
+    if (value === null || value === undefined) {
+      if (node.optional) return undefined
+      fail(runtime, 'unknown-function', `${name} 既不是已注册函数，也不在作用域里`)
+    }
+    if (typeof value !== 'function') fail(runtime, 'not-a-function', `${name} 不是函数`)
+
+    return invokeArgs(undefined, value)
+  }
+
+  /**
+   * 成员 / 下标调用：先查接收者类型对应的白名单方法表，表外退回「自有函数属性」。
+   *
+   * `?.()` 在接收者为空时整跳返回 undefined；方法名解析失败同样吞成 undefined，
+   * 与 JS 可选链调用的语义一致。
+   */
+  function evalMemberCall(
+    callee: Extract<ExpressionNode, { kind: 'member' | 'index' }>,
+    node: ExpressionCallNode,
+    frames: readonly Frame[],
+    runtime: Runtime,
+    invokeArgs: (thisArg: unknown, fn: CallableFunction) => unknown,
+  ): unknown {
+    const receiver = evaluateNode(callee.object, frames, runtime)
+    const key =
+      callee.kind === 'member'
+        ? callee.property
+        : toDisplayString(evaluateNode(callee.index, frames, runtime))
+
+    if ((receiver === null || receiver === undefined) && node.optional) return undefined
+
+    const method = resolveMethodTable(receiver)?.get(key)
+    if (method) {
+      return withCallDepth(runtime, () => {
+        const args = node.args.map((arg) => evaluateNode(arg, frames, runtime))
+        for (const position of method.callbackArgs ?? []) {
+          args[position] = toCallback(runtime, args[position])
+        }
+        return method.apply(receiver, args)
+      })
+    }
+
+    // 白名单表里没有这个名字：退回到「自有函数属性」，仍然不碰原型
+    const value = readProperty(runtime, receiver, key, node.optional)
+    if (typeof value === 'function') return invokeArgs(receiver, value)
+    if (value === undefined && node.optional) return undefined
+
+    fail(runtime, 'not-a-function', `${key} 不是 ${describeType(receiver)} 支持的函数`)
+  }
+
   /**
    * 调用解析顺序：注册表（内置 + 声明式）→ 作用域里的函数值 → 失败。
    *
@@ -375,57 +479,11 @@ export function createEvaluator(options: EvaluatorOptions): Evaluator {
       )
 
     if (callee.kind === 'identifier') {
-      const resolved = options.resolveFunction(callee.name)
-      if (resolved) {
-        return withCallDepth(runtime, () => {
-          const args = node.args.map((arg) => evaluateNode(arg, frames, runtime))
-          if (resolved.kind === 'builtin') return resolved.apply(args, runtime.source)
-          // 声明式函数只看得见形参，不回链调用处帧：见 schema/functions.ts 的 body 注释
-          return evaluateNode(
-            resolved.body,
-            [{ vars: bindParams(resolved.params, args) }],
-            runtime,
-          )
-        })
-      }
-
-      const value = lookup(frames, callee.name)
-      if (value === null || value === undefined) {
-        if (node.optional) return undefined
-        fail(runtime, 'unknown-function', `${callee.name} 既不是已注册函数，也不在作用域里`)
-      }
-      if (typeof value !== 'function')
-        fail(runtime, 'not-a-function', `${callee.name} 不是函数`)
-
-      return invokeArgs(undefined, value)
+      return evalIdentifierCall(callee.name, node, frames, runtime, invokeArgs)
     }
 
     if (callee.kind === 'member' || callee.kind === 'index') {
-      const receiver = evaluateNode(callee.object, frames, runtime)
-      const key =
-        callee.kind === 'member'
-          ? callee.property
-          : toDisplayString(evaluateNode(callee.index, frames, runtime))
-
-      if ((receiver === null || receiver === undefined) && node.optional) return undefined
-
-      const method = resolveMethodTable(receiver)?.get(key)
-      if (method) {
-        return withCallDepth(runtime, () => {
-          const args = node.args.map((arg) => evaluateNode(arg, frames, runtime))
-          for (const position of method.callbackArgs ?? []) {
-            args[position] = toCallback(runtime, args[position])
-          }
-          return method.apply(receiver, args)
-        })
-      }
-
-      // 白名单表里没有这个名字：退回到「自有函数属性」，仍然不碰原型
-      const value = readProperty(runtime, receiver, key, node.optional)
-      if (typeof value === 'function') return invokeArgs(receiver, value)
-      if (value === undefined && node.optional) return undefined
-
-      fail(runtime, 'not-a-function', `${key} 不是 ${describeType(receiver)} 支持的函数`)
+      return evalMemberCall(callee, node, frames, runtime, invokeArgs)
     }
 
     // 覆盖 `(x => x)(1)`：箭头函数不作为一等可调用值，被调用对象必须是真函数
@@ -435,6 +493,51 @@ export function createEvaluator(options: EvaluatorOptions): Evaluator {
     return invokeArgs(undefined, value)
   }
 
+  /** 下标读取：只接受字符串 / 数字下标，其余一律无效操作数 */
+  function evalIndexNode(
+    node: Extract<ExpressionNode, { kind: 'index' }>,
+    frames: readonly Frame[],
+    runtime: Runtime,
+  ): unknown {
+    const receiver = evaluateNode(node.object, frames, runtime)
+    const key = evaluateNode(node.index, frames, runtime)
+    if (typeof key !== 'string' && typeof key !== 'number') {
+      fail(runtime, 'invalid-operand', '下标只能是字符串或数字')
+    }
+    return readProperty(runtime, receiver, String(key), node.optional)
+  }
+
+  /** 短路求值：`&&` / `||` 返回某一侧的原值，`??` 只在 nullish 时跳到右侧 */
+  function evalLogicalNode(
+    node: Extract<ExpressionNode, { kind: 'logical' }>,
+    frames: readonly Frame[],
+    runtime: Runtime,
+  ): unknown {
+    const left = evaluateNode(node.left, frames, runtime)
+    if (node.op === '&&')
+      return toBoolean(left) ? evaluateNode(node.right, frames, runtime) : left
+    if (node.op === '||')
+      return toBoolean(left) ? left : evaluateNode(node.right, frames, runtime)
+    return left === null || left === undefined
+      ? evaluateNode(node.right, frames, runtime)
+      : left
+  }
+
+  /** 对象字面量：只用自有数据属性逐键组装 */
+  function evalObjectNode(
+    node: Extract<ExpressionNode, { kind: 'object' }>,
+    frames: readonly Frame[],
+    runtime: Runtime,
+  ): Record<string, unknown> {
+    const result: Record<string, unknown> = {}
+    for (const property of node.properties) {
+      // 属性名不校验：写进去的只是自有数据属性，而读取口 ownValue 会拒绝那些危险名字
+      defineDataProperty(result, property.key, evaluateNode(property.value, frames, runtime))
+    }
+    return result
+  }
+
+  /** AST 按节点类别分派的递归主体；含完整子规则的类别拆在 evalXxxNode */
   function evaluateNode(
     node: ExpressionNode,
     frames: readonly Frame[],
@@ -462,14 +565,8 @@ export function createEvaluator(options: EvaluatorOptions): Evaluator {
           node.optional,
         )
 
-      case 'index': {
-        const receiver = evaluateNode(node.object, frames, runtime)
-        const key = evaluateNode(node.index, frames, runtime)
-        if (typeof key !== 'string' && typeof key !== 'number') {
-          fail(runtime, 'invalid-operand', '下标只能是字符串或数字')
-        }
-        return readProperty(runtime, receiver, String(key), node.optional)
-      }
+      case 'index':
+        return evalIndexNode(node, frames, runtime)
 
       case 'call':
         return evalCall(node, frames, runtime)
@@ -487,16 +584,8 @@ export function createEvaluator(options: EvaluatorOptions): Evaluator {
         return applyBinary(runtime, node.op, left, right)
       }
 
-      case 'logical': {
-        const left = evaluateNode(node.left, frames, runtime)
-        if (node.op === '&&')
-          return toBoolean(left) ? evaluateNode(node.right, frames, runtime) : left
-        if (node.op === '||')
-          return toBoolean(left) ? left : evaluateNode(node.right, frames, runtime)
-        return left === null || left === undefined
-          ? evaluateNode(node.right, frames, runtime)
-          : left
-      }
+      case 'logical':
+        return evalLogicalNode(node, frames, runtime)
 
       case 'conditional':
         return toBoolean(evaluateNode(node.test, frames, runtime))
@@ -506,18 +595,8 @@ export function createEvaluator(options: EvaluatorOptions): Evaluator {
       case 'array':
         return node.elements.map((element) => evaluateNode(element, frames, runtime))
 
-      case 'object': {
-        const result: Record<string, unknown> = {}
-        for (const property of node.properties) {
-          // 属性名不校验：写进去的只是自有数据属性，而读取口 ownValue 会拒绝那些危险名字
-          defineDataProperty(
-            result,
-            property.key,
-            evaluateNode(property.value, frames, runtime),
-          )
-        }
-        return result
-      }
+      case 'object':
+        return evalObjectNode(node, frames, runtime)
 
       case 'arrow':
         return { kind: 'lambda' as const, params: node.params, body: node.body, frames }
