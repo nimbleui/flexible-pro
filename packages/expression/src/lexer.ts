@@ -10,12 +10,15 @@ export type TokenType = 'number' | 'string' | 'name' | 'punct' | 'eof'
 
 /** 单个词法单元。 */
 export interface Token {
+  /** 词法类别；`name` 同时承载关键字，落成语义由语法层决定 */
   readonly type: TokenType
   /** 源码原文片段 */
   readonly text: string
   /** number / string 转义解码后的字面值；其余类型为 undefined */
   readonly literal: string | number | undefined
+  /** 在源码中的起始下标（含），与编辑器报错定位共用同一坐标空间 */
   readonly start: number
+  /** 在源码中的结束下标（不含），可直接用于原文 slice */
   readonly end: number
 }
 
@@ -76,6 +79,36 @@ const SIMPLE_ESCAPES: Readonly<Record<string, string>> = {
 }
 
 /**
+ * 解析一个 `\` 起始的转义序列。
+ *
+ * 返回解码文本与下一待读位置：`\uXXXX` 连同反斜杠消费 6 个字符，其余转义消费 2 个。
+ * 非法或不认识的 `\u` 序列退化为普通转义处理（按原字符保留），与 `scanString`
+ * 的宽松策略保持一致。
+ */
+function readEscape(
+  source: string,
+  index: number,
+): { readonly text: string; readonly next: number } {
+  const next = source[index + 1]
+  if (next === undefined) return { text: '', next: index + 1 }
+
+  if (next === 'u') {
+    const hex = source.slice(index + 2, index + 6)
+    const code = Number.parseInt(hex, 16)
+    if (!Number.isNaN(code) && hex.length === 4) {
+      return { text: String.fromCharCode(code), next: index + 6 }
+    }
+  }
+
+  return { text: SIMPLE_ESCAPES[next] ?? next, next: index + 2 }
+}
+
+/** 组装字符串 token；`text` 取原文（含引号），`literal` 是解码后的值 */
+function stringToken(source: string, start: number, end: number, value: string): Token {
+  return { type: 'string', text: source.slice(start, end), literal: value, start, end }
+}
+
+/**
  * 扫描字符串字面量，处理单引号/双引号与常见转义。
  *
  * 未识别的转义（如 `\q`）按原字符保留而不是报错：表达式文本常从 JSON 里粘贴过来，
@@ -91,33 +124,13 @@ function scanString(source: string, start: number): Token {
     const char = source[index]
 
     if (char === '\\') {
-      const next = source[index + 1]
-      if (next === undefined) break
-
-      if (next === 'u') {
-        const hex = source.slice(index + 2, index + 6)
-        const code = Number.parseInt(hex, 16)
-        if (!Number.isNaN(code) && hex.length === 4) {
-          value += String.fromCharCode(code)
-          index += 6
-          continue
-        }
-      }
-
-      value += SIMPLE_ESCAPES[next] ?? next
-      index += 2
+      const escape = readEscape(source, index)
+      value += escape.text
+      index = escape.next
       continue
     }
 
-    if (char === quote) {
-      return {
-        type: 'string',
-        text: source.slice(start, index + 1),
-        literal: value,
-        start,
-        end: index + 1,
-      }
-    }
+    if (char === quote) return stringToken(source, start, index + 1, value)
 
     value += char
     index += 1

@@ -30,6 +30,15 @@ export interface SandboxEndpoint {
   readonly engine: ExpressionEngine
 }
 
+/** 求值请求的收窄形态 */
+type InvokeRequest = Extract<SandboxRequest, { kind: 'invoke' }>
+
+/** 函数注册请求的收窄形态 */
+type RegisterRequest = Extract<SandboxRequest, { kind: 'register' }>
+
+/** 函数注销请求的收窄形态 */
+type UnregisterRequest = Extract<SandboxRequest, { kind: 'unregister' }>
+
 function toPayload(error: unknown): SandboxErrorPayload {
   if (isExpressionError(error)) {
     const expressionError = error as ExpressionError
@@ -93,7 +102,7 @@ export function createSandboxEndpoint(
     return { protocol: SANDBOX_PROTOCOL_VERSION, kind: 'result', id, value, diagnostics }
   }
 
-  function invoke(request: Extract<SandboxRequest, { kind: 'invoke' }>): SandboxResponse {
+  function invoke(request: InvokeRequest): SandboxResponse {
     const { operation, input, scope } = request
 
     // 三个求值入口内部都不抛错（吞异常 + 记诊断），这里兜的是作用域里
@@ -114,7 +123,7 @@ export function createSandboxEndpoint(
     return ok(request.id, engine.resolveValue(input, scope))
   }
 
-  function register(request: Extract<SandboxRequest, { kind: 'register' }>): SandboxResponse {
+  function register(request: RegisterRequest): SandboxResponse {
     const registered: string[] = []
     const rejected: string[] = []
     const bucket = registrations.get(request.registrationId) ?? []
@@ -139,9 +148,7 @@ export function createSandboxEndpoint(
     return ok(request.id, result)
   }
 
-  function unregister(
-    request: Extract<SandboxRequest, { kind: 'unregister' }>,
-  ): SandboxResponse {
+  function unregister(request: UnregisterRequest): SandboxResponse {
     const bucket = registrations.get(request.registrationId)
     if (bucket) {
       for (const handle of bucket) handle.dispose()
@@ -168,11 +175,20 @@ export function createSandboxEndpoint(
   }
 }
 
+/** worker 端口收到的消息事件；真实 Event 与单测里的普通对象都结构满足 */
+interface SandboxMessageEvent {
+  /** 结构化克隆后的消息载荷；内容不可信，由端点负责校验 */
+  data: unknown
+}
+
 /** worker 端口的最小形态；浏览器 worker 全局天然满足，单测可以传假端口 */
 export interface SandboxPort {
+  /** 把响应送回主线程 */
   postMessage(message: unknown): void
-  addEventListener(type: 'message', listener: (event: { data: unknown }) => void): void
-  removeEventListener(type: 'message', listener: (event: { data: unknown }) => void): void
+  /** 注册消息监听；接线与解除必须传同一个 listener 引用 */
+  addEventListener(type: 'message', listener: (event: SandboxMessageEvent) => void): void
+  /** 解除消息监听；serveSandboxOnPort 的返回函数靠它成对清理 */
+  removeEventListener(type: 'message', listener: (event: SandboxMessageEvent) => void): void
 }
 
 /**
@@ -190,7 +206,7 @@ export function serveSandboxOnPort(
   options: ExpressionEngineOptions = {},
 ): () => void {
   const endpoint = createSandboxEndpoint(options)
-  const listener = (event: { data: unknown }): void => {
+  const listener = (event: SandboxMessageEvent): void => {
     const response = endpoint.handle(event.data)
     if (response) port.postMessage(response)
   }

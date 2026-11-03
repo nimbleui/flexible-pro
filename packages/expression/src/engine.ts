@@ -52,6 +52,12 @@ const DEFAULT_RESOLVE_DEPTH_LIMIT = 32
 /** 诊断上报通道，与内核 `ctx.diagnostics.report` 同形 */
 export type ExpressionDiagnosticSink = (error: unknown, detail: Record<string, unknown>) => void
 
+/**
+ * 引擎装配配置。
+ *
+ * 所有预算参数按「单个引擎实例」计，而非全局：预览沙箱、动作执行器等
+ * 可以各自持有一份额度独立的实例。缺省值统一取模块顶部的 DEFAULT_* 常量。
+ */
 export interface ExpressionEngineOptions {
   /**
    * `JsExpression` 的执行器。
@@ -96,8 +102,18 @@ export interface ExpressionEngineOptions {
 
 /** 模板的一个已编译分段；`compiled` 为 null 表示该段语法非法、已按文本记入负缓存 */
 type CompiledSegment =
-  | { readonly kind: 'text'; readonly text: string }
-  | { readonly kind: 'expression'; readonly compiled: CompiledExpression | null }
+  /** 静态文本段，插值时原样拼接 */
+  | {
+      readonly kind: 'text'
+      /** 参与拼接的原文，保留模板边界之间的空白 */
+      readonly text: string
+    }
+  /** 表达式段，插值时求值并字符串化 */
+  | {
+      readonly kind: 'expression'
+      /** 编译产物；null 是「解析失败」的负缓存标记，重渲染不再重复解析 */
+      readonly compiled: CompiledExpression | null
+    }
 
 /**
  * 创建表达式引擎。
@@ -266,6 +282,24 @@ export function createExpressionEngine(
     }
   }
 
+  /**
+   * 递归重建普通对象的一层。
+   *
+   * 用 `defineDataProperty` 逐键定义而不是 spread：保持与求值器对象字面量同一
+   * 组装口径，产出永远是仅含自有数据属性的普通对象。
+   */
+  function resolvePlainRecord(
+    value: Record<string, unknown>,
+    scope: ExpressionScope,
+    depth: number,
+  ): Record<string, unknown> {
+    const resolved: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(value)) {
+      defineDataProperty(resolved, key, resolveAt(item, scope, depth + 1))
+    }
+    return resolved
+  }
+
   function resolveAt(value: unknown, scope: ExpressionScope, depth: number): unknown {
     if (depth > resolveDepthLimit) {
       report(new ExpressionError('depth', 'schema 值嵌套层数超过上限，该子树原样返回', ''), {
@@ -289,13 +323,7 @@ export function createExpressionEngine(
 
     // 只对普通对象递归：Date、Map 与自定义类实例原样透传，
     // 否则一个日期字段会被重建成 { }，把 bug 藏进渲染层
-    if (isPlainRecord(value)) {
-      const resolved: Record<string, unknown> = {}
-      for (const [key, item] of Object.entries(value)) {
-        defineDataProperty(resolved, key, resolveAt(item, scope, depth + 1))
-      }
-      return resolved
-    }
+    if (isPlainRecord(value)) return resolvePlainRecord(value, scope, depth)
 
     return value
   }

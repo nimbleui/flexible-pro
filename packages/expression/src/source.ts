@@ -15,8 +15,18 @@ const TEMPLATE_PATTERN = /\{\{([\s\S]*?)\}\}/gu
 
 /** 模板分段：静态文本或一段待求值的表达式 */
 export type TemplateSegment =
-  | { readonly kind: 'text'; readonly text: string }
-  | { readonly kind: 'expression'; readonly text: string }
+  /** 原样输出的静态文本，不参与求值 */
+  | {
+      readonly kind: 'text'
+      /** 含模板边界之间原始空白的文本内容，不做 trim */
+      readonly text: string
+    }
+  /** 一对 `{{ }}` 之间的表达式，待编译求值 */
+  | {
+      readonly kind: 'expression'
+      /** 括号内的表达式原文（不含 `{{` `}}`），可能带首尾空白 */
+      readonly text: string
+    }
 
 /**
  * 剥掉整段 `{{ ... }}` 包裹，只保留内部表达式并去掉首尾空白。

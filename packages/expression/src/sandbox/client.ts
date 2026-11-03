@@ -22,12 +22,20 @@ import { SANDBOX_PROTOCOL_VERSION, isSandboxResponse } from './protocol'
 
 /** 传输通道的最小接口；浏览器 Worker 与 Node worker_threads 都能适配 */
 export interface SandboxTransport {
+  /** 投递一条协议消息；克隆失败应同步抛出（客户端按 DataCloneError 归类） */
   postMessage(message: unknown): void
+  /** 终止通道；调用后不得再有消息回调进入客户端 */
   close(): void
   /** 订阅消息；返回取消订阅句柄 */
   onMessage(handler: (message: unknown) => void): () => void
 }
 
+/**
+ * 通道工厂。
+ *
+ * 每次调用必须产出全新通道（新 Worker/Port），因为超时与协议不符都会终止
+ * 旧通道并依赖工厂重建；工厂需保持可重复调用、无内部缓存。
+ */
 export type SandboxTransportFactory = () => SandboxTransport
 
 /** 通道层错误码；与 `ExpressionErrorKind` 分开，因为不是表达式本身的问题 */
@@ -47,15 +55,27 @@ export class SandboxTransportError extends Error {
 
 /** 一次沙箱内的函数注册；`rejected` 让调用方知道哪些声明没进去，不必翻诊断 */
 export interface SandboxFunctionRegistration {
+  /** 沙箱内注册成功的函数名，顺序与入参声明一致 */
   readonly registered: readonly string[]
+  /** 被沙箱拒绝的名字（非法名或与内置重名）；不影响其余条目生效 */
   readonly rejected: readonly string[]
   /** 注销沙箱里的这批函数；通道已失效时静默完成 */
   dispose(): Promise<void>
 }
 
+/**
+ * 沙箱求值客户端。
+ *
+ * 三个求值方法与同步 `ExpressionEngine` 同名同义，只是全部返回 Promise：
+ * 作用域经结构化克隆过界，函数、类实例等不可克隆值会导致整个请求失败。
+ * 生命周期：通道惰性建立；超时或协议不符自动终止并重建，重建时回放函数注册。
+ */
 export interface ExpressionSandbox {
+  /** 求值白名单表达式；表达式错误以 `ExpressionError` reject */
   evaluate(source: string, scope: ExpressionScope): Promise<unknown>
+  /** 插值混排模板；与同步入口一致，结果恒为字符串 */
   interpolate(template: string, scope: ExpressionScope): Promise<string>
+  /** 递归解析 schema 值中的表达式；不可克隆的子树按通道错误失败 */
   resolveValue(value: unknown, scope: ExpressionScope): Promise<unknown>
   /**
    * 把 `FunctionSchema` 声明送进沙箱。
@@ -71,6 +91,12 @@ export interface ExpressionSandbox {
   dispose(): void
 }
 
+/**
+ * 沙箱客户端配置。
+ *
+ * 除通道工厂外全部可缺省；超时与诊断语义对齐同步引擎，调用方可以在
+ * 沙箱 / 同步两种实现间无痛切换。
+ */
 export interface ExpressionSandboxOptions {
   /**
    * 创建（必要时重建）传输通道。
@@ -88,11 +114,26 @@ export interface ExpressionSandboxOptions {
   onDiagnostic?: (error: unknown, detail: Record<string, unknown>) => void
 }
 
+/** 一条在途请求的结算手段与超时定时器；收到响应或通道销毁时二者必须同时摘除 */
 interface Pending {
+  /** 成功结算；value 是跨 realm 的纯数据响应 */
   resolve(value: unknown): void
+  /** 失败结算；错误类型可能是 ExpressionError（表达式）或 SandboxTransportError（通道） */
   reject(error: unknown): void
+  /** 超时定时器；响应到达后必须 clearTimeout，防止误杀后续请求 */
   timer: ReturnType<typeof setTimeout>
 }
+
+/** 客户端侧保留的一条注册意图；通道重建后按插入顺序回放，同名覆盖关系得以保持 */
+interface DeclaredRegistration {
+  /** 原始声明列表；回放时原样重发，不做二次加工 */
+  readonly fns: readonly FunctionSchema[]
+  /** 注册层级；随声明一起回放，保持覆盖顺序 */
+  readonly level: FunctionScopeLevel
+}
+
+/** 求值请求形态；operation 与 input 类型的一致性由 worker 侧校验 */
+type InvokeRequest = Extract<SandboxRequest, { kind: 'invoke' }>
 
 const DEFAULT_TIMEOUT_MS = 1000
 
@@ -116,11 +157,7 @@ export function createExpressionSandbox(options: ExpressionSandboxOptions): Expr
   let disposed = false
 
   const pending = new Map<number, Pending>()
-  /** 客户端侧保留的注册意图；通道重建后按插入顺序回放，同名覆盖关系得以保持 */
-  const declared = new Map<
-    number,
-    { fns: readonly FunctionSchema[]; level: FunctionScopeLevel }
-  >()
+  const declared = new Map<number, DeclaredRegistration>()
 
   function ensureTransport(): SandboxTransport {
     if (transport) return transport
@@ -146,6 +183,17 @@ export function createExpressionSandbox(options: ExpressionSandboxOptions): Expr
     pending.clear()
   }
 
+  /** 把响应携带的诊断逐条换算成主线程错误对象并上报；与同步引擎的 onDiagnostic 同语义 */
+  function notifyDiagnostics(diagnostics: readonly SandboxErrorPayload[] | undefined): void {
+    for (const diagnostic of diagnostics ?? []) {
+      options.onDiagnostic?.(reviveError(diagnostic), {
+        scope: 'expression',
+        origin: 'sandbox',
+        expression: diagnostic.expression,
+      })
+    }
+  }
+
   function handleMessage(message: unknown): void {
     if (!isSandboxResponse(message)) return
     const response = message as SandboxResponse
@@ -166,13 +214,7 @@ export function createExpressionSandbox(options: ExpressionSandboxOptions): Expr
     pending.delete(response.id)
     clearTimeout(entry.timer)
 
-    for (const diagnostic of response.diagnostics ?? []) {
-      options.onDiagnostic?.(reviveError(diagnostic), {
-        scope: 'expression',
-        origin: 'sandbox',
-        expression: diagnostic.expression,
-      })
-    }
+    notifyDiagnostics(response.diagnostics)
 
     if (response.kind === 'failure') {
       entry.reject(reviveError(response.error))
@@ -231,8 +273,6 @@ export function createExpressionSandbox(options: ExpressionSandboxOptions): Expr
       transport?.postMessage(replay)
     }
   }
-
-  type InvokeRequest = Extract<SandboxRequest, { kind: 'invoke' }>
 
   function invoke<T>(
     operation: InvokeRequest['operation'],
