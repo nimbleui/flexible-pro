@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import type { ExpressionEngine, FunctionSchema } from '@lc/schema'
 import { useAppContext } from '@lc/vue'
 import FunctionEditorForm from '../components/functions/FunctionEditorForm.vue'
+import { functionTypeOptions } from '../components/common/type-options'
 import type { FunctionDraft } from '../functions/function-draft'
 import { EMPTY_FUNCTION_DRAFT, draftFromSchema } from '../functions/function-draft'
 import { globalFunctions, saveGlobalFunction } from '../functions/global-functions'
@@ -34,6 +35,17 @@ const takenNames = computed<readonly string[]>(() =>
   globalFunctions.value.filter((item) => item.id !== functionId.value).map((item) => item.name),
 )
 
+/** 可引用其他自定义函数的形参与返回类型；不包含当前函数自身 */
+const typeOptions = computed(() => {
+  const currentName = existing.value?.name
+  return functionTypeOptions(engine.functions.describe()).filter((option) => {
+    if (!currentName) return true
+    return (
+      option.id !== `return:${currentName}` && !option.id.startsWith(`param:${currentName}:`)
+    )
+  })
+})
+
 const saveError = ref('')
 
 function submit(schema: FunctionSchema): void {
@@ -45,6 +57,7 @@ function submit(schema: FunctionSchema): void {
       name: schema.name,
       title: schema.title,
       params: schema.params,
+      paramTypes: schema.paramTypes,
       body,
       description: schema.description,
     })
@@ -82,6 +95,7 @@ function submit(schema: FunctionSchema): void {
         :initial="initialDraft"
         :engine="engine"
         :taken-names="takenNames"
+        :type-options="typeOptions"
         :submit-label="functionId === undefined ? '创建函数' : '保存修改'"
         @submit="submit"
         @cancel="router.push('/functions')"

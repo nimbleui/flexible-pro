@@ -1,20 +1,24 @@
-import type { FunctionSchema } from '@lc/schema'
+import type { FunctionSchema, ValueTypeSchema } from '@lc/schema'
 import { isExpressionString } from '@lc/schema'
+import type { TypeNodeDraft } from '../components/common/type-node'
+import {
+  createTypeNode,
+  typeNodeFromValueType,
+  valueTypeFromTypeNode,
+} from '../components/common/type-node'
 
 /**
  * 函数编辑草稿。
  *
- * 编辑态统一用纯文本保存形参（逗号或空白分隔），提交时再切成数组：
- * 表单里维护 `string[]` 需要额外的增删行动作，对「最多三五个参数」的函数
- * 来说成本高于收益。
+ * 形参是结构化类型节点：名称、类型、说明；对象/数组字段在节点内递归维护。
  */
 export interface FunctionDraft {
   /** 函数名，表达式中按此名调用 */
   name: string
   /** 展示标题（可选） */
   title: string
-  /** 形参文本，如 `a, b` */
-  paramsText: string
+  /** 形参列表 */
+  params: TypeNodeDraft[]
   /** 函数体表达式 */
   body: string
   /** 说明（可选） */
@@ -24,7 +28,7 @@ export interface FunctionDraft {
 export const EMPTY_FUNCTION_DRAFT: Readonly<FunctionDraft> = Object.freeze({
   name: '',
   title: '',
-  paramsText: '',
+  params: [],
   body: '',
   description: '',
 })
@@ -41,37 +45,41 @@ export function draftFromSchema(schema: FunctionSchema): FunctionDraft {
   return {
     name: schema.name,
     title: schema.title ?? '',
-    paramsText: (schema.params ?? []).join(', '),
+    params: (schema.params ?? []).map((name) =>
+      typeNodeFromValueType(name, schema.paramTypes?.[name] ?? { kind: 'unknown' }),
+    ),
     body: functionBodyText(schema),
     description: schema.description ?? '',
   }
-}
-
-/**
- * 解析形参文本。
- *
- * 同时接受英文逗号、中文逗号与空白分隔，避免用户从文档里复制
- * `a, b` 或 `a b` 时得到两种不同结果。
- */
-export function parseParams(text: string): string[] {
-  return text
-    .split(/[,，\s]+/u)
-    .map((item) => item.trim())
-    .filter((item) => item !== '')
 }
 
 /** 把表单草稿转成可写入 schema 的函数定义；空的可选字段不落盘 */
 export function schemaFromDraft(draft: FunctionDraft): FunctionSchema {
   const name = draft.name.trim()
   const title = draft.title.trim()
-  const params = parseParams(draft.paramsText)
   const description = draft.description.trim()
+  const params: string[] = []
+  const paramTypes: Record<string, ValueTypeSchema> = {}
+
+  for (const param of draft.params) {
+    const paramName = param.name.trim()
+    if (paramName === '' || params.includes(paramName)) continue
+
+    params.push(paramName)
+    paramTypes[paramName] = valueTypeFromTypeNode(param)
+  }
 
   return {
     name,
-    ...(title === '' ? {} : { title }),
+    title,
     ...(params.length === 0 ? {} : { params }),
+    ...(Object.keys(paramTypes).length === 0 ? {} : { paramTypes }),
     body: draft.body.trim(),
-    ...(description === '' ? {} : { description }),
+    description,
   }
+}
+
+/** 新建形参节点 */
+export function createParamNode(): TypeNodeDraft {
+  return createTypeNode('', 'unknown')
 }

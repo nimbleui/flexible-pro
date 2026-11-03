@@ -13,6 +13,7 @@
     "@lc/contracts": "workspace:*",
     "@lc/devtools": "workspace:*",
     "@lc/expression": "workspace:*",
+    "@lc/expression-editor": "workspace:*",
     "@lc/kernel": "workspace:*",
     "@lc/plugin-materials-basic": "workspace:*",
     "@lc/plugin-panel-eventflow": "workspace:*",

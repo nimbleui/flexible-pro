@@ -11,6 +11,7 @@ import {
   functionBodyText,
 } from '../../functions/function-draft'
 import { globalFunctions } from '../../functions/global-functions'
+import { functionTypeOptions, pageTypeOptions } from '../common/type-options'
 import FunctionEditorForm from './FunctionEditorForm.vue'
 
 const props = defineProps<{
@@ -64,6 +65,22 @@ const initialDraft = computed<FunctionDraft>(() => {
  * 页面函数之间不能重名；与全局函数重名同样拒绝，否则全局函数被页面覆盖后，
  * 在管理页修改它不会反映到当前页面，命名冲突会变得难以解释。
  */
+/** 可引用的已定义类型：页面变量/接口结果 + 其他函数的形参与返回类型 */
+const typeOptions = computed(() => {
+  version.value
+  const currentName =
+    editingIndex.value === null ? undefined : functions.value[editingIndex.value]?.name
+
+  const functionOptions = functionTypeOptions(engine.functions.describe()).filter((option) => {
+    if (!currentName) return true
+    return (
+      option.id !== `return:${currentName}` && !option.id.startsWith(`param:${currentName}:`)
+    )
+  })
+
+  return [...pageTypeOptions(doc.model.schema), ...functionOptions]
+})
+
 const takenNames = computed<readonly string[]>(() => {
   const index = editingIndex.value
   const pageNames = functions.value
@@ -262,6 +279,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             :initial="initialDraft"
             :engine="engine"
             :taken-names="takenNames"
+            :type-options="typeOptions"
             :submit-label="editingIndex === null ? '创建函数' : '保存修改'"
             @submit="save"
             @cancel="backToList"
