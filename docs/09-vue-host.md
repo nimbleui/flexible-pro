@@ -44,7 +44,7 @@
 
 另有一条时间线约束写在 `StatusBar.vue:26-27`：
 
-> 在 setup 阶段同步订阅：`CanvasStage` 的首次 fit 发生在父级 mounted 之后，若在 `onMounted` 里订阅会漏掉这一次视口变化。
+> 在 setup 阶段同步订阅：`CanvasStage` 的首次居中发生在父级 mounted 之后，若在 `onMounted` 里订阅会漏掉这一次视口变化。
 
 所以状态栏不用 `onMounted`，而 `Slot.vue`、`CanvasStage.vue` 用 `onMounted`（它们的订阅对象不会在挂载期间变化）。
 
@@ -122,21 +122,23 @@ style: nodeStyle(item, origin) // :97-110
 
 ### 组件解析与挂载
 
-`syncComponents()`（`:157-169`）：遍历 `document.model.schema.nodes` 的 `componentName`，`components.has(name) || loading.has(name)` 跳过，`renderer.resolveMaterial(name)` 后 `components.set(name, markRaw(component) ?? null)`。`refreshMatrix()`（`:172-175`）把 `canvas.viewport.matrix` 拼成 CSS `matrix(...)` 写入 `shallowRef`。
+`syncComponents()`（`:136-147`）：遍历 `document.model.schema.nodes` 的 `componentName`，`components.has(name) || loading.has(name)` 跳过，`renderer.resolveMaterial(name)` 后 `components.set(name, markRaw(component) ?? null)`。`refreshMatrix()`（`:152-154`）把 `canvas.viewport.matrix` 拼成 CSS `matrix(...)` 写入 `shallowRef`。
 
-`onMounted`（`:237-260`）顺序不可换：
+`centerRootAtCurrentZoom()`（`:163`）是首帧的唯一视口写入：它按当前缩放（默认 100%）把文档根矩形摆到视口中心，**不再调 `viewport.fit`**——fit 会为了塞下整张画幅把 zoom 夹到下限，窄容器里直接掉到 10%；要看全貌由用户执行「适应画布」命令（`canvas-zoom` 注册）。
+
+`onMounted`（`:236-259`）顺序不可换：
 
 ```text
-canvas.attach(element)              // :242 注册监听 + 同步写尺寸（注释 :241）
-canvas.scheduler.onFrame(refreshMatrix)  // :243
-document.onDidChange(...)           // :244-249 bump + syncComponents
-window 'dragend' → clearDropPreview // :250-251
-refreshMatrix(); syncComponents()   // :253-254 首帧
-canvas.viewport.fit(scene.getRootBounds(), 64)  // :256 必须晚于 attach 的尺寸写入
-element.focus()                     // :259 键盘挂在舞台上
+canvas.attach(element)              // :241 注册监听 + 同步写尺寸（注释 :240）
+canvas.scheduler.onFrame(refreshMatrix)  // :242
+document.onDidChange(...)           // :243-248 bump + syncComponents
+window 'dragend' → clearDropPreview // :249-250
+refreshMatrix(); syncComponents()   // :252-253 首帧
+centerRootAtCurrentZoom()           // :255 必须晚于 attach 的尺寸写入，否则尺寸为 0 直接跳过
+element.focus()                     // :258 键盘挂在舞台上
 ```
 
-`onUnmounted`（`:262-267`）**逆序释放**：先断后注册的订阅，再卸载画布挂载，避免订阅读到已销毁的 DOM。
+`onUnmounted`（`:261-266`）**逆序释放**：先断后注册的订阅，再卸载画布挂载，避免订阅读到已销毁的 DOM。
 
 ### 原生拖放 → 事件总线
 

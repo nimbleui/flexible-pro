@@ -117,10 +117,10 @@ Realm 创建后不立刻渲染：`views/DesignerView.vue:68-73` 先 `await appCt
 | 10  | `App.vue:47`              | `<CanvasStage :context="canvasContext">`                                                                                                                      |
 | 11  | `CanvasStage.vue:76`      | `buildRenderTree({ schema, resolveValue })`（`packages/vue/src/render/tree.ts:50`）把 `PageSchema` 摊成渲染树                                                 |
 | 12  | `CanvasStage.vue:157-169` | `syncComponents()`：对文档里出现的每个 `componentName` 调 `renderer.resolveMaterial(name)`，缓存 `markRaw` 组件；`loading` 集合做并发去重                     |
-| 13  | `CanvasStage.vue:242`     | `onMounted` 里 `canvas.attach(element)`：注册舞台上唯一一套 DOM 监听并同步写入尺寸（见 `service-canvas-core` 的 ResizeObserver 路径）                         |
-| 14  | `CanvasStage.vue:243`     | `canvas.scheduler.onFrame(refreshMatrix)`：`:174` 把 `viewport.matrix` 拼成 `matrix(a,b,c,d,e,f)` 写进内容层 transform                                        |
-| 15  | `CanvasStage.vue:256`     | `canvas.viewport.fit(canvas.scene.getRootBounds(), 64)`：必须在 attach 写入尺寸之后，否则 `fit` 因尺寸为 0 静默返回（`packages/canvas/src/viewport.ts:231`）  |
-| 16  | `CanvasStage.vue:259`     | `element.focus()`：键盘事件挂在舞台元素上                                                                                                                     |
+| 13  | `CanvasStage.vue:241`     | `onMounted` 里 `canvas.attach(element)`：注册舞台上唯一一套 DOM 监听并同步写入尺寸（见 `service-canvas-core` 的 ResizeObserver 路径）                         |
+| 14  | `CanvasStage.vue:242`     | `canvas.scheduler.onFrame(refreshMatrix)`：`:153` 把 `viewport.matrix` 拼成 `matrix(a,b,c,d,e,f)` 写进内容层 transform                                        |
+| 15  | `CanvasStage.vue:255`     | `centerRootAtCurrentZoom()`（定义在 `:163`）：首帧保持默认 100% 缩放，只把文档根矩形摆到视口中心；尺寸未测得时跳过，要看全貌用「适应画布」命令                |
+| 16  | `CanvasStage.vue:258`     | `element.focus()`：键盘事件挂在舞台元素上                                                                                                                     |
 | 17  | `App.vue:51`              | 右侧 `designer.rightPanel` 插槽（属性面板，`order:10`）                                                                                                       |
 | 18  | `App.vue:59-60`           | `<StatusBar>` 读视口/选中/脏/历史；`<CommandPalette>` 订阅 `palette:toggle`（`components/CommandPalette.vue:27`）                                             |
 | 19  | `LayerHost.vue:138-139`   | `syncLayers()` 对**已注册的全部图层**调用 `ensureLayer()` → `layer.load()`（`:112-117`），每帧 `refresh`（`:157` 订阅 `scheduler.onFrame`）                   |
