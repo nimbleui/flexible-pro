@@ -1,0 +1,69 @@
+.lc-page-data__form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lc-page-data__type-editor {
+  padding: 8px;
+  border: 1px solid var(--lc-border);
+  border-radius: 7px;
+  background: rgba(6, 17, 33, 0.5);
+}
+
+.lc-page-data__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.lc-page-data__field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  color: var(--lc-text-secondary);
+  font-size: 11px;
+}
+
+.lc-page-data__field input,
+.lc-page-data__field select,
+.lc-page-data__field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--lc-border);
+  border-radius: 7px;
+  background: var(--lc-surface-sunken);
+  color: var(--lc-text);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.lc-page-data__field textarea {
+  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  resize: vertical;
+}
+
+.lc-page-data__field small {
+  color: var(--lc-text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.lc-page-data__field input:focus,
+.lc-page-data__field select:focus,
+.lc-page-data__field textarea:focus {
+  border-color: var(--lc-accent);
+  outline: 1px solid var(--lc-accent);
+}
+
+.lc-page-data__error {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--lc-danger-surface);
+  color: var(--lc-danger);
+  font-size: 11px;
+}

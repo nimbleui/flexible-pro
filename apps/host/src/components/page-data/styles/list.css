@@ -1,0 +1,104 @@
+.lc-page-data__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lc-page-data__item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-sm);
+  background: rgba(6, 17, 33, 0.55);
+}
+
+.lc-page-data__item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.lc-page-data__item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lc-page-data__name {
+  color: var(--lc-accent-bright);
+  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  font-size: 12px;
+}
+
+.lc-page-data__badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--lc-accent-soft);
+  color: var(--lc-accent);
+  font-size: 9px;
+}
+
+.lc-page-data__status {
+  max-width: 220px;
+  overflow: hidden;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.14);
+  color: var(--lc-text-muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lc-page-data__status[data-tone='loading'] {
+  background: rgba(47, 140, 255, 0.16);
+  color: var(--lc-accent-bright);
+}
+
+.lc-page-data__status[data-tone='loaded'] {
+  background: rgba(34, 211, 166, 0.14);
+  color: var(--lc-success);
+}
+
+.lc-page-data__status[data-tone='error'] {
+  background: var(--lc-danger-surface);
+  color: var(--lc-danger);
+}
+
+.lc-page-data__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--lc-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.lc-page-data__check input {
+  margin: 0;
+  accent-color: var(--lc-accent);
+}
+
+.lc-page-data__value {
+  max-height: 48px;
+  overflow: hidden;
+  color: var(--lc-text);
+  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.lc-page-data__desc {
+  margin: 0;
+  color: var(--lc-text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}

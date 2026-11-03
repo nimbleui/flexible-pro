@@ -1,0 +1,39 @@
+.lc-page-data__tabs {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--lc-border);
+}
+
+.lc-page-data__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--lc-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.lc-page-data__tab span {
+  color: var(--lc-text-muted);
+  font-size: 10px;
+}
+
+.lc-page-data__tab[aria-selected='true'] {
+  border-bottom-color: var(--lc-accent);
+  color: var(--lc-accent-bright);
+}
+
+.lc-page-data__body {
+  flex: 1;
+  min-height: 0;
+  padding: 16px 20px 20px;
+  overflow-y: auto;
+}
