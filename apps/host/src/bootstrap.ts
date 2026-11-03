@@ -43,6 +43,8 @@ const GRANTS: Record<string, readonly string[]> = {
   'service-history': ['history'],
   'service-selection': ['selection'],
   'service-datasource': ['dataSource'],
+  'service-state': ['pageState'],
+  'service-action': ['action'],
   'service-canvas-core': ['canvas'],
 }
 

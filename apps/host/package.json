@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@lc/canvas": "workspace:*",
     "@lc/contracts": "workspace:*",
     "@lc/devtools": "workspace:*",
     "@lc/expression": "workspace:*",
@@ -22,6 +23,8 @@
     "@lc/plugin-panel-properties": "workspace:*",
     "@lc/preset-designer": "workspace:*",
     "@lc/schema": "workspace:*",
+    "@lc/service-action": "workspace:*",
+    "@lc/shared": "workspace:*",
     "@lc/vue": "workspace:*",
     "vue": "^3.5.0",
     "vue-router": "^4.5.0"

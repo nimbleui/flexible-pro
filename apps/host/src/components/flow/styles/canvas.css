@@ -1,0 +1,522 @@
+/**
+ * 流程画布样式。
+ *
+ * 颜色全部来自 tokens.css；节点描边与发光用 `--lc-flow-node-tone` 这个组件级变量，
+ * 由 FlowNodeCard 按节点分组写入，这样新增一个分组不需要在这里补一套颜色。
+ */
+
+.lc-flow-canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--lc-canvas-bg, #0b1220);
+}
+
+/* ---------------------------------------------------------------------------
+ * 工具条与缩放条
+ * ------------------------------------------------------------------------ */
+
+.lc-flow-canvas__toolbar,
+.lc-flow-canvas__zoombar {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 7px;
+  border: 1px solid var(--lc-border, rgba(148, 184, 233, 0.2));
+  border-radius: var(--lc-radius-sm, 8px);
+  background: var(--lc-panel-glass, rgba(10, 30, 61, 0.72));
+  box-shadow: 0 10px 26px rgba(0, 6, 18, 0.4);
+  backdrop-filter: blur(8px);
+}
+
+.lc-flow-canvas__toolbar {
+  top: 14px;
+  left: 16px;
+}
+
+.lc-flow-canvas__zoombar {
+  bottom: 16px;
+  left: 16px;
+}
+
+.lc-flow-canvas__divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: var(--lc-border, rgba(148, 184, 233, 0.2));
+}
+
+.lc-flow-canvas__zoom {
+  min-width: 44px;
+  color: var(--lc-text-secondary, #55678a);
+  font-size: 12px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 手势提示：常驻但压到次级颜色，读到一次就够，不该和缩放数字抢视线 */
+.lc-flow-canvas__hint {
+  margin-left: 2px;
+  color: var(--lc-text-secondary, #55678a);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* 图标用 CSS 画的几何线，避免为几个按钮引入图标库 */
+.lc-flow-canvas__glyph {
+  position: relative;
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.lc-flow-canvas__glyph::before,
+.lc-flow-canvas__glyph::after {
+  position: absolute;
+  content: '';
+}
+
+.lc-flow-canvas__glyph--undo::before,
+.lc-flow-canvas__glyph--redo::before {
+  left: 1px;
+  top: 3px;
+  width: 12px;
+  height: 8px;
+  border: 1.5px solid currentcolor;
+  border-bottom-color: transparent;
+  border-radius: 8px 8px 0 0;
+}
+
+.lc-flow-canvas__glyph--undo::after {
+  left: 0;
+  top: 7px;
+  border: 3.5px solid transparent;
+  border-right-color: currentcolor;
+}
+
+.lc-flow-canvas__glyph--redo::after {
+  right: 0;
+  top: 7px;
+  border: 3.5px solid transparent;
+  border-left-color: currentcolor;
+}
+
+.lc-flow-canvas__glyph--zoom-in::before,
+.lc-flow-canvas__glyph--zoom-out::before {
+  left: 0;
+  top: 0;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid currentcolor;
+  border-radius: 50%;
+}
+
+.lc-flow-canvas__glyph--zoom-in::after,
+.lc-flow-canvas__glyph--zoom-out::after {
+  right: 0;
+  bottom: 0;
+  width: 5px;
+  height: 1.5px;
+  background: currentcolor;
+  transform: rotate(45deg);
+  transform-origin: right center;
+}
+
+.lc-flow-canvas__glyph--fit::before {
+  inset: 1px;
+  border: 1.5px solid currentcolor;
+  border-radius: 3px;
+}
+
+.lc-flow-canvas__glyph--fit::after {
+  left: 5px;
+  top: 5px;
+  width: 4px;
+  height: 4px;
+  background: currentcolor;
+  border-radius: 1px;
+}
+
+.lc-flow-canvas__glyph--center::before {
+  left: 6px;
+  top: 1px;
+  width: 1.5px;
+  height: 12px;
+  background: currentcolor;
+}
+
+.lc-flow-canvas__glyph--center::after {
+  top: 6px;
+  left: 1px;
+  width: 12px;
+  height: 1.5px;
+  background: currentcolor;
+}
+
+/* ---------------------------------------------------------------------------
+ * 舞台与网格
+ * ------------------------------------------------------------------------ */
+
+.lc-flow-canvas__stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  outline: none;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.lc-flow-canvas__stage:active {
+  cursor: grabbing;
+}
+
+/* 网格不随视口移动：它是屏幕空间的参考底纹，画成世界层会让缩放时纹理糊掉 */
+.lc-flow-canvas__grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--lc-grid-line, rgba(148, 184, 233, 0.08)) 1px, transparent 1px),
+    linear-gradient(90deg, var(--lc-grid-line, rgba(148, 184, 233, 0.08)) 1px, transparent 1px);
+  background-size: 28px 28px;
+  pointer-events: none;
+}
+
+.lc-flow-canvas__content {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* ---------------------------------------------------------------------------
+ * 节点卡片
+ * ------------------------------------------------------------------------ */
+
+.lc-flow-node {
+  --lc-flow-node-tone: var(--lc-accent, #2f8cff);
+
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--lc-flow-node-tone) 55%, transparent);
+  border-radius: var(--lc-radius-sm, 8px);
+  background: linear-gradient(
+    150deg,
+    color-mix(in srgb, var(--lc-flow-node-tone) 16%, var(--lc-surface, #111a2e)) 0%,
+    color-mix(in srgb, var(--lc-surface, #111a2e) 92%, transparent) 100%
+  );
+  box-shadow: 0 8px 22px rgba(0, 6, 18, 0.45);
+  color: var(--lc-text, #1f2d4a);
+  cursor: move;
+  transition:
+    box-shadow 0.16s ease,
+    border-color 0.16s ease;
+}
+
+.lc-flow-node:hover {
+  border-color: var(--lc-flow-node-tone);
+}
+
+.lc-flow-node.is-selected {
+  border-color: var(--lc-flow-node-tone);
+  box-shadow:
+    0 0 0 1.5px var(--lc-flow-node-tone),
+    0 0 22px color-mix(in srgb, var(--lc-flow-node-tone) 45%, transparent);
+}
+
+.lc-flow-node.is-connectable {
+  border-style: dashed;
+  border-color: var(--lc-success, #17a673);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--lc-success, #17a673) 40%, transparent);
+}
+
+.lc-flow-node:focus-visible {
+  outline: 2px solid var(--lc-accent-bright, #1677ff);
+  outline-offset: 2px;
+}
+
+.lc-flow-node--terminal {
+  border-radius: 999px;
+}
+
+/* 菱形节点：卡片本身透明，形状交给背景层，文字保持水平 */
+.lc-flow-node--diamond {
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+  justify-content: center;
+  padding: 0 34px;
+}
+
+.lc-flow-node__shape {
+  position: absolute;
+  inset: 0;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--lc-flow-node-tone) 34%, var(--lc-surface, #111a2e)),
+    var(--lc-surface-sunken, #0d1526)
+  );
+  border: 0;
+}
+
+.lc-flow-node--diamond.is-selected .lc-flow-node__shape {
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--lc-flow-node-tone) 60%, transparent));
+}
+
+.lc-flow-node__icon {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--lc-flow-node-tone) 26%, transparent);
+  color: var(--lc-flow-node-tone);
+}
+
+.lc-flow-node--diamond .lc-flow-node__icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+}
+
+/* 图标本体：一个跟随语义色的菱形点，够区分分组又不必引入图标字体 */
+.lc-flow-node__glyph {
+  width: 11px;
+  height: 11px;
+  border: 2px solid currentcolor;
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.lc-flow-node--trigger .lc-flow-node__glyph {
+  border-radius: 50%;
+  transform: none;
+}
+
+.lc-flow-node--control .lc-flow-node__glyph {
+  border-radius: 2px;
+}
+
+.lc-flow-node--system .lc-flow-node__glyph {
+  border-style: dashed;
+  border-radius: 50%;
+  transform: none;
+}
+
+.lc-flow-node__text {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.lc-flow-node__title {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lc-flow-node__desc {
+  overflow: hidden;
+  color: var(--lc-text-secondary, #55678a);
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 端口：输入在顶边、输出在底边，与竖向排布的参考图一致 */
+.lc-flow-node__port {
+  position: absolute;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border: 1.5px solid var(--lc-flow-node-tone);
+  border-radius: 50%;
+  background: var(--lc-handle-bg, #0b1b33);
+}
+
+.lc-flow-node__port--in {
+  top: -6px;
+}
+
+.lc-flow-node__port--out {
+  bottom: -6px;
+  cursor: crosshair;
+}
+
+/* 拉线的抓握区：用伪元素扩到 24×24，而不是像原来那样指望 box-shadow——
+   阴影只是绘制，不参与命中测试，端口实际只有 10px 见方，抓偏一点就变成拖节点。
+   伪元素的命中结果仍然记在端口本身身上，事件委托的 data 判定不受影响。 */
+.lc-flow-node__port--out::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+}
+
+.lc-flow-node__port--out:hover {
+  background: var(--lc-flow-node-tone);
+}
+
+.lc-flow-node--diamond .lc-flow-node__port--out {
+  left: 50%;
+  bottom: 6px;
+}
+
+/* 试运行状态：只改描边与光晕，不改底色，避免和分组色抢注意力 */
+.lc-flow-node--success {
+  border-color: var(--lc-success, #17a673);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lc-success, #17a673) 60%, transparent);
+}
+
+.lc-flow-node--failed {
+  border-color: var(--lc-danger, #e5484d);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lc-danger, #e5484d) 60%, transparent);
+}
+
+.lc-flow-node--skipped {
+  opacity: 0.55;
+}
+
+/* ---------------------------------------------------------------------------
+ * 连线层
+ * ------------------------------------------------------------------------ */
+
+.lc-flow-edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* 必须有真实尺寸：最外层 SVG 的 width/height 为 0 时，Chrome 会按 0×0 视口把整棵
+     子树裁掉，`overflow: visible` 救不回来——路径照样有布局、能被 elementFromPoint
+     命中、getTotalLength 也有值，就是一个像素都不画。盒子给到内容层大小，再靠
+     overflow: visible 让负坐标与超出图范围的折线仍然绘制出来。 */
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.lc-flow-edges__group {
+  pointer-events: auto;
+}
+
+.lc-flow-edges__line {
+  fill: none;
+  stroke: var(--lc-border-strong, rgba(148, 184, 233, 0.35));
+  stroke-width: 1.6;
+  transition: stroke 0.16s ease;
+}
+
+.lc-flow-edges__line--true {
+  stroke: color-mix(in srgb, var(--lc-success, #17a673) 70%, var(--lc-border-strong, #889));
+}
+
+.lc-flow-edges__line--false {
+  stroke: color-mix(in srgb, var(--lc-danger, #e5484d) 70%, var(--lc-border-strong, #889));
+}
+
+.lc-flow-edges__line.is-selected {
+  stroke: var(--lc-accent-bright, #1677ff);
+  stroke-width: 2.2;
+}
+
+.lc-flow-edges__line.is-active {
+  stroke: var(--lc-success, #17a673);
+  stroke-width: 2.2;
+}
+
+.lc-flow-edges__arrow {
+  fill: var(--lc-border-strong, rgba(148, 184, 233, 0.5));
+}
+
+.lc-flow-edges__hit {
+  fill: none;
+  stroke: transparent;
+  /* 透明加宽命中区：可见线只有 1.6px，直接点几乎点不中 */
+  stroke-width: 14;
+  cursor: pointer;
+}
+
+.lc-flow-edges__pending {
+  fill: none;
+  stroke: var(--lc-accent-bright, #1677ff);
+  stroke-width: 1.6;
+  stroke-dasharray: 5 4;
+}
+
+.lc-flow-edges__label-bg {
+  fill: var(--lc-surface, #111a2e);
+  stroke: var(--lc-border-strong, rgba(148, 184, 233, 0.35));
+  stroke-width: 1;
+}
+
+.lc-flow-edges__label-bg--true {
+  stroke: var(--lc-success, #17a673);
+}
+
+.lc-flow-edges__label-bg--false {
+  stroke: var(--lc-danger, #e5484d);
+}
+
+.lc-flow-edges__label-text {
+  fill: var(--lc-text, #1f2d4a);
+  font-size: 11px;
+  font-family: var(--lc-font, sans-serif);
+}
+
+/* ---------------------------------------------------------------------------
+ * 小地图
+ * ------------------------------------------------------------------------ */
+
+.lc-flow-minimap {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 3;
+  overflow: hidden;
+  border: 1px solid var(--lc-border, rgba(148, 184, 233, 0.2));
+  border-radius: var(--lc-radius-sm, 8px);
+  background: var(--lc-surface-sunken, #0d1526);
+  box-shadow: 0 12px 28px rgba(0, 6, 18, 0.45);
+  cursor: pointer;
+}
+
+.lc-flow-minimap__node {
+  position: absolute;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--lc-accent, #2f8cff) 65%, transparent);
+}
+
+.lc-flow-minimap__viewport {
+  position: absolute;
+  border: 1px solid var(--lc-accent-bright, #1677ff);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--lc-accent, #2f8cff) 14%, transparent);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-flow-node,
+  .lc-flow-edges__line {
+    transition: none;
+  }
+}

@@ -16,6 +16,9 @@ import ComponentBlueprintView from './views/ComponentBlueprintView.vue'
  * 组件蓝图复用同一条画布链路：`/components/:componentId/edit` 进 ComponentBlueprintView。
  * 新建不在此列——它先走列表页的定义弹框，落库拿到 id 后才进画布，
  * 避免「画布画完了才发现还没起名」和第二条创建入口。
+ *
+ * 流程编排同样遵循这条约定：`/flows/new` 只是手改地址栏的兜底，编辑器会立刻把 URL
+ * 换成真实 id，所以刷新不会重复建图。
  */
 export const router = createRouter({
   history: createWebHistory(),
@@ -23,10 +26,14 @@ export const router = createRouter({
     { path: '/', redirect: '/pages' },
     { path: '/pages', component: PageListView },
     { path: '/design/:documentId', component: DesignerView },
+    { path: '/preview/:documentId', component: PreviewView },
     { path: '/functions', component: FunctionListView },
     { path: '/functions/new', component: FunctionEditView },
     { path: '/functions/:functionId/edit', component: FunctionEditView },
     { path: '/components', component: ComponentListView },
     { path: '/components/:componentId/edit', component: ComponentBlueprintView },
+    { path: '/flows', component: FlowListView },
+    { path: '/flows/new', component: FlowEditorView },
+    { path: '/flows/:flowId/edit', component: FlowEditorView },
   ],
 })

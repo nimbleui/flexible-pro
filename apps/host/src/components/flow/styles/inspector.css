@@ -1,0 +1,576 @@
+/**
+ * 右侧配置面板样式。
+ *
+ * 控件全部手写：仓库里没有 UI 组件库，`FlowFieldControl` 渲染的是原生
+ * input / select / checkbox，外观靠这一层统一。颜色只取 tokens.css 的语义变量。
+ */
+
+.lc-flow-inspector {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  color: var(--lc-text);
+  font-size: 12px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 顶层 tab
+ * ------------------------------------------------------------------------ */
+
+.lc-flow-inspector__tabs {
+  display: flex;
+  flex: none;
+  border-bottom: 1px solid var(--lc-border);
+}
+
+.lc-flow-inspector__tab {
+  position: relative;
+  flex: 1;
+  padding: 12px 4px;
+  border: 0;
+  background: none;
+  color: var(--lc-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.lc-flow-inspector__tab:hover {
+  color: var(--lc-text);
+  background: var(--lc-accent-soft);
+}
+
+.lc-flow-inspector__tab.is-active {
+  color: var(--lc-accent-bright);
+  font-weight: 600;
+}
+
+/* 下划线用伪元素而不是 border：占位不影响盒模型，切换时不会抖一行 */
+.lc-flow-inspector__tab.is-active::after {
+  position: absolute;
+  right: 18%;
+  bottom: 0;
+  left: 18%;
+  height: 2px;
+  content: '';
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--lc-accent), var(--lc-accent-bright));
+  box-shadow: 0 0 10px var(--lc-glow);
+}
+
+.lc-flow-inspector__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+}
+
+.lc-flow-inspector__pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lc-flow-inspector__empty,
+.lc-flow-inspector__hint {
+  margin: 24px 0;
+  color: var(--lc-text-muted);
+  line-height: 1.6;
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------------------
+ * 节点头部
+ * ------------------------------------------------------------------------ */
+
+.lc-flow-inspector__node-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-sm);
+  background: linear-gradient(150deg, rgba(10, 30, 61, 0.85), rgba(7, 21, 40, 0.6));
+}
+
+.lc-flow-inspector__node-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--lc-border);
+  border-radius: 9px;
+}
+
+.lc-flow-inspector__node-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.lc-flow-inspector__node-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.lc-flow-inspector__node-title {
+  margin: 0 0 3px;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lc-flow-inspector__node-desc {
+  margin: 0;
+  overflow: hidden;
+  color: var(--lc-text-secondary);
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lc-flow-inspector__collapse {
+  display: flex;
+  flex: none;
+  padding: 4px;
+  border: 0;
+  background: none;
+  color: var(--lc-text-muted);
+  cursor: pointer;
+}
+
+.lc-flow-inspector__collapse:hover {
+  color: var(--lc-accent-bright);
+}
+
+.lc-flow-inspector__collapse svg {
+  width: 15px;
+  height: 15px;
+  transition: transform 0.18s ease;
+}
+
+.lc-flow-inspector__collapse svg.is-collapsed {
+  transform: rotate(180deg);
+}
+
+/* ---------------------------------------------------------------------------
+ * 子 tab
+ * ------------------------------------------------------------------------ */
+
+.lc-flow-inspector__subtabs {
+  display: flex;
+  gap: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--lc-border);
+}
+
+.lc-flow-inspector__subtab {
+  position: relative;
+  padding: 0 0 6px;
+  border: 0;
+  background: none;
+  color: var(--lc-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.lc-flow-inspector__subtab:hover {
+  color: var(--lc-text);
+}
+
+.lc-flow-inspector__subtab.is-active {
+  color: var(--lc-accent-bright);
+  font-weight: 600;
+}
+
+.lc-flow-inspector__subtab.is-active::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  content: '';
+  border-radius: 2px;
+  background: var(--lc-accent-bright);
+}
+
+/* ---------------------------------------------------------------------------
+ * 表单与控件
+ * ------------------------------------------------------------------------ */
+
+.lc-flow-inspector__form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lc-flow-inspector__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lc-flow-inspector__field-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--lc-text-secondary);
+  font-size: 12px;
+}
+
+.lc-flow-inspector__required {
+  color: var(--lc-danger);
+  font-style: normal;
+}
+
+.lc-flow-inspector__input,
+.lc-flow-inspector__select,
+.lc-flow-inspector__textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--lc-border);
+  border-radius: 7px;
+  background: var(--lc-surface-sunken);
+  color: var(--lc-text);
+  font-family: inherit;
+  font-size: 12px;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.lc-flow-inspector__textarea {
+  resize: vertical;
+  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.lc-flow-inspector__input:hover,
+.lc-flow-inspector__select:hover,
+.lc-flow-inspector__textarea:hover {
+  border-color: var(--lc-border-strong);
+}
+
+.lc-flow-inspector__input:focus,
+.lc-flow-inspector__select:focus,
+.lc-flow-inspector__textarea:focus {
+  border-color: var(--lc-accent);
+  box-shadow: 0 0 0 2px var(--lc-accent-soft);
+  outline: none;
+}
+
+.lc-flow-inspector__input::placeholder,
+.lc-flow-inspector__textarea::placeholder {
+  color: var(--lc-text-muted);
+}
+
+/* 原生下拉在深色底上会画出系统白底，这里统一换成当前文字色 */
+.lc-flow-inspector__select {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--lc-text-secondary) 50%),
+    linear-gradient(135deg, var(--lc-text-secondary) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 52%,
+    calc(100% - 9px) 52%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 26px;
+}
+
+.lc-flow-inspector__select option {
+  background: var(--lc-surface);
+  color: var(--lc-text);
+}
+
+.lc-flow-inspector__field-error {
+  margin: 0;
+  color: var(--lc-danger);
+  line-height: 1.4;
+}
+
+.lc-flow-inspector__field-note {
+  color: var(--lc-text-muted);
+  line-height: 1.4;
+}
+
+/* 单选：整行可点，选中态用边框与底色而不是只有小圆点 */
+.lc-flow-inspector__radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lc-flow-inspector__radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--lc-border);
+  border-radius: 7px;
+  background: var(--lc-surface-sunken);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.lc-flow-inspector__radio:hover {
+  border-color: var(--lc-border-strong);
+}
+
+.lc-flow-inspector__radio input {
+  accent-color: var(--lc-accent);
+  margin: 0;
+}
+
+.lc-flow-inspector__radio:has(input:checked) {
+  border-color: color-mix(in srgb, var(--lc-accent) 55%, transparent);
+  background: var(--lc-accent-soft);
+  color: var(--lc-accent-bright);
+}
+
+/* 开关：隐藏原生 checkbox 但保留可聚焦，轨道画在后面的 span 上 */
+.lc-flow-inspector__switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 38px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.lc-flow-inspector__switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.lc-flow-inspector__switch > span {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--lc-border-strong);
+  border-radius: 999px;
+  background: var(--lc-surface-sunken);
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.lc-flow-inspector__switch > span::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  content: '';
+  border-radius: 50%;
+  background: var(--lc-text-secondary);
+  transition: transform 0.18s ease;
+}
+
+.lc-flow-inspector__switch input:checked + span {
+  border-color: var(--lc-accent);
+  background: var(--lc-accent-soft);
+}
+
+.lc-flow-inspector__switch input:checked + span::after {
+  background: var(--lc-accent-bright);
+  transform: translateX(18px);
+}
+
+.lc-flow-inspector__switch input:focus-visible + span {
+  outline: 2px solid var(--lc-accent-bright);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 折叠区（输入输出映射、校验结果）
+ * ------------------------------------------------------------------------ */
+
+.lc-flow-inspector__section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.lc-flow-inspector__section-title {
+  margin: 0;
+  color: var(--lc-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.lc-flow-inspector__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 0;
+  border: 0;
+  border-top: 1px solid var(--lc-border);
+  background: none;
+  color: var(--lc-text);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lc-flow-inspector__section-head:hover {
+  color: var(--lc-accent-bright);
+}
+
+.lc-flow-inspector__section-head svg {
+  width: 14px;
+  height: 14px;
+  color: var(--lc-text-muted);
+  transition: transform 0.18s ease;
+}
+
+.lc-flow-inspector__section-head svg.is-collapsed {
+  transform: rotate(-90deg);
+}
+
+.lc-flow-inspector__section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 连线面板
+ * ------------------------------------------------------------------------ */
+
+.lc-flow-inspector__route {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-sm);
+  background: var(--lc-surface-sunken);
+}
+
+.lc-flow-inspector__route-node {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--lc-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lc-flow-inspector__route-arrow {
+  flex: none;
+  color: var(--lc-accent-bright);
+}
+
+.lc-flow-inspector__delete {
+  align-self: flex-start;
+  padding: 6px 12px;
+  border: 1px solid var(--lc-danger-border);
+  border-radius: 7px;
+  background: var(--lc-danger-surface);
+  color: var(--lc-danger);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.lc-flow-inspector__delete:hover {
+  background: color-mix(in srgb, var(--lc-danger) 22%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+ * 校验结果
+ * ------------------------------------------------------------------------ */
+
+.lc-flow-inspector__issues {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lc-flow-inspector__issue-head {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+
+.lc-flow-inspector__issue-head.is-error {
+  color: var(--lc-danger);
+}
+
+.lc-flow-inspector__issue-head.is-warning {
+  color: var(--lc-warning);
+}
+
+.lc-flow-inspector__issue-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lc-flow-inspector__issue-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--lc-border);
+  border-radius: 7px;
+  background: var(--lc-surface-sunken);
+}
+
+.lc-flow-inspector__issue-message {
+  line-height: 1.45;
+}
+
+.lc-flow-inspector__issue-path {
+  color: var(--lc-text-muted);
+  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  font-size: 11px;
+}
+
+.lc-flow-inspector :focus-visible {
+  outline: 2px solid var(--lc-accent-bright);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-flow-inspector__tab,
+  .lc-flow-inspector__subtab,
+  .lc-flow-inspector__input,
+  .lc-flow-inspector__select,
+  .lc-flow-inspector__textarea,
+  .lc-flow-inspector__radio,
+  .lc-flow-inspector__switch > span,
+  .lc-flow-inspector__switch > span::after,
+  .lc-flow-inspector__collapse svg,
+  .lc-flow-inspector__section-head svg {
+    transition: none;
+  }
+}

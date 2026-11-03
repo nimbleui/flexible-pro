@@ -1,0 +1,392 @@
+/**
+ * 流程编辑器外壳：工具栏 + 三栏布局 + 底部调试面板容器。
+ *
+ * 与 `app.css` 里的 `.lc-designer__*` 分开是因为两者的栏宽与工具栏内容不同：
+ * 设计器的左栏是可插拔面板槽位，编排器的左栏是固定的节点库。
+ */
+
+.lc-flow-editor {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  background: var(--lc-app-bg);
+}
+
+/* ---------------------------------------------------------------------------
+ * 顶部工具栏
+ * ------------------------------------------------------------------------ */
+
+.lc-flow-editor__bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  height: 64px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--lc-border);
+  background: linear-gradient(180deg, rgba(10, 30, 61, 0.9), rgba(7, 21, 40, 0.72));
+}
+
+.lc-flow-editor__back {
+  position: relative;
+  display: block;
+  width: 13px;
+  height: 13px;
+  border-left: 2px solid currentcolor;
+  border-bottom: 2px solid currentcolor;
+  transform: rotate(45deg);
+}
+
+.lc-flow-editor__crumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--lc-text-muted);
+}
+
+.lc-flow-editor__crumb {
+  color: var(--lc-text-secondary);
+  text-decoration: none;
+}
+
+.lc-flow-editor__crumb:hover {
+  color: var(--lc-accent-bright);
+}
+
+.lc-flow-editor__crumb--current {
+  color: var(--lc-text);
+}
+
+.lc-flow-editor__crumb-sep {
+  color: var(--lc-border-strong);
+}
+
+.lc-flow-editor__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin-left: 6px;
+}
+
+.lc-flow-editor__logo {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: linear-gradient(140deg, var(--lc-accent), var(--lc-accent-bright));
+  box-shadow: 0 0 18px var(--lc-glow);
+}
+
+.lc-flow-editor__logo::after {
+  position: absolute;
+  inset: 9px;
+  content: '';
+  border: 2px solid rgba(4, 16, 31, 0.72);
+  border-radius: 3px;
+  transform: rotate(45deg);
+}
+
+.lc-flow-editor__heading {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+/* 标题与说明直接在工具栏里改，省掉一个「重命名」弹框；change 提交而不是 input，
+   否则敲一个字就是一条撤销历史 */
+.lc-flow-editor__name,
+.lc-flow-editor__desc {
+  box-sizing: border-box;
+  max-width: 320px;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--lc-text);
+  font-family: inherit;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.lc-flow-editor__name {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.lc-flow-editor__desc {
+  color: var(--lc-text-secondary);
+  font-size: 12px;
+}
+
+.lc-flow-editor__name:hover,
+.lc-flow-editor__desc:hover {
+  border-color: var(--lc-border);
+}
+
+.lc-flow-editor__name:focus,
+.lc-flow-editor__desc:focus {
+  border-color: var(--lc-border-strong);
+  background: var(--lc-surface-sunken);
+  outline: none;
+}
+
+.lc-flow-editor__badge {
+  flex: none;
+  padding: 3px 10px;
+  border: 1px solid var(--lc-border);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.lc-flow-editor__badge--published {
+  border-color: color-mix(in srgb, var(--lc-success) 45%, transparent);
+  background: color-mix(in srgb, var(--lc-success) 14%, transparent);
+  color: var(--lc-success);
+}
+
+.lc-flow-editor__badge--draft {
+  border-color: color-mix(in srgb, var(--lc-warning) 45%, transparent);
+  background: color-mix(in srgb, var(--lc-warning) 14%, transparent);
+  color: var(--lc-warning);
+}
+
+.lc-flow-editor__time {
+  flex: none;
+  color: var(--lc-text-muted);
+  font-size: 11px;
+}
+
+.lc-flow-editor__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.lc-flow-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--lc-border);
+  border-radius: 8px;
+  background: rgba(10, 30, 61, 0.6);
+  color: var(--lc-text);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.lc-flow-button:hover {
+  border-color: var(--lc-border-strong);
+  background: var(--lc-accent-soft);
+  color: var(--lc-accent-bright);
+}
+
+.lc-flow-button.is-running {
+  color: var(--lc-success);
+  border-color: color-mix(in srgb, var(--lc-success) 45%, transparent);
+}
+
+.lc-flow-button--primary {
+  border-color: rgba(55, 182, 255, 0.55);
+  background: linear-gradient(135deg, var(--lc-accent), var(--lc-accent-bright));
+  box-shadow: 0 0 18px rgba(47, 140, 255, 0.35);
+  color: #04101f;
+  font-weight: 600;
+}
+
+.lc-flow-button--primary:hover {
+  color: #04101f;
+}
+
+.lc-flow-button__glyph {
+  position: relative;
+  width: 12px;
+  height: 12px;
+}
+
+.lc-flow-button__glyph::before,
+.lc-flow-button__glyph::after {
+  position: absolute;
+  content: '';
+}
+
+.lc-flow-button__glyph--save::before {
+  inset: 1px;
+  border: 1.5px solid currentcolor;
+  border-radius: 2px;
+}
+
+.lc-flow-button__glyph--save::after {
+  top: 1px;
+  right: 1px;
+  width: 4px;
+  height: 4px;
+  background: currentcolor;
+}
+
+.lc-flow-button__glyph--publish::before {
+  left: 1px;
+  top: 4px;
+  width: 10px;
+  height: 1.5px;
+  background: currentcolor;
+}
+
+.lc-flow-button__glyph--publish::after {
+  left: 4px;
+  top: 1px;
+  border: 3px solid transparent;
+  border-bottom-color: currentcolor;
+}
+
+.lc-flow-button__glyph--run::after {
+  left: 2px;
+  top: 1px;
+  border: 5px solid transparent;
+  border-left-color: currentcolor;
+}
+
+.lc-flow-editor__glyph {
+  position: relative;
+  display: block;
+  width: 14px;
+  height: 12px;
+  border: 1.5px solid currentcolor;
+  border-radius: 3px;
+}
+
+.lc-flow-editor__glyph::before {
+  position: absolute;
+  top: -1.5px;
+  bottom: -1.5px;
+  content: '';
+  width: 1.5px;
+  background: currentcolor;
+}
+
+.lc-flow-editor__glyph--panel-left::before {
+  left: 4px;
+}
+
+.lc-flow-editor__glyph--panel-right::before {
+  right: 4px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 三栏布局
+ * ------------------------------------------------------------------------ */
+
+.lc-flow-editor__body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.lc-flow-editor__left,
+.lc-flow-editor__right {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--lc-panel-glass);
+  backdrop-filter: blur(10px);
+}
+
+.lc-flow-editor__left {
+  width: 252px;
+  border-right: 1px solid var(--lc-border);
+}
+
+.lc-flow-editor__right {
+  width: 312px;
+  border-left: 1px solid var(--lc-border);
+}
+
+.lc-flow-editor__center {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 调试面板浮在画布左下，与参考图一致：它盖住的是画布而不是布局，收起时不挤压节点区 */
+.lc-flow-editor__dock {
+  position: absolute;
+  right: 216px;
+  bottom: 14px;
+  left: 14px;
+  height: 208px;
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * 拖拽插入的幽灵卡片
+ * ------------------------------------------------------------------------ */
+
+.lc-flow-editor__ghost {
+  position: fixed;
+  z-index: 20;
+  padding: 6px 12px;
+  border: 1px dashed var(--lc-accent-bright);
+  border-radius: 8px;
+  background: var(--lc-accent-soft);
+  color: var(--lc-accent-bright);
+  font-size: 12px;
+  pointer-events: none;
+  box-shadow: 0 8px 20px rgba(0, 6, 18, 0.4);
+}
+
+/* ---------------------------------------------------------------------------
+ * 缺图兜底
+ * ------------------------------------------------------------------------ */
+
+.lc-flow-editor--missing {
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--lc-text-secondary);
+  font-size: 13px;
+}
+
+@media (max-width: 1280px) {
+  .lc-flow-editor__left {
+    width: 216px;
+  }
+
+  .lc-flow-editor__right {
+    width: 280px;
+  }
+
+  .lc-flow-editor__time {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-flow-editor__name,
+  .lc-flow-editor__desc,
+  .lc-flow-button {
+    transition: none;
+  }
+}
