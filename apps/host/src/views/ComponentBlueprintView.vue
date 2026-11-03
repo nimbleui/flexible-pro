@@ -15,6 +15,7 @@ import type { ComponentSchema } from '@lc/schema'
 import { CanvasModule } from '../canvasRemote'
 import ComponentDefinitionForm from '../components/custom-components/ComponentDefinitionForm.vue'
 import StatusBar from '../components/StatusBar.vue'
+import OverlayPanel from '../components/OverlayPanel.vue'
 import ToolbarStock from '../components/ToolbarStock.vue'
 import type { CustomComponentDraft } from '../custom-components/component-draft'
 import {
@@ -154,6 +155,7 @@ const savedVersion = shallowRef(0)
 const metaDirty = shallowRef(false)
 const notice = ref('')
 const activeTab = ref<BlueprintTab>('node')
+const overlayOpen = ref(false)
 const form = ref<InstanceType<typeof ComponentDefinitionForm> | null>(null)
 
 const disposables: Array<{
@@ -410,6 +412,15 @@ function save(): void {
           <span class="lc-blueprint__state" :class="{ 'lc-blueprint__state--dirty': isDirty }">
             {{ isDirty ? '未保存' : '已保存' }}
           </span>
+          <button
+            type="button"
+            class="lc-designer__action"
+            :aria-pressed="overlayOpen"
+            title="在画布右侧浮出页面大纲"
+            @click="overlayOpen = !overlayOpen"
+          >
+            页面大纲
+          </button>
           <button type="button" class="lc-designer__action" @click="goBack">返回列表</button>
           <button
             type="button"
@@ -423,15 +434,14 @@ function save(): void {
 
       <div class="lc-designer__body">
         <aside class="lc-designer__panel lc-designer__panel--left" aria-label="组件库">
-          <div class="lc-app__panel-title">
-            <span class="lc-designer__panel-heading">组件库</span>
-            <span class="lc-app__panel-meta">拖拽到画布</span>
+          <!-- 标题与搜索由面板自己提供，外壳再画一遍会叠成两行 -->
+          <div class="lc-designer__panel-body">
+            <LcSlot name="designer.leftPanel" :context="{ documentId }">
+              <template #empty>
+                <div class="lc-app__empty lc-designer__panel-empty">暂无面板贡献</div>
+              </template>
+            </LcSlot>
           </div>
-          <LcSlot name="designer.leftPanel" :context="{ documentId }">
-            <template #empty>
-              <div class="lc-app__empty">暂无面板贡献</div>
-            </template>
-          </LcSlot>
         </aside>
 
         <section class="lc-designer__center">
@@ -440,6 +450,14 @@ function save(): void {
               :app-context="appCtx"
               :canvas-context="session.canvas.context"
               :scope="canvasScope"
+            />
+            <!-- 大纲从左侧插槽搬到浮动面板后，蓝图编辑器用工具条按钮开关它 -->
+            <OverlayPanel
+              v-show="overlayOpen"
+              title="页面大纲"
+              slot-name="designer.overlayPanel"
+              :context="{ documentId }"
+              @close="overlayOpen = false"
             />
           </div>
         </section>

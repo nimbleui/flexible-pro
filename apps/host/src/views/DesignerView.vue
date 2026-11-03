@@ -10,12 +10,13 @@ import type {
   HistoryService,
 } from '@lc/contracts'
 import type { ExpressionEngine, FunctionRegistration, FunctionSchema } from '@lc/schema'
-import { ContextScope, LcSlot, useAppContext } from '@lc/vue'
+import { ContextScope, LcIcon, LcSlot, useAppContext } from '@lc/vue'
 import { LcDevtools } from '@lc/devtools'
 import { CanvasModule } from '../canvasRemote'
 import ToolbarStock from '../components/ToolbarStock.vue'
 import StatusBar from '../components/StatusBar.vue'
 import CommandPalette from '../components/CommandPalette.vue'
+import OverlayPanel from '../components/OverlayPanel.vue'
 import PageFunctionDialog from '../components/functions/PageFunctionDialog.vue'
 import PageDataDialog from '../components/page-data'
 import { findPage } from '../pages'
@@ -218,27 +219,90 @@ function runCommand(id: string): void {
   void commandService.value?.execute(id)
 }
 
+/** 浮动面板的标题；rail 项与浮层头部共用同一个字符串，不在两处各写一遍 */
+const OVERLAY_TITLE = '页面大纲'
+
+/** rail 上可开关的界面；面板可见性归外壳，内容归贡献该槽的插件 */
+type RailTarget = 'leftPanel' | 'overlayPanel' | 'dock'
+
 interface DesignerRailItem {
-  /** 工作区 id；当前只用于占位判断，尚未接入面板路由 */
+  /** 稳定 id，用于 key 与 aria 定位 */
   id: string
   /** 图标下方的短标签 */
   label: string
-  /** 用字符画的图标，避免为占位项引入图标资源 */
-  glyph: string
-  /** 是否可用；false 渲染成禁用态，提示尚未接入 */
-  available: boolean
+  /** 共享图标注册表里的图标名 */
+  icon: string
+  /**
+   * 点击行为；undefined 渲染成禁用态，提示尚未接入。
+   *
+   * 命令型复用宿主已注册的命令（页面数据 / 自定义函数弹框），不新造一套开关状态。
+   */
+  action?: { kind: 'toggle'; target: RailTarget } | { kind: 'command'; commandId: string }
 }
 
-// 图标栏是工作区切换器：当前只有组件库可用，其余入口先占位
-const activeRailId = 'components'
-
+// rail 是工作区入口集合：组件库常驻左栏，页面大纲浮在画布上，事件链开关底部停靠区
 const railItems: readonly DesignerRailItem[] = [
-  { id: 'components', label: '组件', glyph: '▦', available: true },
-  { id: 'templates', label: '模板', glyph: '▤', available: false },
-  { id: 'assets', label: '资源', glyph: '◈', available: false },
-  { id: 'plugins', label: '插件', glyph: '⬡', available: false },
-  { id: 'ai', label: 'AI', glyph: '✦', available: false },
+  {
+    id: 'components',
+    label: '组件库',
+    icon: 'library',
+    action: { kind: 'toggle', target: 'leftPanel' },
+  },
+  {
+    id: 'outline',
+    label: OVERLAY_TITLE,
+    icon: 'outline',
+    action: { kind: 'toggle', target: 'overlayPanel' },
+  },
+  {
+    id: 'dataSource',
+    label: '数据源',
+    icon: 'database',
+    action: { kind: 'command', commandId: 'pageData.openDialog' },
+  },
+  {
+    id: 'functions',
+    label: '方法管理',
+    icon: 'function',
+    action: { kind: 'command', commandId: 'pageFunction.openDialog' },
+  },
+  {
+    id: 'eventflow',
+    label: '事件链',
+    icon: 'eventchain',
+    action: { kind: 'toggle', target: 'dock' },
+  },
+  { id: 'versions', label: '版本管理', icon: 'version' },
+  { id: 'settings', label: '设置', icon: 'sliders' },
 ]
+
+/** 左侧常驻面板、浮动大纲面板与底部停靠区的可见性；三者互不排斥，可以同屏 */
+const leftPanelOpen = ref(true)
+const overlayOpen = ref(false)
+const dockExpanded = ref(true)
+
+/** rail 项的按下态；命令型按钮没有可保持的状态，返回 undefined 让 Vue 不写 aria-pressed */
+function railPressed(item: DesignerRailItem): boolean | undefined {
+  const action = item.action
+  if (!action || action.kind === 'command') return undefined
+  if (action.target === 'leftPanel') return leftPanelOpen.value
+  if (action.target === 'overlayPanel') return overlayOpen.value
+  return dockExpanded.value
+}
+
+function onRailClick(item: DesignerRailItem): void {
+  const action = item.action
+  if (!action) return
+
+  if (action.kind === 'command') {
+    runCommand(action.commandId)
+    return
+  }
+
+  if (action.target === 'leftPanel') leftPanelOpen.value = !leftPanelOpen.value
+  else if (action.target === 'overlayPanel') overlayOpen.value = !overlayOpen.value
+  else dockExpanded.value = !dockExpanded.value
+}
 
 type DeviceKind = 'desktop' | 'tablet' | 'mobile'
 
@@ -297,8 +361,6 @@ function onRightTabKeydown(event: KeyboardEvent, index: number): void {
   const tablist = (event.currentTarget as HTMLElement | null)?.closest('[role="tablist"]')
   tablist?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus()
 }
-
-const dockExpanded = ref(true)
 
 const devtoolsOpen = shallowRef(false)
 </script>
@@ -410,33 +472,37 @@ const devtoolsOpen = shallowRef(false)
       </div>
 
       <div class="lc-designer__body">
-        <nav class="lc-rail" aria-label="设计器资源">
+        <nav class="lc-rail" aria-label="设计器工作区">
           <button
             v-for="item in railItems"
             :key="item.id"
             type="button"
             class="lc-rail__item"
-            :class="{ 'lc-rail__item--active': item.id === activeRailId }"
-            :disabled="!item.available"
+            :class="{ 'lc-rail__item--active': railPressed(item) === true }"
+            :disabled="!item.action"
             :aria-label="item.label"
-            :aria-current="item.id === activeRailId ? 'true' : undefined"
-            :title="item.available ? item.label : `${item.label}（尚未接入）`"
+            :aria-pressed="railPressed(item)"
+            :title="item.action ? item.label : `${item.label}（尚未接入）`"
+            @click="onRailClick(item)"
           >
-            <span class="lc-rail__glyph" aria-hidden="true">{{ item.glyph }}</span>
+            <LcIcon :name="item.icon" :size="18" />
             <span aria-hidden="true">{{ item.label }}</span>
           </button>
         </nav>
 
-        <aside class="lc-designer__panel lc-designer__panel--left" aria-label="组件库">
-          <div class="lc-app__panel-title">
-            <span class="lc-designer__panel-heading">组件库</span>
-            <span class="lc-app__panel-meta">拖拽到画布</span>
+        <!-- 标题与搜索由面板自己提供：外壳再画一遍会和面板头部叠成两行，与底部 dock 同一约定 -->
+        <aside
+          v-show="leftPanelOpen"
+          class="lc-designer__panel lc-designer__panel--left"
+          aria-label="组件库"
+        >
+          <div class="lc-designer__panel-body">
+            <LcSlot name="designer.leftPanel" :context="{ documentId }">
+              <template #empty>
+                <div class="lc-app__empty lc-designer__panel-empty">暂无面板贡献</div>
+              </template>
+            </LcSlot>
           </div>
-          <LcSlot name="designer.leftPanel" :context="{ documentId }">
-            <template #empty>
-              <div class="lc-app__empty">暂无面板贡献</div>
-            </template>
-          </LcSlot>
         </aside>
 
         <section class="lc-designer__center">
@@ -445,6 +511,14 @@ const devtoolsOpen = shallowRef(false)
               :app-context="appCtx"
               :canvas-context="canvas.context"
               :scope="routeScope"
+            />
+            <!-- 浮动大纲面板：盖在画布上，关掉它不影响属性面板与底部事件流 -->
+            <OverlayPanel
+              v-show="overlayOpen"
+              :title="OVERLAY_TITLE"
+              slot-name="designer.overlayPanel"
+              :context="{ documentId }"
+              @close="overlayOpen = false"
             />
           </div>
 
