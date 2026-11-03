@@ -28,6 +28,35 @@
 
 import type { ExpressionString } from './expression'
 
+/** 值类型种类；`unknown` 表示编辑器无法静态判断，补全按宽松模式处理 */
+export type ValueTypeKind = 'unknown' | 'string' | 'number' | 'boolean' | 'array' | 'object'
+
+/**
+ * 值类型结构。
+ *
+ * 只描述补全需要的形状，不是运行时校验器：`fields` 用于对象字段，
+ * `item` 用于数组元素，其余类型无需子结构。由示例 JSON 或显式标注推导。
+ */
+export interface ValueTypeSchema {
+  /**
+   * 类型种类。
+   *
+   * 本结构整体只服务编辑器（补全、类型面板），运行时不做校验，因此允许出现
+   * 与真实数据不符的标注；`unknown` 是推导失败时的兜底值，此时子字段一律忽略。
+   */
+  kind: ValueTypeKind
+  /** 对象字段类型；键为字段名 */
+  fields?: Record<string, ValueTypeSchema>
+  /** 数组元素类型 */
+  item?: ValueTypeSchema
+  /** 字段说明；显示在补全详情里 */
+  description?: string
+  /** 字段在部分样本中缺失；仅对象字段有语义 */
+  optional?: boolean
+  /** 值可能为 null；补全仍按非空类型提示 */
+  nullable?: boolean
+}
+
 /**
  * 声明式函数定义 —— 纯 JSON 可承载。
  * 若需要真实业务副作用（HTTP、SDK 调用等），由宿主把函数放进求值作用域，
@@ -43,6 +72,19 @@ export interface FunctionSchema {
    * 例如 `["a", "b"]` 表示表达式内可以使用 `a`、`b`。
    */
   params?: string[]
+  /**
+   * 形参类型标注；键为 `params` 中的名字，缺省视为 unknown。
+   *
+   * 只服务编辑器补全与静态推断，不参与运行时绑定：表达式引擎依旧按位置
+   * 传值，不因标注类型改变求值语义。
+   */
+  paramTypes?: Record<string, ValueTypeSchema>
+  /**
+   * 返回值类型标注（可选）。
+   *
+   * 缺省时编辑器会按函数体推断；显式标注只在推断无法得出类型时使用。
+   */
+  returns?: ValueTypeSchema
   /**
    * 函数体表达式。
    * 支持三种写法：
@@ -87,6 +129,29 @@ export interface FunctionRegistration {
 }
 
 /**
+ * 当前可调用函数的描述。
+ *
+ * 供编辑器补全、函数参考面板与文档生成使用；只描述函数面，不携带函数体实现。
+ * 同名函数只出现在生效层级的那一条，调用方不需要自己再处理覆盖。
+ */
+export interface FunctionDescriptor {
+  /** 函数名，表达式中按此名调用 */
+  name: string
+  /** 形参名列表；`...` 前缀表示可变参数 */
+  params: readonly string[]
+  /** 形参类型标注；键为形参名 */
+  paramTypes?: Readonly<Record<string, ValueTypeSchema>>
+  /** 生效函数的返回类型；自定义函数缺省时由函数体推断 */
+  returns?: ValueTypeSchema
+  /** 展示标题（可选） */
+  title?: string
+  /** 说明（可选） */
+  description?: string
+  /** 生效来源：内置函数或某一注册层级 */
+  scope: FunctionScopeLevel | 'builtin'
+}
+
+/**
  * 自定义函数注册表。
  *
  * 保持为「内置表 + 按名字分栈 + 注销句柄」，不做成插件扩展点：
@@ -121,4 +186,14 @@ export interface FunctionRegistry {
    * @param name - 函数名
    */
   has(name: string): boolean
+
+  /**
+   * 列出当前所有可解析函数（内置 + 各注册层的生效项）。
+   *
+   * 同名只返回最终生效的那一条，与调用时的解析结果一致；注册失败或函数体
+   * 编译失败的条目不会出现，因为它们本来也无法被调用。
+   *
+   * @returns 稳定顺序的描述列表：先内置函数，再按注册顺序排列的自定义函数
+   */
+  describe(): readonly FunctionDescriptor[]
 }
