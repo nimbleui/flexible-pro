@@ -2,7 +2,6 @@ import type { ActionDeclaration, EventConnection } from './actions'
 import type { ComponentSchema } from './component'
 import type { DataSourceSchemaDef } from './datasource'
 import type { FunctionSchema, ValueTypeSchema } from './functions'
-import type { LifecycleSchema } from './lifecycle'
 import type { ComponentPropsMap, DefaultComponentPropsMap, NodeSchema } from './node'
 
 /**
@@ -128,11 +127,6 @@ export interface PageSchema<T extends ComponentPropsMap = DefaultComponentPropsM
    * 只声明参数名，运行时值由宿主路由注入。
    */
   route?: PageRouteSchema
-  /**
-   * 页面的生命周期钩子列表（可选）
-   * 用于在页面级生命周期事件中执行自定义逻辑。
-   */
-  lifecycles?: LifecycleSchema[]
   /**
    * 页面级声明式函数列表（可选）
    * 将自动注册到表达式引擎，供模板/条件/事件表达式使用，

@@ -1,7 +1,6 @@
 import type { DataSourceSchemaDef } from './datasource'
 import type { EventDefinition } from './events'
 import type { FunctionSchema } from './functions'
-import type { LifecycleSchema } from './lifecycle'
 import type { ComponentPropsMap, DefaultComponentPropsMap, NodeSchema } from './node'
 import type { PropDefinition, PropValue } from './props'
 import type { SlotDefinition } from './slots'
@@ -67,7 +66,13 @@ export interface ComponentSchema<T extends ComponentPropsMap = DefaultComponentP
   nodes: { [key: string]: NodeSchema<T> }
   /** 组件支持的所有属性定义列表 */
   props?: PropDefinition[]
-  /** 组件触发的所有事件定义列表 */
+  /**
+   * 组件触发的所有事件定义列表。
+   *
+   * 这是事件名的**唯一强类型来源**：事件流面板据此列出可绑定的事件，表达式编辑器
+   * 据此补全 `event.<参数名>`。组件生命周期（挂载、卸载等）若需要被绑定，也在此声明为
+   * 一个普通事件，不另设生命周期字段——否则同一件事会有两条互不相干的绑定路径。
+   */
   events?: EventDefinition[]
   /** 组件的插槽定义列表 */
   slots?: SlotDefinition[]
@@ -82,11 +87,6 @@ export interface ComponentSchema<T extends ComponentPropsMap = DefaultComponentP
    * 用于声明页面级别的数据获取和状态管理。
    */
   datasources?: DataSourceSchemaDef[]
-  /**
-   * 页面的生命周期钩子列表（可选）
-   * 用于在页面级生命周期事件中执行自定义逻辑。
-   */
-  lifecycles?: LifecycleSchema[]
   /**
    * 页面级声明式函数列表（可选）
    * 将自动注册到表达式引擎，供模板/条件/事件表达式使用，

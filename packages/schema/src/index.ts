@@ -130,8 +130,7 @@ export type {
   TransformConfig,
 } from './datasource'
 
-// -------------------- 生命周期与插槽 -------------------- //
-export type { LifecycleEvent, LifecycleSchema } from './lifecycle'
+// -------------------- 插槽 -------------------- //
 export type { SlotDefinition } from './slots'
 
 // -------------------- 样式与布局 -------------------- //
