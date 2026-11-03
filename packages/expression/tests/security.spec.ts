@@ -116,6 +116,24 @@ describe('表达式安全边界：语法不接受的 JS 构造', () => {
     expect(engine.evaluate('list.map(t => t)', { list: [1] })).toEqual([1])
   })
 
+  it('下标与可选链下标同样拒绝箭头函数', () => {
+    const { engine, kinds } = auditingEngine()
+    expect(engine.evaluate('row[key => key]', { row: {}, key: 'a' })).toBeUndefined()
+    expect(engine.evaluate('row?.[key => key]', { row: {}, key: 'a' })).toBeUndefined()
+    expect(
+      engine.evaluate('f(row?.[key => key])', { f: (value: unknown) => value, row: {} }),
+    ).toBeUndefined()
+
+    // 三条都必须停在语法层，否则说明箭头函数在非实参位仍被解析成功
+    expect(kinds).toEqual(['syntax', 'syntax', 'syntax'])
+  })
+
+  it('对象值位置拒绝箭头函数', () => {
+    const { engine, kinds } = auditingEngine()
+    expect(engine.evaluate('{ slot: k => k }', {})).toBeUndefined()
+    expect(kinds).toEqual(['syntax'])
+  })
+
   it('不存在的函数名报错，而不是当普通值返回', () => {
     const { engine, kinds } = auditingEngine()
     expect(engine.evaluate('noSuchFn(1)', {})).toBeUndefined()

@@ -53,8 +53,11 @@ const KEYWORD_LITERALS: Readonly<Record<string, string | number | boolean | null
   }
 
 interface ParserState {
+  /** 表达式原文；只用于错误文案与 offset 定位，解析过程不读取 */
   readonly source: string
+  /** 词法单元序列，末位恒为 eof；越界访问由 peek 兜到 eof */
   readonly tokens: readonly Token[]
+  /** 当前待消费 token 的下标，是解析过程唯一的游标 */
   pos: number
   /**
    * 当前位置是否允许出现箭头函数。
@@ -122,18 +125,7 @@ function parsePrimary(state: ParserState): ExpressionNode {
   }
 
   if (token.type === 'name') {
-    advance(state)
-
-    if (token.text in KEYWORD_LITERALS) {
-      return { kind: 'literal', value: KEYWORD_LITERALS[token.text] }
-    }
-
-    if (state.allowArrow && isPunct(peek(state), '=>')) {
-      advance(state)
-      return parseArrowBody(state, [token.text])
-    }
-
-    return { kind: 'identifier', name: token.text }
+    return parseNamePrimary(state, token)
   }
 
   if (token.type === 'punct' && token.text === '(') {
@@ -142,8 +134,7 @@ function parsePrimary(state: ParserState): ExpressionNode {
 
   if (token.type === 'punct' && token.text === '[') {
     advance(state)
-    const elements = parseDelimited(state, ']')
-    return { kind: 'array', elements }
+    return { kind: 'array', elements: parseDelimited(state, ']') }
   }
 
   if (token.type === 'punct' && token.text === '{') {
@@ -151,6 +142,27 @@ function parsePrimary(state: ParserState): ExpressionNode {
   }
 
   fail(state, `意外的符号 ${token.text || '<结尾>'}`, token)
+}
+
+/**
+ * 名字分支的优先级：关键字字面量 > 单参箭头函数 > 普通标识符。
+ *
+ * `true` / `null` 一类关键字在语法上就是 name token，必须先于标识符判断，
+ * 否则 `true` 会被当成一个作用域变量并在求值期报 unbound-identifier。
+ */
+function parseNamePrimary(state: ParserState, token: Token): ExpressionNode {
+  advance(state)
+
+  if (token.text in KEYWORD_LITERALS) {
+    return { kind: 'literal', value: KEYWORD_LITERALS[token.text] }
+  }
+
+  if (state.allowArrow && isPunct(peek(state), '=>')) {
+    advance(state)
+    return parseArrowBody(state, [token.text])
+  }
+
+  return { kind: 'identifier', name: token.text }
 }
 
 /**
@@ -185,37 +197,36 @@ function parseParenthesized(state: ParserState): ExpressionNode {
 
 /** 箭头函数体：形参绑定生效后，体内不再允许出现新的箭头函数（实参位置会重新打开） */
 function parseArrowBody(state: ParserState, params: string[]): ExpressionNode {
-  const enclosing = state.allowArrow
-  state.allowArrow = false
-  const body = parseExpression(state, 0)
-  state.allowArrow = enclosing
-
+  const body = withArrowContext(state, false, () => parseExpression(state, 0))
   return { kind: 'arrow', params, body }
+}
+
+/** 对象键名：只接受标识符与字符串字面量，其它 token 直接语法报错 */
+function parseObjectKey(state: ParserState): string {
+  const token = peek(state)
+
+  if (token.type === 'name') {
+    advance(state)
+    return token.text
+  }
+
+  if (token.type === 'string') {
+    advance(state)
+    return String(token.literal)
+  }
+
+  fail(state, '对象键名只能是名字或字符串', token)
 }
 
 function parseObjectLiteral(state: ParserState): ExpressionNode {
   advance(state)
+  /** key 为解码后的键名（字符串键取 literal 值），value 为冒号右侧表达式 */
   const properties: { key: string; value: ExpressionNode }[] = []
 
   while (!isPunct(peek(state), '}')) {
-    const keyToken = peek(state)
-    let key: string
-
-    if (keyToken.type === 'name') {
-      key = keyToken.text
-    } else if (keyToken.type === 'string') {
-      key = String(keyToken.literal)
-    } else {
-      fail(state, '对象键名只能是名字或字符串', keyToken)
-    }
-    advance(state)
+    const key = parseObjectKey(state)
     expectPunct(state, ':')
-
-    const enclosing = state.allowArrow
-    state.allowArrow = false
-    const value = parseExpression(state, 0)
-    state.allowArrow = enclosing
-
+    const value = withArrowContext(state, false, () => parseExpression(state, 0))
     properties.push({ key, value })
 
     if (isPunct(peek(state), ',')) advance(state)
@@ -235,44 +246,18 @@ function parsePostfix(state: ParserState): ExpressionNode {
 
     if (isPunct(token, '.')) {
       advance(state)
-      const name = peek(state)
-      if (name.type !== 'name') fail(state, '点号后面必须是属性名', name)
-      advance(state)
-      node = { kind: 'member', object: node, property: name.text, optional: false }
+      node = parseDotMember(state, node, false)
       continue
     }
 
     if (isPunct(token, '?.')) {
       advance(state)
-      const next = peek(state)
-
-      if (isPunct(next, '(')) {
-        node = { kind: 'call', callee: node, args: parseArguments(state), optional: true }
-        continue
-      }
-      if (isPunct(next, '[')) {
-        advance(state)
-        const index = parseExpression(state, 0)
-        expectPunct(state, ']')
-        node = { kind: 'index', object: node, index, optional: true }
-        continue
-      }
-
-      const name = next
-      if (name.type !== 'name') fail(state, '可选链后面必须是属性名', name)
-      advance(state)
-      node = { kind: 'member', object: node, property: name.text, optional: true }
+      node = parseOptionalSuffix(state, node)
       continue
     }
 
     if (isPunct(token, '[')) {
-      advance(state)
-      const enclosing = state.allowArrow
-      state.allowArrow = false
-      const index = parseExpression(state, 0)
-      state.allowArrow = enclosing
-      expectPunct(state, ']')
-      node = { kind: 'index', object: node, index, optional: false }
+      node = parseIndexAccess(state, node, false)
       continue
     }
 
@@ -287,14 +272,73 @@ function parsePostfix(state: ParserState): ExpressionNode {
   return node
 }
 
+/**
+ * `?.` 之后允许属性名、下标、调用三种形态，共享同一个 optional 语义。
+ *
+ * 下标与调用的 `optional` 只作用于自身这一跳，`a?.b[c]` 里的 `[c]` 仍然硬失败，
+ * 因此不能把 optional 一路传递给后续后缀。
+ */
+function parseOptionalSuffix(state: ParserState, object: ExpressionNode): ExpressionNode {
+  const next = peek(state)
+
+  if (isPunct(next, '(')) {
+    return { kind: 'call', callee: object, args: parseArguments(state), optional: true }
+  }
+
+  if (isPunct(next, '[')) {
+    return parseIndexAccess(state, object, true)
+  }
+
+  return parseDotMember(state, object, true)
+}
+
+/** 点号取属性；`.` 与 `?.` 共用，报错文案按是否可选链区分 */
+function parseDotMember(
+  state: ParserState,
+  object: ExpressionNode,
+  optional: boolean,
+): ExpressionNode {
+  const name = peek(state)
+  if (name.type !== 'name') {
+    fail(state, optional ? '可选链后面必须是属性名' : '点号后面必须是属性名', name)
+  }
+  advance(state)
+
+  return { kind: 'member', object, property: name.text, optional }
+}
+
+/** 下标取值：中括号已由本函数消费，索引表达式属于非实参位置 */
+function parseIndexAccess(
+  state: ParserState,
+  object: ExpressionNode,
+  optional: boolean,
+): ExpressionNode {
+  advance(state)
+  const index = withArrowContext(state, false, () => parseExpression(state, 0))
+  expectPunct(state, ']')
+
+  return { kind: 'index', object, index, optional }
+}
+
+/**
+ * 在指定 `allowArrow` 语境下解析子表达式，返回后恢复外层语境。
+ *
+ * 实参之外的位置一律关闭箭头函数，见 `ParserState.allowArrow`。
+ */
+function withArrowContext<T>(state: ParserState, allowArrow: boolean, body: () => T): T {
+  const enclosing = state.allowArrow
+  state.allowArrow = allowArrow
+  try {
+    return body()
+  } finally {
+    state.allowArrow = enclosing
+  }
+}
+
 /** 实参是箭头函数唯一允许出现的位置 */
 function parseArguments(state: ParserState): ExpressionNode[] {
   expectPunct(state, '(')
-  const enclosing = state.allowArrow
-  state.allowArrow = true
-  const args = parseDelimited(state, ')')
-  state.allowArrow = enclosing
-  return args
+  return withArrowContext(state, true, () => parseDelimited(state, ')'))
 }
 
 function parseUnary(state: ParserState): ExpressionNode {
