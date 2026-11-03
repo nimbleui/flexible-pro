@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { Disposable } from '@lc/kernel'
-import type { DocumentService, SelectionService } from '@lc/contracts'
+import type { DocumentService, MaterialService, SelectionService } from '@lc/contracts'
 import type { NodePosition, NodeSchema, OutlineItem, SchemaPatch } from '@lc/schema'
-import { buildOutlineTree, renameNode, reorderChildren, setNodeFlags } from '@lc/schema'
-import { useAppContext } from '@lc/vue'
+import {
+  buildOutlineTree,
+  filterOutlineTree,
+  renameNode,
+  reorderChildren,
+  setNodeFlags,
+} from '@lc/schema'
+import { LcIcon, LcSearchField, useAppContext } from '@lc/vue'
 
 defineProps<{
   /** 宿主传入的只读上下文；面板自己从注入的 Context 取服务 */
@@ -14,6 +20,7 @@ defineProps<{
 const ctx = useAppContext()
 const document = ctx.get<DocumentService>('document')
 const selection = ctx.get<SelectionService>('selection')
+const material = ctx.get<MaterialService>('material')
 
 /** 行高与样式里的 .lc-outline__item 高度一致：落点只按上半 / 下半判断，不需要量 DOM */
 const ROW_HEIGHT = 28
@@ -25,6 +32,7 @@ const disposables: Disposable[] = []
 const collapsed = ref<ReadonlySet<string>>(new Set<string>())
 const renamingId = ref<string | null>(null)
 const renameValue = ref('')
+const query = ref('')
 
 /** 拖拽重排的三个瞬时状态：被拖行、目标行、目标行之前还是之后 */
 const draggingId = ref<string | null>(null)
@@ -59,20 +67,45 @@ interface LayerRow {
   expanded: boolean
   /** 是否在当前选中集里；多选时多个行同时为 true */
   selected: boolean
+  /** 行图标名；容器一律 folder，叶子按 componentName 回查物料声明 */
+  icon: string
   /** 在父级数组中的位置；根节点与游离节点没有 */
   position?: NodePosition
 }
 
-const rows = computed<LayerRow[]>(() => {
+/**
+ * componentName → 物料图标名。
+ *
+ * 大纲与组件库面板没有共用组件实例，只能各自查一次物料表；
+ * 读的是同一份 MaterialService 贡献，所以物料改名后两边不会分叉。
+ */
+const iconByComponent = computed(() => {
+  version.value
+  const map = new Map<string, string>()
+  for (const entry of material?.list() ?? []) {
+    if (entry.icon) map.set(entry.name, entry.icon)
+  }
+  return map
+})
+
+/** 过滤后的图层树；关键词为空时原样返回，所以这里不需要「是否在搜」的分支 */
+const tree = computed<OutlineItem[]>(() => {
   version.value
   if (!document) return []
+  return filterOutlineTree(buildOutlineTree(document.model.schema), query.value)
+})
 
+/** 搜索态强制展开：命中的后代要看得见，此时折叠集合不参与 */
+const isSearching = computed(() => query.value.trim().length > 0)
+
+const rows = computed<LayerRow[]>(() => {
+  const searching = isSearching.value
   const result: LayerRow[] = []
   const selectedIds = new Set(selection?.ids ?? [])
 
   const walk = (item: OutlineItem, depth: number): void => {
     const expandable = item.children.length > 0
-    const expanded = !collapsed.value.has(item.node.id)
+    const expanded = searching ? true : !collapsed.value.has(item.node.id)
     result.push({
       key: item.node.id,
       node: item.node,
@@ -80,13 +113,16 @@ const rows = computed<LayerRow[]>(() => {
       expandable,
       expanded,
       selected: selectedIds.has(item.node.id),
+      icon: expandable
+        ? 'folder'
+        : (iconByComponent.value.get(item.node.componentName) ?? 'square'),
       position: item.position,
     })
     if (!expandable || !expanded) return
     for (const child of item.children) walk(child, depth + 1)
   }
 
-  for (const item of buildOutlineTree(document.model.schema)) walk(item, 0)
+  for (const item of tree.value) walk(item, 0)
   return result
 })
 
@@ -213,8 +249,11 @@ const hasDocument = computed(() => Boolean(document && selection))
 <template>
   <div v-if="!hasDocument" class="lc-outline lc-outline--empty">未打开文档</div>
   <div v-else class="lc-outline">
-    <div class="lc-outline__hint">顺序：底层 → 顶层</div>
-    <ul class="lc-outline__list">
+    <div class="lc-outline__header">
+      <LcSearchField v-model="query" placeholder="搜索节点…" />
+      <p class="lc-outline__hint">顺序：底层 → 顶层</p>
+    </div>
+    <ul v-if="rows.length" class="lc-outline__list">
       <li
         v-for="row in rows"
         :key="row.key"
@@ -242,18 +281,13 @@ const hasDocument = computed(() => Boolean(document && selection))
           :aria-label="row.expanded ? '折叠' : '展开'"
           @click.stop="toggleExpand(row.node.id)"
         >
-          <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
-            <path
-              :d="row.expanded ? 'M2 4l4 4 4-4' : 'M4 2l4 4-4 4'"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.4"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
+          <LcIcon :name="row.expanded ? 'chevronDown' : 'chevronRight'" :size="12" />
         </button>
         <span v-else class="lc-outline__chevron lc-outline__chevron--placeholder" />
+
+        <span class="lc-outline__icon">
+          <LcIcon :name="row.icon" :size="14" />
+        </span>
 
         <input
           v-if="renamingId === row.node.id"
@@ -335,6 +369,9 @@ const hasDocument = computed(() => Boolean(document && selection))
         </span>
       </li>
     </ul>
+    <div v-else class="lc-outline__empty">
+      {{ query ? '没有匹配的节点' : '页面还没有节点' }}
+    </div>
   </div>
 </template>
 
@@ -343,6 +380,7 @@ const hasDocument = computed(() => Boolean(document && selection))
   display: flex;
   flex-direction: column;
   gap: 4px;
+  padding-bottom: 8px;
   font-size: 12px;
   color: var(--lc-text);
 }
@@ -352,10 +390,33 @@ const hasDocument = computed(() => Boolean(document && selection))
   color: var(--lc-text-secondary);
 }
 
+/* 浮动面板的滚动条在容器上：搜索与顺序提示吸顶，滚动的树从它下面穿过 */
+.lc-outline__header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0 8px;
+  background: var(--lc-rail-bg);
+}
+
 .lc-outline__hint {
-  padding: 0 4px;
+  margin: 0;
+  padding: 0 2px;
+  color: var(--lc-text-muted);
+  font-size: 11px;
+}
+
+.lc-outline__empty {
+  margin-top: 8px;
+  padding: 16px 12px;
+  border: 1px dashed var(--lc-border);
+  border-radius: var(--lc-radius-sm);
   color: var(--lc-text-secondary);
   font-size: 11px;
+  text-align: center;
 }
 
 .lc-outline__list {
@@ -421,6 +482,17 @@ const hasDocument = computed(() => Boolean(document && selection))
 
 .lc-outline__chevron--placeholder {
   cursor: default;
+}
+
+.lc-outline__icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--lc-text-secondary);
+}
+
+.lc-outline__item.is-selected .lc-outline__icon {
+  color: var(--lc-accent-bright);
 }
 
 .lc-outline__label {

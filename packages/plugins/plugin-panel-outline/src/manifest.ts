@@ -2,7 +2,7 @@ import type { PluginManifest } from '@lc/contracts'
 
 export const manifest: PluginManifest = {
   name: 'panel-outline',
-  displayName: '图层面板',
+  displayName: '页面大纲面板',
   version: '0.1.0',
   engines: { lowcode: '^0.1.0' },
   activationEvents: ['onPanel:outline'],
@@ -12,11 +12,11 @@ export const manifest: PluginManifest = {
     panels: [
       {
         id: 'outline',
-        title: '图层',
-        slot: 'designer.leftPanel',
+        title: '页面大纲',
+        slot: 'designer.overlayPanel',
         module: './src/index.ts',
         order: 10,
-        icon: 'list',
+        icon: 'outline',
       },
     ],
   },
