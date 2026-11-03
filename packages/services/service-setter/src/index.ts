@@ -39,7 +39,10 @@ export default definePlugin({
     }
 
     const service: SetterService = {
-      register(setter): { dispose(): void } {
+      register(setter): {
+        /** 注销本设置器；同 id 已被重新注册时为空操作（按实例引用比对） */
+        dispose(): void
+      } {
         if (setters.has(setter.id)) {
           throw new Error(`[setter] 设置器 id 重复: ${setter.id}`)
         }

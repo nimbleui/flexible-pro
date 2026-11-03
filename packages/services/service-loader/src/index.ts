@@ -25,6 +25,49 @@ interface StoredContribution {
 }
 
 /**
+ * 排序时从贡献对象动态读取的元数据。
+ *
+ * 并非所有贡献点都声明这两个字段，因此缺失一律按 0 处理；
+ * 两字段排序方向相反，不能混用。
+ */
+interface ContributionMeta {
+  /** 位置序号，同点内升序 @default 0 */
+  order?: number
+
+  /** 同 order 分组内的优先级，降序 @default 0 */
+  priority?: number
+}
+
+/**
+ * 面板贡献的插槽字段形状。
+ *
+ * slot 是 panels 贡献点自己的字段而不是通用维度，因此鸭子读取只发生在这里。
+ */
+interface PanelSlotHint {
+  /** 归属插槽名；未声明的面板不出现在任何插槽 */
+  slot?: string
+}
+
+/**
+ * 已加载模块的导出别名形状。
+ *
+ * 模块是外部构建产物，运行时只能鸭子判断，两种别名兼容历史导出习惯。
+ */
+interface PluginModuleNamespace {
+  /** 首选导出：ES Module 的 default */
+  default?: unknown
+
+  /** 备选导出：`export const plugin = ...` 的写法 */
+  plugin?: unknown
+}
+
+/** apply 字段探测形状；值为函数即视为插件定义 */
+interface ApplyProbe {
+  /** 插件主体函数；此处只验「是不是函数」，签名正确性交给激活阶段 */
+  apply: unknown
+}
+
+/**
  * 声明式贡献注册表。
  *
  * 存储层是异构数组，读取时按 point 泛型收窄；排序统一为
@@ -47,8 +90,8 @@ function createContributionRegistry(): ContributionService {
    */
   function sorted(list: StoredContribution[]): StoredContribution[] {
     return [...list].sort((a, b) => {
-      const aMeta = a.value as { order?: number; priority?: number }
-      const bMeta = b.value as { order?: number; priority?: number }
+      const aMeta = a.value as ContributionMeta
+      const bMeta = b.value as ContributionMeta
       const orderDiff = (aMeta.order ?? 0) - (bMeta.order ?? 0)
       if (orderDiff !== 0) return orderDiff
       const priorityDiff = (bMeta.priority ?? 0) - (aMeta.priority ?? 0)
@@ -103,7 +146,7 @@ function createContributionRegistry(): ContributionService {
      */
     listSlot(slot) {
       const panels = items.filter(
-        (item) => item.point === 'panels' && (item.value as { slot?: string }).slot === slot,
+        (item) => item.point === 'panels' && (item.value as PanelSlotHint).slot === slot,
       )
       return sorted(panels).map((item) => ({
         plugin: item.plugin,
@@ -143,13 +186,13 @@ function assertManifest(pkg: PluginPackage): void {
  */
 function extractDefinition(module: unknown): PluginDefinition | undefined {
   if (typeof module !== 'object' || module === null) return undefined
-  const namespace = module as { default?: unknown; plugin?: unknown }
+  const namespace = module as PluginModuleNamespace
   const candidate = namespace.default ?? namespace.plugin
   if (
     typeof candidate === 'object' &&
     candidate !== null &&
     'apply' in candidate &&
-    typeof (candidate as { apply: unknown }).apply === 'function'
+    typeof (candidate as ApplyProbe).apply === 'function'
   ) {
     return candidate as PluginDefinition
   }

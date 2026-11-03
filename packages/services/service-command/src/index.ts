@@ -30,7 +30,10 @@ export default definePlugin({
        *
        * @throws 命令 id 重复时抛错。
        */
-      register(command): { dispose(): void } {
+      register(command): {
+        /** 注销本命令；命令已被同 id 重新注册时为空操作（按实例引用比对） */
+        dispose(): void
+      } {
         if (commands.has(command.id)) {
           throw new Error(`[command] 命令 id 重复: ${command.id}`)
         }

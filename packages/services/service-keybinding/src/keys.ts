@@ -3,10 +3,15 @@ export type Platform = 'mac' | 'other'
 
 /** 匹配所需的最小键盘事件形状；KeyboardEvent 结构上满足它 */
 export interface KeyInput {
+  /** 原始按键值，`KeyboardEvent.key` 口径（如 `a`、`ArrowUp`、空格为 `' '`）；归一化由 `normalizeEventKey` 完成 */
   key: string
+  /** Ctrl 是否按下；非 mac 平台 `Mod` 映射到本位，匹配要求与期望值精确一致（含 false） */
   ctrlKey: boolean
+  /** Meta（⌘）是否按下；mac 平台 `Mod` 映射到本位 */
   metaKey: boolean
+  /** Alt / Option 是否按下；规范里 alt 与 option 两个别名共用本位 */
   altKey: boolean
+  /** Shift 是否按下；规范未含 Shift 时要求为 false，微调与快速修饰因此不会互触 */
   shiftKey: boolean
 }
 

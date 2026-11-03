@@ -33,7 +33,10 @@ export default definePlugin({
     const bindings: Keybinding[] = []
 
     const service: KeybindingService = {
-      register(binding): { dispose(): void } {
+      register(binding): {
+        /** 注销本绑定；按对象引用移除，重复调用与已被移除的绑定都是空操作 */
+        dispose(): void
+      } {
         if (bindings.some((item) => item.id === binding.id)) {
           throw new Error(`[keybinding] 绑定 id 重复: ${binding.id}`)
         }
