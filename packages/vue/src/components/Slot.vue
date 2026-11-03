@@ -95,9 +95,10 @@ async function ensurePanel(plugin: string, panelId: string, moduleName: string):
   void ctx.loader.ensureActivated(`onPanel:${panelId}`)
 
   try {
-    const module = await ctx.modules.load<{ default?: Component }>(
-      moduleKey(plugin, moduleName),
-    )
+    const module = await ctx.modules.load<{
+      /** 面板组件必须由模块默认导出；缺失时按失败处理并显示提示 */
+      default?: Component
+    }>(moduleKey(plugin, moduleName))
     if (!module.default) {
       failures.set(key, '面板模块未导出默认组件')
       return

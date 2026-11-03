@@ -84,6 +84,33 @@ describe('渲染树', () => {
     expect(instances.map((child) => child.props.label)).toEqual(['x', 'y'])
   })
 
+  /**
+   * 循环实例与父层共享同一份深度预算。
+   *
+   * 拆 expandLoop 时曾把实例的 depth 误写成 0：那样 maxDepth 统计的是「离最近一层
+   * 循环的距离」而不是「离根的距离」，深层嵌套文档永远不会被截断。本用例锁住透传。
+   */
+  it('循环实例沿用父层深度，超深子树仍被 maxDepth 截断', () => {
+    const schema = createSchema({
+      root: node('root', { children: ['item'] }),
+      item: node('item', {
+        loop: { dataSource: expression('items'), itemName: 'item' },
+        children: ['leaf'],
+      }),
+      leaf: node('leaf', { children: ['deep'] }),
+      deep: node('deep'),
+    })
+
+    const tree = buildRenderTree({ schema, resolveValue, scope: { items: ['x'] }, maxDepth: 2 })
+    const instance = tree[0]?.children[0]
+    const leaf = instance?.children[0]
+
+    // root(0) → item 实例(1) → leaf(2) → deep(3) 已超出 maxDepth
+    expect(instance?.node.id).toBe('item')
+    expect(leaf?.node.id).toBe('leaf')
+    expect(leaf?.children).toHaveLength(0)
+  })
+
   it('children 与 slots 内容合并渲染，嵌套关系保留', () => {
     const schema = createSchema({
       root: node('root', { children: ['a'] }),

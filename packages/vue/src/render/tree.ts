@@ -1,4 +1,4 @@
-import type { NodeSchema, PageSchema, Rect } from '@lc/schema'
+import type { LoopConfig, NodeSchema, PageSchema, Rect } from '@lc/schema'
 
 /** 渲染树节点：属性已求值、条件与指令已应用 */
 export interface RenderNode {
@@ -20,8 +20,14 @@ export interface RenderNode {
 
 /** 渲染树构建选项 */
 export interface RenderTreeOptions {
-  /** 页面 schema */
-  schema: PageSchema
+  /**
+   * 待渲染的节点图。
+   *
+   * 只声明 `buildRenderTree` 实际读取的两个字段，而不是整份 PageSchema：
+   * 复合组件的蓝图与预览用的临时文档同样只有节点表，凑出页面级字段
+   * （version / metadata / components）只会造出假数据。
+   */
+  schema: Pick<PageSchema, 'nodeId' | 'nodes'>
   /** 初始作用域（如 data / page） */
   scope?: Record<string, unknown>
   /** 值求值器：表达式、模板插值、嵌套对象解析由宿主注入 */
@@ -31,6 +37,14 @@ export interface RenderTreeOptions {
 }
 
 const DEFAULT_RECT: Rect = { x: 0, y: 0, width: 100, height: 40 }
+
+/** 指令求值结果，作用于节点自身而非子树 */
+interface NodeFlags {
+  /** show / hide 后的最终可见性；hidden 节点在上游已整棵跳过，不经过这里 */
+  visible: boolean
+  /** disabled 指令是否生效；由渲染层决定是置灰还是仅标记状态 */
+  disabled: boolean
+}
 
 function childRefs(node: NodeSchema): string[] {
   return [...(node.children ?? []), ...Object.values(node.slots ?? {}).flat()]
@@ -53,20 +67,18 @@ export function buildRenderTree(options: RenderTreeOptions): RenderNode[] {
   const maxDepth = options.maxDepth ?? 24
   const rendered = new Set<string>()
 
-  const referenced = new Set<string>()
-  for (const node of Object.values(schema.nodes)) {
-    for (const ref of childRefs(node)) referenced.add(ref)
-  }
-
   function evaluate(value: unknown, scope: Record<string, unknown>): unknown {
     if (value === undefined || value === null) return undefined
     return resolveValue(value, scope)
   }
 
-  function directivesOf(
-    node: NodeSchema,
-    scope: Record<string, unknown>,
-  ): { visible: boolean; disabled: boolean } {
+  /**
+   * 求值节点自身的显隐 / 禁用指令。
+   *
+   * 按数组顺序逐条覆盖，因此同类型指令的后写者生效；未被任何指令命中的轴保持
+   * 默认值（可见、可交互），不返回 null 之类的中间态。
+   */
+  function directivesOf(node: NodeSchema, scope: Record<string, unknown>): NodeFlags {
     let visible = true
     let disabled = false
 
@@ -89,13 +101,28 @@ export function buildRenderTree(options: RenderTreeOptions): RenderNode[] {
     return resolved
   }
 
+  /**
+   * 循环实例的作用域。
+   *
+   * 注入名默认 `$item` / `$index`，可被 `loop.itemName` / `indexName` 改写；
+   * 每次迭代都新建一层普通对象，实例之间不共享绑定，父级作用域按值展开。
+   */
+  function loopScope(
+    scope: Record<string, unknown>,
+    loop: LoopConfig,
+    item: unknown,
+    index: number,
+  ): Record<string, unknown> {
+    return { ...scope, [loop.itemName ?? '$item']: item, [loop.indexName ?? '$index']: index }
+  }
+
   function makeNode(
     node: NodeSchema,
     scope: Record<string, unknown>,
     key: string,
     depth: number,
     path: Set<string>,
-    flags: { visible: boolean; disabled: boolean },
+    flags: NodeFlags,
   ): RenderNode {
     const children: RenderNode[] = []
     for (const childId of childRefs(node)) {
@@ -132,22 +159,8 @@ export function buildRenderTree(options: RenderTreeOptions): RenderNode[] {
     if (node.hidden) return []
 
     const flags = directivesOf(node, scope)
-    const loop = node.loop ? evaluate(node.loop.dataSource, scope) : undefined
-    if (node.loop && Array.isArray(loop)) {
-      rendered.add(nodeId)
-      const itemName = node.loop.itemName ?? '$item'
-      const indexName = node.loop.indexName ?? '$index'
-      return loop.map((item, index) =>
-        makeNode(
-          node,
-          { ...scope, [itemName]: item, [indexName]: index },
-          `${key}#${index}`,
-          depth,
-          nextPath,
-          flags,
-        ),
-      )
-    }
+    const loopInstances = expandLoop(nodeId, node, scope, key, depth, nextPath, flags)
+    if (loopInstances) return loopInstances
 
     if (rendered.has(nodeId)) return []
     rendered.add(nodeId)
@@ -155,15 +168,61 @@ export function buildRenderTree(options: RenderTreeOptions): RenderNode[] {
     return [makeNode(node, scope, key, depth, nextPath, flags)]
   }
 
-  const tree = build(schema.nodeId, rootScope, schema.nodeId, 0, new Set())
+  /**
+   * 循环节点按数据源展开成多实例；非循环、或数据源求值不是数组时返回 null，
+   * 交回单实例路径（此时节点不计入 rendered，仍可能被孤儿兜底渲染）。
+   */
+  function expandLoop(
+    nodeId: string,
+    node: NodeSchema,
+    scope: Record<string, unknown>,
+    key: string,
+    depth: number,
+    path: Set<string>,
+    flags: NodeFlags,
+  ): RenderNode[] | null {
+    const loop = node.loop
+    if (!loop) return null
 
-  for (const nodeId of Object.keys(schema.nodes)) {
-    if (nodeId === schema.nodeId) continue
-    if (rendered.has(nodeId)) continue
-    if (referenced.has(nodeId)) continue
+    const loopItems = evaluate(loop.dataSource, scope)
+    if (!Array.isArray(loopItems)) return null
 
-    tree.push(...build(nodeId, rootScope, nodeId, 0, new Set()))
+    // 循环节点整体计入 rendered：子树已按实例展开，孤儿兜底不该再渲染一次
+    rendered.add(nodeId)
+
+    return loopItems.map((item, index) =>
+      makeNode(
+        node,
+        loopScope(scope, loop, item, index),
+        `${key}#${index}`,
+        depth,
+        path,
+        flags,
+      ),
+    )
   }
 
-  return tree
+  /** 顶层组装：先建根子树，再把「未引用、未渲染」的孤儿补进结果，兼容旧文档游离节点 */
+  function renderTopLevel(): RenderNode[] {
+    const tree = build(schema.nodeId, rootScope, schema.nodeId, 0, new Set())
+
+    // referenced 延后到根构建之后才收集：build 只依赖 rendered / path，孤儿兜底与它
+    // 无关，延后既不改变遍历顺序，也不改变 rendered 的填充时机。
+    const referenced = new Set<string>()
+    for (const node of Object.values(schema.nodes)) {
+      for (const ref of childRefs(node)) referenced.add(ref)
+    }
+
+    for (const nodeId of Object.keys(schema.nodes)) {
+      if (nodeId === schema.nodeId) continue
+      if (rendered.has(nodeId)) continue
+      if (referenced.has(nodeId)) continue
+
+      tree.push(...build(nodeId, rootScope, nodeId, 0, new Set()))
+    }
+
+    return tree
+  }
+
+  return renderTopLevel()
 }

@@ -49,7 +49,10 @@ let snap = ctx.get<SnapService>('snap')
 
 /** 已订阅 over 的 snap 实例，避免服务替换后重复注册同一个 refresh */
 let boundSnap: SnapService | null = null
-const disposables: Array<{ dispose(): void }> = []
+const disposables: Array<{
+  /** 释放该条订阅；卸载时按注册逆序调用，重复调用由注册方保证幂等 */
+  dispose(): void
+}> = []
 
 const frame = shallowRef<CanvasFrame>(buildFrame())
 
@@ -114,7 +117,10 @@ async function ensureLayer(layer: CanvasLayer): Promise<void> {
   loading.add(layer.id)
 
   try {
-    const module = (await layer.load()) as { default?: Component }
+    const module = (await layer.load()) as {
+      /** 图层组件必须由模块默认导出；缺失时降级为一条失败提示，不抛错 */
+      default?: Component
+    }
     if (!module.default) {
       failures.set(layer.id, '图层模块未导出默认组件')
       return
