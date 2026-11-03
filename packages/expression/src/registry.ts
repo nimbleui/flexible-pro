@@ -1,12 +1,15 @@
 import type {
   ExpressionNode,
+  FunctionDescriptor,
   FunctionRegistration,
   FunctionRegistry,
   FunctionSchema,
   FunctionScopeLevel,
+  ValueTypeSchema,
 } from '@lc/schema'
 import type { BuiltinFunction } from './host'
-import { BUILTIN_FUNCTIONS, BUILTIN_NAMES } from './host'
+import { BUILTIN_DOCS, BUILTIN_FUNCTIONS, BUILTIN_NAMES } from './host'
+import { inferExpression } from './infer'
 import { ExpressionError } from './errors'
 import { parseExpressionSource } from './parser'
 import { unwrapBraces } from './source'
@@ -23,12 +26,21 @@ import { unwrapBraces } from './source'
 
 /** 注册表在求值期间可解析的函数形态 */
 export type ResolvedFunction =
+  /** 声明式函数：schema 里的函数声明，编译为 AST 后由求值器解释执行 */
   | {
+      /** 判别字段；声明式与内置两条执行路径在此分叉 */
       readonly kind: 'declared'
+      /** 形参名列表；与实参按位置对齐，多余实参忽略 */
       readonly params: readonly string[]
+      /** 函数体 AST；注册时已编译，求值时不再解析 */
       readonly body: ExpressionNode
     }
-  | { readonly kind: 'builtin'; readonly apply: BuiltinFunction }
+  /** 内置函数：由 host.ts 直接持有的 JS 实现，不可被覆盖 */
+  | {
+      readonly kind: 'builtin'
+      /** 实现体；args 为已求值实参，expression 是当前表达式原文（供错误文案） */
+      readonly apply: BuiltinFunction
+    }
 
 type DiagnosticSink = (error: unknown, detail: Record<string, unknown>) => void
 
@@ -36,6 +48,12 @@ const LEVEL_ORDER: Readonly<Record<FunctionScopeLevel, number>> = {
   global: 1,
   material: 2,
   page: 3,
+}
+
+const SCOPE_BY_LEVEL: Readonly<Record<number, FunctionScopeLevel>> = {
+  [LEVEL_ORDER.global]: 'global',
+  [LEVEL_ORDER.material]: 'material',
+  [LEVEL_ORDER.page]: 'page',
 }
 
 const RESERVED_NAMES: ReadonlySet<string> = new Set(['true', 'false', 'null', 'undefined'])
@@ -62,10 +80,22 @@ export function isBuiltinFunction(name: string): boolean {
   return BUILTIN_NAMES.has(name)
 }
 
+/** 名字栈里的一条注册；dispose 按 token 精确移除，不影响同名更高层或更老的条目 */
 interface Entry {
+  /** 本次注册的身份凭据；Symbol 保证重复注册也能被逐条回退 */
   readonly token: symbol
+  /** 层级序号（LEVEL_ORDER 映射后），比较大小决定可见性；数值越大越靠栈顶优先 */
   readonly level: number
+  /** 可执行形态；resolve 命中栈顶时直接返回它，与下方展示元字段互不影响 */
   readonly definition: ResolvedFunction
+  /** 展示元数据来自注册时的 schema，不进求值路径 */
+  readonly title: string | undefined
+  /** 参考面板说明文案；仅 describe 消费 */
+  readonly description: string | undefined
+  /** 类型标注来自 schema，只供编辑器补全与推断 */
+  readonly paramTypes: Readonly<Record<string, ValueTypeSchema>> | undefined
+  /** 显式声明的返回类型；缺省时由 inferReturn 按函数体推断 */
+  readonly returns: ValueTypeSchema | undefined
 }
 
 /**
@@ -75,7 +105,9 @@ interface Entry {
  *   因为一个页面里写坏一个函数不应该让整个画布无法渲染
  */
 export function createFunctionRegistry(onDiagnostic: DiagnosticSink): {
+  /** 面向宿主与引擎的注册面：注册、批量注册、查询与展示 */
   registry: FunctionRegistry
+  /** 面向求值器的解析口：内置优先，其次同名栈顶 */
   resolve(name: string): ResolvedFunction | undefined
 } {
   const stacks = new Map<string, Entry[]>()
@@ -113,21 +145,9 @@ export function createFunctionRegistry(onDiagnostic: DiagnosticSink): {
   }
 
   function compileDefinition(schema: FunctionSchema): ResolvedFunction | undefined {
-    if (typeof schema.name !== 'string' || schema.name === '') {
-      report('自定义函数缺少名字', { stage: 'register' })
-      return undefined
-    }
-
-    if (!isValidFunctionName(schema.name)) {
-      report(`自定义函数名字非法: ${schema.name}`, { function: schema.name, stage: 'register' })
-      return undefined
-    }
-
-    if (isBuiltinFunction(schema.name)) {
-      report(`自定义函数不能覆盖内置函数: ${schema.name}`, {
-        function: schema.name,
-        stage: 'register',
-      })
+    const rejection = nameRejection(schema)
+    if (rejection) {
+      report(rejection.message, rejection.detail)
       return undefined
     }
 
@@ -155,7 +175,15 @@ export function createFunctionRegistry(onDiagnostic: DiagnosticSink): {
     if (!canOverride(fn.name, LEVEL_ORDER[level])) return noopRegistration
 
     const token = Symbol(fn.name)
-    push(fn.name, { token, level: LEVEL_ORDER[level], definition })
+    push(fn.name, {
+      token,
+      level: LEVEL_ORDER[level],
+      definition,
+      title: fn.title,
+      description: fn.description,
+      paramTypes: fn.paramTypes,
+      returns: fn.returns,
+    })
 
     return { dispose: () => remove(fn.name, token) }
   }
@@ -181,11 +209,83 @@ export function createFunctionRegistry(onDiagnostic: DiagnosticSink): {
     return stack?.[stack.length - 1]?.definition
   }
 
+  /**
+   * 列出当前可解析的函数。
+   *
+   * 内置优先收集，自定义函数按注册顺序追加：同名时只取栈顶的生效条目，
+   * 与 `resolve` 的查找顺序保持一致。补全与参考面板都消费这份结果，
+   * 因此不存在「补全里有、运行时没有」的第二份清单。
+   */
+  function describe(): readonly FunctionDescriptor[] {
+    const returnCache = new Map<string, ValueTypeSchema>()
+
+    /**
+     * 推断自定义函数返回类型。
+     *
+     * 显式 `returns` 优先；否则按函数体推断，支持函数之间互相调用。
+     * `visiting` 兜住递归：环上的函数返回 unknown，不阻塞其余推断。
+     */
+    function inferReturn(name: string, visiting: ReadonlySet<string>): ValueTypeSchema {
+      const cached = returnCache.get(name)
+      if (cached) return cached
+
+      const stack = stacks.get(name)
+      const top = stack?.[stack.length - 1]
+      if (!top || top.definition.kind !== 'declared') return { kind: 'unknown' }
+
+      if (top.returns) {
+        returnCache.set(name, top.returns)
+        return top.returns
+      }
+
+      if (visiting.has(name)) return { kind: 'unknown' }
+
+      const next = new Set(visiting)
+      next.add(name)
+
+      const variables: Record<string, ValueTypeSchema> = {}
+      for (const param of top.definition.params) {
+        variables[param] = top.paramTypes?.[param] ?? { kind: 'unknown' }
+      }
+
+      const inferred = inferExpression(top.definition.body, {
+        variables,
+        resolveFunction: (callee) => inferReturn(callee, next),
+      }).type
+
+      returnCache.set(name, inferred)
+      return inferred
+    }
+
+    const descriptors = builtinDescriptors()
+    /** 内置已占用的名字：自定义栈里若仍有同名条目（历史注册），展示时以内置为准 */
+    const taken = new Set(descriptors.map((item) => item.name))
+
+    for (const [name, stack] of stacks) {
+      if (taken.has(name)) continue
+      const top = stack[stack.length - 1]
+      if (!top || top.definition.kind !== 'declared') continue
+
+      descriptors.push({
+        name,
+        params: top.definition.params,
+        ...(top.paramTypes ? { paramTypes: top.paramTypes } : {}),
+        returns: inferReturn(name, new Set()),
+        ...(top.title ? { title: top.title } : {}),
+        ...(top.description ? { description: top.description } : {}),
+        scope: SCOPE_BY_LEVEL[top.level] ?? 'page',
+      })
+    }
+
+    return descriptors
+  }
+
   return {
     registry: {
       register,
       registerAll,
       has: (name: string) => BUILTIN_NAMES.has(name) || stacks.has(name),
+      describe,
     },
     resolve,
   }
@@ -197,6 +297,55 @@ function bodyText(schema: FunctionSchema): string {
   if (typeof body === 'string') return body
   if (body && typeof body === 'object' && body.type === 'expression') return body.raw
   return ''
+}
+
+/**
+ * 注册名字校验：合法返回 null，否则返回拒绝文案与上报细节。
+ *
+ * 三类拒绝（缺名 / 非法名 / 覆盖内置）都是名字层面的问题，与「函数体语法错误」
+ * 分属不同阶段，集中在这里判定，调用方只负责上报一次。
+ *
+ * @returns `detail` 的键按诊断约定：`function` 为函数名、`stage` 为阶段。
+ */
+function nameRejection(
+  schema: FunctionSchema,
+): { message: string; detail: Record<string, unknown> } | null {
+  if (typeof schema.name !== 'string' || schema.name === '') {
+    return { message: '自定义函数缺少名字', detail: { stage: 'register' } }
+  }
+
+  if (!isValidFunctionName(schema.name)) {
+    return {
+      message: `自定义函数名字非法: ${schema.name}`,
+      detail: { function: schema.name, stage: 'register' },
+    }
+  }
+
+  if (isBuiltinFunction(schema.name)) {
+    return {
+      message: `自定义函数不能覆盖内置函数: ${schema.name}`,
+      detail: { function: schema.name, stage: 'register' },
+    }
+  }
+
+  return null
+}
+
+/** 内置函数描述符：只收录确实有实现的名字，避免文档先行造成「补全里有、运行时没有」 */
+function builtinDescriptors(): FunctionDescriptor[] {
+  const descriptors: FunctionDescriptor[] = []
+  for (const doc of BUILTIN_DOCS) {
+    if (!BUILTIN_FUNCTIONS.has(doc.name)) continue
+    descriptors.push({
+      name: doc.name,
+      params: doc.params,
+      returns: doc.returns,
+      title: doc.title,
+      description: doc.description,
+      scope: 'builtin',
+    })
+  }
+  return descriptors
 }
 
 const noopRegistration: FunctionRegistration = { dispose: () => {} }
