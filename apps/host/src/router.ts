@@ -1,10 +1,13 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import PageListView from './views/PageListView.vue'
 import DesignerView from './views/DesignerView.vue'
+import PreviewView from './views/PreviewView.vue'
 import FunctionListView from './views/FunctionListView.vue'
 import FunctionEditView from './views/FunctionEditView.vue'
 import ComponentListView from './views/ComponentListView.vue'
 import ComponentBlueprintView from './views/ComponentBlueprintView.vue'
+import FlowListView from './views/FlowListView.vue'
+import FlowEditorView from './views/FlowEditorView.vue'
 
 /**
  * 主应用路由。
