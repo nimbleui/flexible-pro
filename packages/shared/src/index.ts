@@ -3,4 +3,5 @@
  */
 
 export * from './id'
+export * from './json'
 export * from './math'
