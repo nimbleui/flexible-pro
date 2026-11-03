@@ -1,0 +1,116 @@
+.lc-eventflow__chain-hint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--lc-text-secondary, #8c96a8);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lc-eventflow__chain-hint em {
+  margin-left: 6px;
+  color: var(--lc-guide, #f5b942);
+  font-style: normal;
+}
+
+.lc-eventflow__issues {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 54px;
+  margin: 0 0 6px;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.lc-eventflow__issue {
+  display: flex;
+  gap: 6px;
+  padding: 3px 6px;
+  border-left: 2px solid var(--lc-border-strong, #3d4658);
+  border-radius: 4px;
+  background: var(--lc-surface-sunken, #0c0f16);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.lc-eventflow__issue.is-error {
+  border-left-color: var(--lc-danger, #ff5c7a);
+}
+
+.lc-eventflow__issue.is-warning {
+  border-left-color: var(--lc-guide, #f5b942);
+}
+
+.lc-eventflow__issue-level {
+  flex: none;
+  font-weight: 600;
+}
+
+.lc-eventflow__issue.is-error .lc-eventflow__issue-level {
+  color: var(--lc-danger, #ff5c7a);
+}
+
+.lc-eventflow__issue.is-warning .lc-eventflow__issue-level {
+  color: var(--lc-guide, #f5b942);
+}
+
+.lc-eventflow__issue-message {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--lc-text, #e6ecf7);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lc-eventflow__chain-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 2px 2px 10px;
+}
+
+.lc-eventflow__chain-track {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: max-content;
+  min-height: 80px;
+  height: 100%;
+}
+
+.lc-eventflow__arrow {
+  display: flex;
+  flex: none;
+  align-items: center;
+  color: var(--lc-text-muted, #5f7ea6);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.lc-eventflow__add-card {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 176px;
+  height: 72px;
+  border: 1px dashed var(--lc-border-strong, rgba(64, 150, 255, 0.36));
+  border-radius: 14px;
+  background: transparent;
+  color: var(--lc-text-secondary, #7f9bc2);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.lc-eventflow__add-card:hover {
+  border-color: var(--lc-accent, #2f8cff);
+  color: var(--lc-accent-bright, #37b6ff);
+}

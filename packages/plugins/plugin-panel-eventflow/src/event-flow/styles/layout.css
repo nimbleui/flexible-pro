@@ -1,0 +1,136 @@
+.lc-eventflow__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.lc-eventflow__events,
+.lc-eventflow__chain,
+.lc-eventflow__settings {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.lc-eventflow__events {
+  flex: none;
+  width: 200px;
+  border-right: 1px solid var(--lc-border, #262b36);
+}
+
+.lc-eventflow__chain {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.lc-eventflow__settings {
+  flex: none;
+  width: 260px;
+  border-left: 1px solid var(--lc-border, #262b36);
+}
+
+.lc-eventflow__column-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+.lc-eventflow__column-title {
+  color: var(--lc-text-secondary, #8c96a8);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.lc-eventflow__events-scroll,
+.lc-eventflow__settings-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.lc-eventflow__settings-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 8px 10px;
+}
+
+/* 右栏用「标签 + 值 + 编辑入口」三行摘要，完整表单只在展开区里出现 */
+.lc-eventflow__setting-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 2px 0 6px;
+  border-radius: 8px;
+}
+
+.lc-eventflow__setting-row:hover {
+  background: var(--lc-surface-sunken, rgba(7, 21, 40, 0.55));
+}
+
+.lc-eventflow__setting-label {
+  flex: none;
+  width: 48px;
+  color: var(--lc-text-muted, #5f7ea6);
+  font-size: 11px;
+}
+
+.lc-eventflow__setting-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--lc-text, #dbeafe);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lc-eventflow__setting-value.is-empty {
+  color: var(--lc-text-muted, #5f7ea6);
+}
+
+.lc-eventflow__more {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: var(--lc-text-secondary, #7f9bc2);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lc-eventflow__more:hover,
+.lc-eventflow__more[aria-expanded='true'] {
+  border-color: var(--lc-border, rgba(64, 150, 255, 0.18));
+  background: var(--lc-accent-soft, rgba(47, 140, 255, 0.14));
+  color: var(--lc-accent-bright, #37b6ff);
+}
+
+.lc-eventflow__expander {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding: 8px;
+  border: 1px solid var(--lc-border, rgba(64, 150, 255, 0.18));
+  border-radius: 10px;
+  background: var(--lc-surface-sunken, rgba(7, 21, 40, 0.55));
+}

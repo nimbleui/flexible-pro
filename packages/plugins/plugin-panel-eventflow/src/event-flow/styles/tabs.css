@@ -1,0 +1,146 @@
+.lc-eventflow__tabs {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  padding: 0 8px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--lc-border, #262b36);
+}
+
+.lc-eventflow__tab {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--lc-text-secondary, #8c96a8);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.lc-eventflow__tab:hover {
+  color: var(--lc-text, #e6ecf7);
+}
+
+.lc-eventflow__tab.is-active {
+  border-bottom-color: var(--lc-accent, #4cc9f0);
+  color: var(--lc-accent, #4cc9f0);
+}
+
+/* 页签字形全部用 CSS 几何形状描述，避免为 5 个小图标引入图标库 */
+.lc-eventflow__tab-icon {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  color: currentColor;
+}
+
+.lc-eventflow__tab-icon::before,
+.lc-eventflow__tab-icon::after {
+  content: '';
+  grid-area: 1 / 1;
+}
+
+.lc-eventflow__tab-icon[data-glyph='bolt']::before {
+  width: 12px;
+  height: 12px;
+  background: currentColor;
+  clip-path: polygon(58% 0, 12% 56%, 46% 56%, 36% 100%, 90% 42%, 54% 42%);
+}
+
+.lc-eventflow__tab-icon[data-glyph='chain']::before,
+.lc-eventflow__tab-icon[data-glyph='chain']::after {
+  width: 6px;
+  height: 6px;
+  box-sizing: border-box;
+  border: 1.2px solid currentColor;
+  border-radius: 50%;
+}
+
+.lc-eventflow__tab-icon[data-glyph='chain']::before {
+  transform: translate(-2px, -1px);
+}
+
+.lc-eventflow__tab-icon[data-glyph='chain']::after {
+  transform: translate(2px, 1px);
+}
+
+.lc-eventflow__tab-icon[data-glyph='swatch']::before {
+  width: 7px;
+  height: 7px;
+  box-sizing: border-box;
+  border: 1.2px solid currentColor;
+  border-radius: 2px;
+  transform: translate(-2px, -2px);
+}
+
+.lc-eventflow__tab-icon[data-glyph='swatch']::after {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.75;
+  transform: translate(2px, 2px);
+}
+
+.lc-eventflow__tab-icon[data-glyph='code']::before,
+.lc-eventflow__tab-icon[data-glyph='code']::after {
+  width: 5px;
+  height: 5px;
+  box-sizing: border-box;
+  border-top: 1.2px solid currentColor;
+  border-left: 1.2px solid currentColor;
+}
+
+.lc-eventflow__tab-icon[data-glyph='code']::before {
+  transform: translate(-2px, 0) rotate(-45deg);
+}
+
+.lc-eventflow__tab-icon[data-glyph='code']::after {
+  transform: translate(2px, 0) rotate(135deg);
+}
+
+.lc-eventflow__tab-icon[data-glyph='wave']::before {
+  width: 12px;
+  height: 12px;
+  background: currentColor;
+  clip-path: polygon(
+    0 62%,
+    25% 18%,
+    50% 62%,
+    75% 18%,
+    100% 62%,
+    100% 92%,
+    75% 48%,
+    50% 92%,
+    25% 48%,
+    0 92%
+  );
+}
+
+.lc-eventflow__placeholder {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 0;
+  padding: 16px;
+  color: var(--lc-text-secondary, #8c96a8);
+  text-align: center;
+}
+
+.lc-eventflow__placeholder-hint {
+  font-size: 11px;
+  opacity: 0.75;
+}

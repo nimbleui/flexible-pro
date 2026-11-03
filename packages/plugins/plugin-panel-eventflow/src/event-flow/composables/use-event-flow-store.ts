@@ -1,0 +1,120 @@
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import type { ComputedRef, Ref } from 'vue'
+import type { DocumentService, MaterialService, SelectionService } from '@lc/contracts'
+import type { ExpressionEngine, FunctionDescriptor, NodeSchema, SchemaPatch } from '@lc/schema'
+import type { ScopeSymbol } from '@lc/expression/editor'
+import { buildPageSymbols } from '@lc/expression/editor'
+import { createId } from '@lc/shared'
+import { useAppContext } from '@lc/vue'
+
+/**
+ * 面板共享底座：服务句柄、重算版本号，以及写入文档与生成 id 的唯一出口。
+ *
+ * 其余 composable 都通过它读写文档，避免每个切片各自 `ctx.get()` 并维护自己的订阅。
+ */
+export interface EventFlowStore {
+  document: DocumentService | undefined
+  selection: SelectionService | undefined
+  material: MaterialService | undefined
+  expression: ExpressionEngine | undefined
+  /** 服务只用来触发重读，数据始终从服务实时取 */
+  version: Ref<number>
+  /** 页面数据符号供条件表达式补全；函数体仍然只能看到形参 */
+  expressionSymbols: ComputedRef<ScopeSymbol[]>
+  expressionFunctions: ComputedRef<readonly FunctionDescriptor[]>
+  selectedNodeId: ComputedRef<string | undefined>
+  selectedNode: ComputedRef<NodeSchema | undefined>
+  /** 提交一批 schema 变更；空补丁不写入历史 */
+  commit(patches: SchemaPatch[], label: string): void
+  nodeLabel(nodeId: string): string
+  /** 生成不与现有键冲突的实例 id */
+  nextId(prefix: string, taken: readonly string[]): string
+}
+
+export function useEventFlowStore(): EventFlowStore {
+  const ctx = useAppContext()
+  const document = ctx.get<DocumentService>('document')
+  const selection = ctx.get<SelectionService>('selection')
+  const material = ctx.get<MaterialService>('material')
+  const expression = ctx.get<ExpressionEngine>('expression')
+
+  const version = ref(0)
+  /** 挂载期注册的订阅；卸载时逐个释放，面板重挂不会叠加监听 */
+  const disposables: Array<{
+    /** 解绑这一条订阅，重复调用不安全，因此只在 onUnmounted 走一次 */
+    dispose(): void
+  }> = []
+
+  function bump(): void {
+    version.value += 1
+  }
+
+  onMounted(() => {
+    if (document) disposables.push(document.onDidChange(bump))
+    if (selection) disposables.push(selection.onDidChange(bump))
+    if (material) disposables.push(material.onDidChange(bump))
+  })
+
+  onUnmounted(() => {
+    for (const disposable of disposables) disposable.dispose()
+    disposables.length = 0
+  })
+
+  const expressionSymbols = computed(() => {
+    version.value
+    const schema = document?.model.schema
+    return schema ? buildPageSymbols(schema) : []
+  })
+
+  const expressionFunctions = computed(() => {
+    version.value
+    return expression?.functions.describe() ?? []
+  })
+
+  const selectedNodeId = computed<string | undefined>(() => {
+    version.value
+    return selection?.primary
+  })
+
+  const selectedNode = computed<NodeSchema | undefined>(() => {
+    const id = selectedNodeId.value
+    return id ? document?.model.schema.nodes[id] : undefined
+  })
+
+  function commit(patches: SchemaPatch[], label: string): void {
+    if (!document || patches.length === 0) return
+    document.apply(patches, { record: true, label })
+  }
+
+  function nodeLabel(nodeId: string): string {
+    const node = document?.model.schema.nodes[nodeId]
+    if (!node) return `已删除节点 ${nodeId}`
+    return node.name || node.componentName || node.id
+  }
+
+  /**
+   * createId 的序号只保证进程内递增，持久化文档里可能已有同名前缀的 id；
+   * 这里对现有键做一次去重，避免新动作/新连接覆盖旧数据。
+   */
+  function nextId(prefix: string, taken: readonly string[]): string {
+    const used = new Set(taken)
+    let id = createId(prefix)
+    while (used.has(id)) id = createId(prefix)
+    return id
+  }
+
+  return {
+    document,
+    selection,
+    material,
+    expression,
+    version,
+    expressionSymbols,
+    expressionFunctions,
+    selectedNodeId,
+    selectedNode,
+    commit,
+    nodeLabel,
+    nextId,
+  }
+}

@@ -1,0 +1,114 @@
+import type { CSSProperties } from 'vue'
+import type { ActionDeclaration } from '@lc/schema'
+import { findActionDefinition } from '@lc/schema'
+
+/**
+ * 动作类型色与事件色一样属于「类型编码」，不随主题变化，集中在命名常量表里。
+ * 动作卡片和右栏摘要共用同一张表，避免两处配色漂移。
+ */
+export type ActionTone =
+  'state' | 'dataSource' | 'navigation' | 'ui' | 'flow' | 'plugin' | 'unknown'
+
+const ACTION_STYLE: Record<
+  ActionTone,
+  {
+    /**
+     * CSS 颜色字面量（#rrggbb，不含 alpha）。
+     *
+     * 卡片另外两个变量由此拼接透明度后缀派生，因此必须是 6 位十六进制，
+     * 换成 `rgb()` 一类函数式写法会让 ring / glow 的拼接失效。
+     */
+    color: string
+  }
+> = {
+  state: { color: '#22d3a6' },
+  dataSource: { color: '#a78bfa' },
+  navigation: { color: '#2f8cff' },
+  ui: { color: '#38bdf8' },
+  flow: { color: '#f5a524' },
+  plugin: { color: '#7f9bc2' },
+  unknown: { color: '#ff6b81' },
+}
+
+const ACTION_TONE_BY_PREFIX: ReadonlyArray<{
+  /** 动作 type 的前缀；按数组顺序取第一个 `startsWith` 命中，新增时注意别被更宽的前缀抢走 */
+  prefix: string
+  /** 命中后使用的配色种类 */
+  tone: ActionTone
+}> = [
+  { prefix: 'state.', tone: 'state' },
+  { prefix: 'dataSource.', tone: 'dataSource' },
+  { prefix: 'navigation.', tone: 'navigation' },
+  { prefix: 'ui.', tone: 'ui' },
+  { prefix: 'flow.', tone: 'flow' },
+  { prefix: 'plugin.', tone: 'plugin' },
+]
+
+export function actionTone(action: ActionDeclaration | undefined): ActionTone {
+  if (!action) return 'unknown'
+  const matched = ACTION_TONE_BY_PREFIX.find((item) => action.type.startsWith(item.prefix))
+  return matched?.tone ?? 'unknown'
+}
+
+export function actionCardStyle(action: ActionDeclaration | undefined): CSSProperties {
+  const color = ACTION_STYLE[actionTone(action)].color
+  return {
+    '--action-color': color,
+    // 8 位十六进制直接承载透明度（对应 #色22 / #色18），省去为每种类型再维护两份描边常量
+    '--action-ring': `${color}22`,
+    '--action-glow': `${color}18`,
+  }
+}
+
+const TOAST_LEVEL_LABELS: Record<string, string> = {
+  info: '提示',
+  success: '成功',
+  warning: '警告',
+  error: '错误',
+}
+
+function configString(config: Record<string, unknown>, key: string): string {
+  const value = config[key]
+  return typeof value === 'string' ? value : ''
+}
+
+/**
+ * 卡片第二行的参数摘要必须按动作类型解释 config，而不是直接拼 JSON：
+ * 用户需要一眼看懂「调哪个接口 / 跳哪里 / 什么级别」，原始字段名没有这个信息量。
+ * 每种内置动作都在这张表里给出独立口径，模板只调用 summarize。
+ */
+const ACTION_PARAM_SUMMARY: Record<string, (config: Record<string, unknown>) => string> = {
+  'state.set': () => '(setState)',
+  'state.reset': () => '(resetState)',
+  'dataSource.fetch': (config) => {
+    const dataSourceId = configString(config, 'dataSourceId')
+    return dataSourceId === '' ? '(调用接口)' : `(${dataSourceId})`
+  },
+  'navigation.go': (config) => {
+    const to = configString(config, 'to')
+    return to === '' ? '(跳转)' : `(${to})`
+  },
+  'ui.toast': (config) => {
+    const level = configString(config, 'level')
+    return `(${TOAST_LEVEL_LABELS[level] ?? TOAST_LEVEL_LABELS.info})`
+  },
+  'flow.condition': () => '(分支)',
+  'flow.sequence': () => '(批量)',
+  'plugin.invoke': (config) => {
+    const service = configString(config, 'service')
+    const method = configString(config, 'method')
+    return service === '' || method === '' ? '(调用插件)' : `(${service}.${method})`
+  },
+}
+
+export function actionParamSummary(action: ActionDeclaration | undefined): string {
+  if (!action) return '(未知动作)'
+  const summarize = ACTION_PARAM_SUMMARY[action.type]
+  return summarize ? summarize(action.config) : '(未知动作)'
+}
+
+export function actionTitle(action: ActionDeclaration | undefined): string {
+  if (!action) return '动作已丢失'
+  // 用户显式命名优先；未命名时内置类型取协议标题，自定义类型只能退回 type
+  return action.name || findActionDefinition(action.type)?.title || action.type || '未知动作'
+}

@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@lc/contracts": "workspace:*",
+    "@lc/expression": "workspace:*",
+    "@lc/expression-editor": "workspace:*",
     "@lc/schema": "workspace:*",
     "@lc/shared": "workspace:*",
     "@lc/vue": "workspace:*"

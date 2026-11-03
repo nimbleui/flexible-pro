@@ -1,0 +1,28 @@
+.lc-eventflow__tab:focus-visible,
+.lc-eventflow__button:focus-visible,
+.lc-eventflow__creator-option:focus-visible,
+.lc-eventflow__event-open:focus-visible,
+.lc-eventflow__card:focus-visible,
+.lc-eventflow__card-tool:focus-visible,
+.lc-eventflow__more:focus-visible,
+.lc-eventflow__add-card:focus-visible,
+.lc-eventflow__action-option:focus-visible {
+  outline: 2px solid var(--lc-accent, #4cc9f0);
+  outline-offset: 1px;
+}
+
+/* 卡片焦点环跟随自身类型色，选中态与键盘焦点才不会互相掩盖 */
+.lc-eventflow__card:focus-visible {
+  outline-color: var(--action-color, var(--lc-accent, #2f8cff));
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-eventflow__switch > span,
+  .lc-eventflow__switch > span::after,
+  .lc-eventflow__card,
+  .lc-eventflow__card-tools,
+  .lc-eventflow__add-card {
+    transition: none;
+  }
+}

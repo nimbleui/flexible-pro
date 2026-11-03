@@ -1,4 +1,4 @@
-import EventFlowPanel from './EventFlowPanel.vue'
+import EventFlowPanel from './event-flow'
 
 export { manifest } from './manifest'
 

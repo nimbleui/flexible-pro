@@ -1,0 +1,300 @@
+.lc-eventflow__card {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  box-sizing: border-box;
+  width: 176px;
+  height: 72px;
+  padding: 8px 12px;
+  border: 1px solid
+    color-mix(in srgb, var(--action-color, var(--lc-accent, #2f8cff)) 45%, transparent);
+  border-radius: 14px;
+  background: var(--lc-panel-glass, rgba(10, 30, 61, 0.72));
+  box-shadow:
+    0 0 0 1px var(--action-ring, transparent),
+    0 8px 20px var(--action-glow, transparent);
+  color: var(--lc-text, #dbeafe);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.lc-eventflow__card:hover {
+  border-color: var(--action-color, var(--lc-accent, #2f8cff));
+}
+
+.lc-eventflow__card.is-active {
+  border-color: var(--action-color, var(--lc-accent, #2f8cff));
+  /* 用内阴影补一层描边，视觉上 2px 加粗但不改变盒模型，避免选中时内容跳动 */
+  box-shadow:
+    inset 0 0 0 1px var(--action-color, var(--lc-accent, #2f8cff)),
+    0 0 0 2px
+      color-mix(in srgb, var(--action-color, var(--lc-accent, #2f8cff)) 38%, transparent),
+    0 10px 26px
+      color-mix(in srgb, var(--action-color, var(--lc-accent, #2f8cff)) 32%, transparent);
+}
+
+.lc-eventflow__card.is-broken {
+  background: var(--lc-danger-surface, rgba(255, 107, 129, 0.12));
+}
+
+.lc-eventflow__card-body {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+}
+
+.lc-eventflow__card-icon {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: color-mix(
+    in srgb,
+    var(--action-color, var(--lc-accent, #2f8cff)) 16%,
+    transparent
+  );
+  color: var(--action-color, var(--lc-accent, #2f8cff));
+}
+
+.lc-eventflow__card-icon::before,
+.lc-eventflow__card-icon::after {
+  content: '';
+  grid-area: 1 / 1;
+}
+
+/* 每种动作族一个简化几何字形，只承担辨识作用，不引入图标库 */
+.lc-eventflow__card-icon[data-glyph='state']::before {
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+
+.lc-eventflow__card-icon[data-glyph='state']::after {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.lc-eventflow__card-icon[data-glyph='dataSource']::before {
+  width: 13px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: currentColor;
+  box-shadow:
+    0 -4px 0 currentColor,
+    0 4px 0 currentColor;
+}
+
+.lc-eventflow__card-icon[data-glyph='navigation']::before {
+  width: 7px;
+  height: 7px;
+  box-sizing: border-box;
+  border-top: 1.5px solid currentColor;
+  border-right: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.lc-eventflow__card-icon[data-glyph='ui']::before {
+  width: 15px;
+  height: 11px;
+  box-sizing: border-box;
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+}
+
+.lc-eventflow__card-icon[data-glyph='ui']::after {
+  width: 0;
+  height: 0;
+  margin-top: 10px;
+  margin-left: 5px;
+  border-top: 5px solid currentColor;
+  border-right: 4px solid transparent;
+}
+
+.lc-eventflow__card-icon[data-glyph='flow']::before,
+.lc-eventflow__card-icon[data-glyph='flow']::after {
+  width: 1.5px;
+  height: 9px;
+  border-radius: 1px;
+  background: currentColor;
+  transform-origin: bottom center;
+}
+
+.lc-eventflow__card-icon[data-glyph='flow']::before {
+  transform: translate(-2.5px, 2px) rotate(-35deg);
+}
+
+.lc-eventflow__card-icon[data-glyph='flow']::after {
+  transform: translate(2.5px, 2px) rotate(35deg);
+}
+
+.lc-eventflow__card-icon[data-glyph='plugin']::before {
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  transform: translate(-3px, -3px);
+}
+
+.lc-eventflow__card-icon[data-glyph='plugin']::after {
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  transform: translate(3px, 3px);
+}
+
+.lc-eventflow__card-icon[data-glyph='unknown']::before {
+  width: 2px;
+  height: 8px;
+  border-radius: 1px;
+  background: currentColor;
+  transform: translateY(-3px);
+}
+
+.lc-eventflow__card-icon[data-glyph='unknown']::after {
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: currentColor;
+  transform: translateY(5px);
+}
+
+.lc-eventflow__card-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.lc-eventflow__card-title {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lc-eventflow__card-summary {
+  overflow: hidden;
+  color: var(--lc-text-secondary, #7f9bc2);
+  font-size: 12px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lc-eventflow__card-broken {
+  position: absolute;
+  right: 8px;
+  bottom: 5px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--lc-danger-surface, rgba(255, 107, 129, 0.12));
+  color: var(--lc-danger, #ff6b81);
+  font-size: 9px;
+  line-height: 14px;
+}
+
+/* 操作按钮收进 hover / focus：它们常驻会挤占 176px 卡片的正文宽度，标题必然被截断 */
+.lc-eventflow__card-tools {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 1px;
+  padding: 1px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--lc-surface, #0a1b33) 82%, transparent);
+  opacity: 0;
+  /* 隐藏时不接收指针事件，否则不可见的按钮会抢走卡片本体的点击（触屏尤其明显） */
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.lc-eventflow__card:hover .lc-eventflow__card-tools,
+.lc-eventflow__card:focus-within .lc-eventflow__card-tools {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.lc-eventflow__card-tool {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--lc-text-secondary, #7f9bc2);
+  cursor: pointer;
+}
+
+.lc-eventflow__card-tool::before,
+.lc-eventflow__card-tool::after {
+  content: '';
+  grid-area: 1 / 1;
+}
+
+.lc-eventflow__card-tool.is-up::before {
+  width: 0;
+  height: 0;
+  border-right: 3px solid transparent;
+  border-bottom: 5px solid currentColor;
+  border-left: 3px solid transparent;
+}
+
+.lc-eventflow__card-tool.is-down::before {
+  width: 0;
+  height: 0;
+  border-top: 5px solid currentColor;
+  border-right: 3px solid transparent;
+  border-left: 3px solid transparent;
+}
+
+.lc-eventflow__card-tool.is-remove::before,
+.lc-eventflow__card-tool.is-remove::after {
+  width: 9px;
+  height: 1px;
+  background: currentColor;
+}
+
+.lc-eventflow__card-tool.is-remove::before {
+  transform: rotate(45deg);
+}
+
+.lc-eventflow__card-tool.is-remove::after {
+  transform: rotate(-45deg);
+}
+
+.lc-eventflow__card-tool:hover:not(:disabled) {
+  border-color: var(--lc-border, rgba(64, 150, 255, 0.18));
+  background: var(--lc-accent-soft, rgba(47, 140, 255, 0.14));
+  color: var(--lc-text, #dbeafe);
+}
+
+.lc-eventflow__card-tool.is-remove:hover:not(:disabled) {
+  color: var(--lc-danger, #ff6b81);
+}
+
+.lc-eventflow__card-tool:disabled {
+  cursor: default;
+  opacity: 0.3;
+}

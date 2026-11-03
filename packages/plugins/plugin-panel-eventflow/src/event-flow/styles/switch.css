@@ -1,0 +1,65 @@
+.lc-eventflow__switch {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: 28px;
+  height: 16px;
+}
+
+.lc-eventflow__switch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.lc-eventflow__switch > span {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--lc-border-strong, #3d4658);
+  border-radius: 999px;
+  background: var(--lc-surface-sunken, #0c0f16);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.lc-eventflow__switch > span::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--lc-text-secondary, #8c96a8);
+  transition:
+    transform 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.lc-eventflow__switch input:checked + span {
+  border-color: var(--lc-accent, #4cc9f0);
+  background: color-mix(in srgb, var(--lc-accent, #4cc9f0) 22%, transparent);
+}
+
+.lc-eventflow__switch input:checked + span::after {
+  transform: translateX(12px);
+  background: var(--lc-accent, #4cc9f0);
+}
+
+.lc-eventflow__switch input:focus-visible + span {
+  outline: 2px solid var(--lc-accent, #4cc9f0);
+  outline-offset: 1px;
+}
+
+.lc-eventflow__switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--lc-text-secondary, #8c96a8);
+  font-size: 11px;
+}

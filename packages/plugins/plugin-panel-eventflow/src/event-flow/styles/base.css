@@ -1,0 +1,11 @@
+.lc-eventflow {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--lc-surface, #12151d);
+  color: var(--lc-text, #e6ecf7);
+  font-size: 12px;
+}
