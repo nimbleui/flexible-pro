@@ -1,7 +1,7 @@
 import type { ActionDeclaration, EventConnection } from './actions'
 import type { ComponentSchema } from './component'
 import type { DataSourceSchemaDef } from './datasource'
-import type { FunctionSchema } from './functions'
+import type { FunctionSchema, ValueTypeSchema } from './functions'
 import type { LifecycleSchema } from './lifecycle'
 import type { ComponentPropsMap, DefaultComponentPropsMap, NodeSchema } from './node'
 
@@ -18,6 +18,49 @@ export interface PageMeta {
   keywords?: string[]
   /** 页面作者信息（可选） */
   author?: string
+}
+
+/**
+ * 页面变量声明。
+ *
+ * 变量与数据源结果共享 `data` 命名空间，例如 `data.isEditing`。
+ * 变量默认值是运行时初值，同时也是编辑器推导补全类型的依据。
+ */
+export interface PageVariableSchema {
+  /** 变量名；必须能作为标识符在表达式中访问 */
+  name: string
+  /**
+   * 变量类型声明（可选）。
+   *
+   * 缺省时按 `defaultValue` 推导；显式声明后，即使默认值为空也能参与补全。
+   */
+  type?: ValueTypeSchema
+  /** 初始值；对象/数组按 JSON 结构参与补全推导 */
+  defaultValue?: unknown
+  /** 说明（可选），显示在补全详情里 */
+  description?: string
+}
+
+/** 路由字段声明；只描述名字与含义，值由运行时路由提供 */
+export interface RouteFieldSchema {
+  /** 参数或查询键名 */
+  name: string
+  /** 说明（可选） */
+  description?: string
+}
+
+/**
+ * 页面路由契约。
+ *
+ * 这里只声明页面“期望收到”的参数名，不存运行时值：
+ * `$params` / `$query` 的真实内容由宿主路由注入。声明的作用是让编辑器
+ * 在设计期就能提示 `$params.id` 这类路径。
+ */
+export interface PageRouteSchema {
+  /** 路径参数声明 */
+  params?: RouteFieldSchema[]
+  /** 查询参数声明 */
+  query?: RouteFieldSchema[]
 }
 
 /**
@@ -75,6 +118,16 @@ export interface PageSchema<T extends ComponentPropsMap = DefaultComponentPropsM
    * 用于声明页面级别的数据获取和状态管理。
    */
   datasources?: DataSourceSchemaDef[]
+  /**
+   * 页面变量声明（可选）
+   * 默认值参与运行时装配，类型结构参与表达式补全。
+   */
+  variables?: PageVariableSchema[]
+  /**
+   * 页面路由契约（可选）
+   * 只声明参数名，运行时值由宿主路由注入。
+   */
+  route?: PageRouteSchema
   /**
    * 页面的生命周期钩子列表（可选）
    * 用于在页面级生命周期事件中执行自定义逻辑。

@@ -18,9 +18,17 @@ export type {
 } from './node'
 
 // -------------------- 页面与文档 -------------------- //
-export type { PageMeta, PageSchema } from './page'
+export type {
+  PageMeta,
+  PageRouteSchema,
+  PageSchema,
+  PageVariableSchema,
+  RouteFieldSchema,
+} from './page'
 export type { CreateDocumentInput, DocumentModel } from './document'
 export { cloneSchema, createDocument } from './document'
+export type { DataSourceRuntimeState } from './page-data'
+export { buildPageData, resolveDataSourceValue } from './page-data'
 
 // -------------------- 组件 -------------------- //
 export type { ComponentMeta, ComponentSchema, SnippetSchema } from './component'
@@ -88,10 +96,13 @@ export {
 
 // -------------------- 声明式函数 -------------------- //
 export type {
+  FunctionDescriptor,
   FunctionRegistration,
   FunctionRegistry,
   FunctionSchema,
   FunctionScopeLevel,
+  ValueTypeKind,
+  ValueTypeSchema,
 } from './functions'
 
 // -------------------- 数据源 -------------------- //

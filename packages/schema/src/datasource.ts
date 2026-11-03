@@ -1,3 +1,5 @@
+import type { ValueTypeSchema } from './functions'
+
 /**
  * 数据源（DataSource）架构定义
  * 本文件定义了组件和页面中数据获取与处理的完整配置体系。
@@ -114,6 +116,7 @@ export type DataSourceConfig =
  * 例：`{ kind: 'path', path: 'data.items' }`
  */
 export interface PathTransform {
+  /** 可辨识字段 */
   kind: 'path'
   /** 点分隔的字段路径（支持多层） */
   path: string
@@ -121,6 +124,7 @@ export interface PathTransform {
 
 /** 仅保留指定字段（对数组逐项应用；对对象直接应用） */
 export interface PickTransform {
+  /** 可辨识字段 */
   kind: 'pick'
   /** 保留的字段名列表 */
   fields: string[]
@@ -128,6 +132,7 @@ export interface PickTransform {
 
 /** 排除指定字段 */
 export interface OmitTransform {
+  /** 可辨识字段 */
   kind: 'omit'
   /** 需要去除的字段名列表 */
   fields: string[]
@@ -139,6 +144,7 @@ export interface OmitTransform {
  * 例：`{ kind: 'map', expression: '{ id: item.id, name: item.title }' }`
  */
 export interface MapTransform {
+  /** 可辨识字段 */
   kind: 'map'
   /** 表达式，可包含可选的 `{{ }}` 包裹 */
   expression: string
@@ -146,6 +152,7 @@ export interface MapTransform {
 
 /** 对数组过滤：表达式返回真才保留。作用域同 Map。 */
 export interface FilterTransform {
+  /** 可辨识字段 */
   kind: 'filter'
   /** 返回布尔值的表达式，例如 `!item.done` */
   expression: string
@@ -153,6 +160,7 @@ export interface FilterTransform {
 
 /** 数组排序：按字段路径 或 任意表达式 计算每项的比较键。 */
 export interface SortTransform {
+  /** 可辨识字段 */
   kind: 'sort'
   /**
    * 比较键。两种写法：
@@ -166,6 +174,7 @@ export interface SortTransform {
 
 /** 数组打平（默认一层） */
 export interface FlattenTransform {
+  /** 可辨识字段 */
   kind: 'flatten'
   /** 打平层数，默认 1；Infinity 表示递归到底 */
   depth?: number
@@ -173,6 +182,7 @@ export interface FlattenTransform {
 
 /** 数组去重（可按 key） */
 export interface DedupeTransform {
+  /** 可辨识字段 */
   kind: 'dedupe'
   /** 识别重复项的字段路径，不传则按值本身判断 */
   by?: string
@@ -180,6 +190,7 @@ export interface DedupeTransform {
 
 /** 按字段分组：结果为 Record<key, item[]> */
 export interface GroupByTransform {
+  /** 可辨识字段 */
   kind: 'groupBy'
   /** 分组依据的字段路径 */
   by: string
@@ -191,6 +202,7 @@ export interface GroupByTransform {
  * 例：`{ kind: 'expression', expression: '$.list || []' }`
  */
 export interface ExpressionTransform {
+  /** 可辨识字段 */
   kind: 'expression'
   /** 对整体应用的表达式 */
   expression: string
@@ -249,10 +261,26 @@ export interface CacheConfig {
  * 自动获取行为、轮询、数据转换及缓存策略。
  */
 export interface DataSourceSchemaDef {
-  /** 数据源唯一标识 ID */
+  /** 数据源唯一标识 ID；结果挂在 `data.<id>` 下 */
   id: string
   /** 数据源类型 */
   type: DataSourceType
+  /** 展示说明（可选），用于编辑器补全详情 */
+  description?: string
+  /**
+   * 示例结果结构（可选），仅用于编辑器补全与 mock/static 初值。
+   *
+   * 运行时不会把 sample 当作 REST 的真实数据：mock/static 读取 `config.data`，
+   * 其余类型需要数据源运行时取数。sample 让设计期可以稳定提示字段路径，
+   * 而不依赖接口是否连通。
+   */
+  sample?: unknown
+  /**
+   * 结果类型声明（可选）。
+   *
+   * 由结构化类型编辑器维护，用于补全字段、类型与说明；缺省时按 sample 推导。
+   */
+  resultType?: ValueTypeSchema
   /** 数据源的具体配置（根据 type 不同，对应不同的配置接口） */
   config: DataSourceConfig
   /** 是否在页面/组件初始化时自动触发数据获取 */
