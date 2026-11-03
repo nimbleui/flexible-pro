@@ -10,6 +10,7 @@
     "packages/**/vite.config.ts",
     "apps/**/src/**/*.ts",
     "apps/**/src/**/*.vue",
+    "apps/**/tests/**/*.ts",
     "apps/**/vite.config.ts",
     "vitest.config.ts"
   ]
