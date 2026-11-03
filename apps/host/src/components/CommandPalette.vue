@@ -12,7 +12,10 @@ const query = ref('')
 const activeIndex = ref(0)
 const inputRef = ref<HTMLInputElement | null>(null)
 const version = ref(0)
-const disposables: Array<{ dispose(): void }> = []
+const disposables: Array<{
+  /** 释放该条订阅；卸载时逐条调用，重复调用由注册方保证幂等 */
+  dispose(): void
+}> = []
 
 function setOpen(next: boolean): void {
   open.value = next
@@ -51,10 +54,15 @@ onUnmounted(() => {
   disposables.length = 0
 })
 
+/** 面板中的一行命令；由命令服务的描述投影而来，只保留渲染需要的四个字段 */
 interface PaletteItem {
+  /** 命令 id，回车时按它执行 */
   id: string
+  /** 命令标题，过滤与展示都用它 */
   title: string
+  /** 已绑定的快捷键文案；未绑定为 undefined，右侧不留空位 */
   key: string | undefined
+  /** 是否可执行；false 时仍展示但不可选中执行 */
   enabled: boolean
 }
 

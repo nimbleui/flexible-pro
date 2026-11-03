@@ -21,7 +21,10 @@ const history = ctx.get<HistoryService>('history')
 const document = ctx.get<DocumentService>('document')
 
 const version = ref(0)
-const disposables: Array<{ dispose(): void }> = []
+const disposables: Array<{
+  /** 释放该条订阅；卸载时逐条调用，重复调用由注册方保证幂等 */
+  dispose(): void
+}> = []
 
 // 在 setup 阶段同步订阅：CanvasStage 的首次 fit 发生在父级 mounted 之后，
 // 若在 onMounted 里订阅会漏掉这一次视口变化。

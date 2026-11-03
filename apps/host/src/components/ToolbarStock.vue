@@ -8,7 +8,10 @@ const selection = ctx.get<SelectionService>('selection')
 const document = ctx.get<DocumentService>('document')
 
 const version = ref(0)
-const disposables: Array<{ dispose(): void }> = []
+const disposables: Array<{
+  /** 释放该条订阅；卸载时逐条调用，重复调用由注册方保证幂等 */
+  dispose(): void
+}> = []
 
 const bump = (): void => {
   version.value += 1
