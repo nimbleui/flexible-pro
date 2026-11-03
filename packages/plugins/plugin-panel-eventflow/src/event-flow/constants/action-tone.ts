@@ -92,8 +92,15 @@ const ACTION_PARAM_SUMMARY: Record<string, (config: Record<string, unknown>) => 
     const level = configString(config, 'level')
     return `(${TOAST_LEVEL_LABELS[level] ?? TOAST_LEVEL_LABELS.info})`
   },
-  'flow.condition': () => '(分支)',
-  'flow.sequence': () => '(批量)',
+  'flow.condition': (config) => {
+    const target = configString(config, 'trueActionId')
+    return target === '' ? '(分支)' : `(分支 → ${target})`
+  },
+  'flow.sequence': (config) => {
+    const members = config.actionIds
+    return Array.isArray(members) && members.length > 0 ? `(批量 ${members.length})` : '(批量)'
+  },
+  'flow.end': () => '(结束)',
   'plugin.invoke': (config) => {
     const service = configString(config, 'service')
     const method = configString(config, 'method')
@@ -107,8 +114,18 @@ export function actionParamSummary(action: ActionDeclaration | undefined): strin
   return summarize ? summarize(action.config) : '(未知动作)'
 }
 
+/**
+ * 按动作类型取展示名。
+ *
+ * 单独成函数是因为动作选择器（`kind: 'action'` 的下拉）只有类型和 id，
+ * 手上没有完整的 `ActionDeclaration`。
+ */
+export function actionTypeTitle(type: string): string {
+  return findActionDefinition(type)?.title || type
+}
+
 export function actionTitle(action: ActionDeclaration | undefined): string {
   if (!action) return '动作已丢失'
   // 用户显式命名优先；未命名时内置类型取协议标题，自定义类型只能退回 type
-  return action.name || findActionDefinition(action.type)?.title || action.type || '未知动作'
+  return action.name || actionTypeTitle(action.type) || '未知动作'
 }

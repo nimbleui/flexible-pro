@@ -23,6 +23,7 @@ const ConditionEditor = defineAsyncComponent(() => import('@lc/expression-editor
 const {
   activeTab,
   activeTabLabel,
+  actionOptions,
   addAction,
   chainItems,
   commitActionName,
@@ -477,6 +478,27 @@ const {
                       @input="onJsonInput(field, $event)"
                       @change="commitJson(field)"
                     />
+
+                    <select
+                      v-else-if="field.kind === 'action'"
+                      :value="fieldSelectValue(field)"
+                      @change="onFieldChange(field, $event)"
+                    >
+                      <option value="">不执行</option>
+                      <option
+                        v-for="option in actionOptions"
+                        :key="option.value"
+                        :value="option.value"
+                      >
+                        {{ option.label }}
+                      </option>
+                      <option
+                        v-if="isUnlistedSelectValue(field)"
+                        :value="fieldSelectValue(field)"
+                      >
+                        {{ fieldSelectValue(field) }}（动作已删除）
+                      </option>
+                    </select>
 
                     <input
                       v-else-if="field.kind === 'number'"
