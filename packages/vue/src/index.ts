@@ -15,11 +15,18 @@ export {
   useService,
 } from './context'
 
+export { lcIconPaths } from './icons'
+
+export { default as LcIcon } from './components/LcIcon.vue'
+export { default as LcSearchField } from './components/LcSearchField.vue'
 export { default as LcSlot } from './components/Slot.vue'
 export { default as ContextScope } from './components/ContextScope.vue'
 export { default as PluginBoundary } from './components/PluginBoundary.vue'
 export { default as CanvasStage } from './components/CanvasStage.vue'
 export { default as LayerHost } from './components/LayerHost.vue'
 export { default as SchemaPreview } from './components/SchemaPreview.vue'
+export { default as PageRuntime } from './components/PageRuntime.vue'
+
+export { eventListenerProp } from './render/events'
 
 export { default as rendererPlugin } from './plugins/renderer'
