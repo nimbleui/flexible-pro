@@ -102,6 +102,9 @@ importers:
 
   apps/host:
     dependencies:
+      '@lc/canvas':
+        specifier: workspace:*
+        version: link:../../packages/canvas
       '@lc/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -138,6 +141,12 @@ importers:
       '@lc/schema':
         specifier: workspace:*
         version: link:../../packages/schema
+      '@lc/service-action':
+        specifier: workspace:*
+        version: link:../../packages/services/service-action
+      '@lc/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@lc/vue':
         specifier: workspace:*
         version: link:../../packages/vue
@@ -597,6 +606,18 @@ importers:
 
   packages/schema: {}
 
+  packages/services/service-action:
+    dependencies:
+      '@lc/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
+      '@lc/kernel':
+        specifier: workspace:*
+        version: link:../../kernel
+      '@lc/schema':
+        specifier: workspace:*
+        version: link:../../schema
+
   packages/services/service-canvas-core:
     dependencies:
       '@lc/canvas':
@@ -729,6 +750,18 @@ importers:
         specifier: workspace:*
         version: link:../../schema
 
+  packages/services/service-state:
+    dependencies:
+      '@lc/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
+      '@lc/kernel':
+        specifier: workspace:*
+        version: link:../../kernel
+      '@lc/schema':
+        specifier: workspace:*
+        version: link:../../schema
+
   packages/services/service-workspace:
     dependencies:
       '@lc/contracts':
@@ -740,6 +773,9 @@ importers:
       '@lc/schema':
         specifier: workspace:*
         version: link:../../schema
+      '@lc/service-action':
+        specifier: workspace:*
+        version: link:../service-action
       '@lc/service-canvas-core':
         specifier: workspace:*
         version: link:../service-canvas-core
@@ -755,6 +791,9 @@ importers:
       '@lc/service-selection':
         specifier: workspace:*
         version: link:../service-selection
+      '@lc/service-state':
+        specifier: workspace:*
+        version: link:../service-state
       '@lc/shared':
         specifier: workspace:*
         version: link:../../shared
