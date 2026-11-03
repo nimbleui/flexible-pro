@@ -11,11 +11,13 @@ import type { Disposable } from '@lc/kernel'
 import { SCHEMA_VERSION } from '@lc/schema'
 import type { PageSchema } from '@lc/schema'
 import { createId } from '@lc/shared'
+import actionPlugin from '@lc/service-action'
 import canvasCorePlugin from '@lc/service-canvas-core'
 import dataSourcePlugin from '@lc/service-datasource'
 import documentPlugin from '@lc/service-document'
 import historyPlugin from '@lc/service-history'
 import selectionPlugin from '@lc/service-selection'
+import statePlugin from '@lc/service-state'
 
 /**
  * 构造一棵只有根容器的空文档。
@@ -48,8 +50,8 @@ function createEmptySchema(documentId: string): PageSchema {
  * Realm 不是裸 `fork()`：每个 Realm 拥有独立 service scope 与生命周期记录，
  * `dispose` 由 workspace 的 effect 托管；关闭文档会级联清空文档级与画布级插件。
  *
- * 骨架阶段 Realm 内固定装配 document / history / selection，
- * 画布 Realm 装页面画布核心；生产环境可由预设按产品形态裁剪。
+ * 骨架阶段 Realm 内固定装配 document / history / selection / dataSource /
+ * pageState / action，画布 Realm 再装页面画布核心；生产环境可由预设按产品形态裁剪。
  */
 export default definePlugin({
   name: 'service-workspace',
@@ -64,12 +66,13 @@ export default definePlugin({
     }
 
     /**
-     * fork 出文档级隔离作用域并装配固定四件套。
+     * fork 出文档级隔离作用域并装配 Realm 服务。
      *
-     * 装配顺序是硬依赖：history 声明注入 document，dataSource 声明注入 document，
-     * 必须先完成 document 注册；顺序写死在这里而不是参数化，防止调用方
-     * 装配出「history 找不到 document」的半成品 Realm。作用域隔离由 fork 保证，
-     * 不同文档的服务互不可见。
+     * 装配顺序是硬依赖，按 `inject` 声明排：document 最先，history / dataSource /
+     * pageState 都注入 document；action 注入 expression、dataSource 与 pageState，
+     * 必须排在它们之后。顺序写死在这里而不是参数化，防止调用方装配出
+     * 「history 找不到 document」或「执行器找不到状态服务」的半成品 Realm。
+     * 作用域隔离由 fork 保证，不同文档的服务互不可见。
      */
     function installRealmPlugins(options: RealmOptions) {
       const realmCtx = ctx.fork()
@@ -82,6 +85,8 @@ export default definePlugin({
       realmCtx.plugin(historyPlugin)
       realmCtx.plugin(selectionPlugin)
       realmCtx.plugin(dataSourcePlugin)
+      realmCtx.plugin(statePlugin)
+      realmCtx.plugin(actionPlugin)
 
       return realmCtx
     }
@@ -89,8 +94,8 @@ export default definePlugin({
     /**
      * 打开一个文档并建立它的 EditorRealm。
      *
-     * fork 出的子作用域拥有独立 service scope，文档级插件互不串台。装配顺序是
-     * document → history → selection：history 依赖 document，必须先完成注册。
+     * fork 出的子作用域拥有独立 service scope，文档级插件互不串台。装配顺序见
+     * {@link installRealmPlugins}，核心约束是后装的插件不能依赖还没注册的兄弟服务。
      *
      * @throws 同一 documentId 已打开时抛错，避免两个 Realm 写同一份文档。
      */

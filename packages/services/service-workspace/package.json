@@ -15,11 +15,13 @@
     "@lc/contracts": "workspace:*",
     "@lc/kernel": "workspace:*",
     "@lc/schema": "workspace:*",
+    "@lc/service-action": "workspace:*",
     "@lc/service-canvas-core": "workspace:*",
     "@lc/service-datasource": "workspace:*",
     "@lc/service-document": "workspace:*",
     "@lc/service-history": "workspace:*",
     "@lc/service-selection": "workspace:*",
+    "@lc/service-state": "workspace:*",
     "@lc/shared": "workspace:*"
   }
 }
