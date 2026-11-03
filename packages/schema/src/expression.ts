@@ -131,29 +131,56 @@ export type ExpressionUnaryOp = '-' | '+' | '!'
 
 /** 字面量节点；`undefined` 与 `null` 都用本节点表达，不额外设节点类型 */
 export interface ExpressionLiteralNode {
+  /** 可辨识字段，求值器按它分派 */
   kind: 'literal'
+  /**
+   * 解析期就折成常量的值，求值时原样返回。
+   *
+   * 含 `undefined`：它在语法上是 name token，由解析层的关键字表折成本节点，
+   * 因此不会进入作用域查找、也不会触发 unbound-identifier 诊断。
+   */
   value: string | number | boolean | null | undefined
 }
 
 /** 裸标识符节点，如 `user`、`$item` */
 export interface ExpressionIdentifierNode {
+  /** 可辨识字段 */
   kind: 'identifier'
+  /**
+   * 作用域里的裸键名。
+   *
+   * 只查帧对象自有键，不沿原型链；名字不存在时求值为 `undefined` 并上报诊断，
+   * 不抛错——`{{ x ?? 1 }}` 这类容错写法依赖这一行为。
+   */
   name: string
 }
 
 /** 点访问节点，如 `user.name`；`user?.name` 时 optional 为 true */
 export interface ExpressionMemberNode {
+  /** 可辨识字段 */
   kind: 'member'
+  /** 接收者表达式；求值结果只按自有属性读取，函数对象一律拒绝 */
   object: ExpressionNode
+  /** 点号后的属性名，只可能是标识符，不接受计算属性 */
   property: string
+  /** `?.` 记号；接收者为 null/undefined 时短路返回 undefined，否则报无效操作 */
   optional: boolean
 }
 
 /** 下标访问节点，如 `list[0]`、`data['a-b']` */
 export interface ExpressionIndexNode {
+  /** 可辨识字段 */
   kind: 'index'
+  /** 接收者表达式，约束同 member */
   object: ExpressionNode
+  /**
+   * 下标表达式本身（可为变量或拼接）。
+   *
+   * 求值结果只接受 string / number，其余类型报无效操作；数组的负下标不属于
+   * 本节点，要用 `at(-1)` 方法表达。
+   */
   index: ExpressionNode
+  /** `?.[]` 记号；只作用于本次取值，不传递给后续后缀 */
   optional: boolean
 }
 
@@ -164,53 +191,91 @@ export interface ExpressionIndexNode {
  * 为 `member` 或 `index` 时表示接收者方法调用，由引擎按接收者类型查白名单表。
  */
 export interface ExpressionCallNode {
+  /** 可辨识字段 */
   kind: 'call'
+  /** 被调用对象；解析顺序固定为注册表 → 作用域函数值 → 报错 */
   callee: ExpressionNode
+  /** 实参，按从左到右求值；箭头函数只在这些位置会被转成 JS 回调 */
   args: ExpressionNode[]
+  /** `?.()` 记号；被调对象为 null/undefined 时整次调用返回 undefined */
   optional: boolean
 }
 
 /** 一元运算节点 */
 export interface ExpressionUnaryNode {
+  /** 可辨识字段 */
   kind: 'unary'
+  /** 运算符；`!` 走布尔转换，`-` / `+` 走数字转换，不含位运算与 `typeof` */
   op: ExpressionUnaryOp
+  /** 运算对象 */
   argument: ExpressionNode
 }
 
 /** 二元运算节点 */
 export interface ExpressionBinaryNode {
+  /** 可辨识字段 */
   kind: 'binary'
+  /** 运算符；两侧操作数都会被求值（本节点不承担短路语义） */
   op: ExpressionBinaryOp
+  /** 左操作数 */
   left: ExpressionNode
+  /** 右操作数 */
   right: ExpressionNode
 }
 
 /** 短路运算节点；未求值的分支不产生副作用 */
 export interface ExpressionLogicalNode {
+  /** 可辨识字段 */
   kind: 'logical'
+  /** 运算符；`??` 只看 null/undefined，`&&` / `||` 按引擎的布尔转换 */
   op: ExpressionLogicalOp
+  /** 左操作数，总是先求值 */
   left: ExpressionNode
+  /** 右操作数，只在需要时求值 */
   right: ExpressionNode
 }
 
 /** 三元条件节点 */
 export interface ExpressionConditionalNode {
+  /** 可辨识字段 */
   kind: 'conditional'
+  /** 判定表达式，按引擎的布尔转换（不是 JS 的真值） */
   test: ExpressionNode
+  /** 判定为真时求值的分支 */
   consequent: ExpressionNode
+  /** 判定为假时求值的分支；语法上必填，白名单不支持省略 `: x` 的写法 */
   alternate: ExpressionNode
 }
 
 /** 数组字面量节点，如 `[1, 2]` */
 export interface ExpressionArrayNode {
+  /** 可辨识字段 */
   kind: 'array'
+  /**
+   * 元素表达式，逐项求值。
+   *
+   * 允许尾逗号，但不允许稀疏空位（`[1, , 3]` 语法报错），
+   * 因此本数组长度与求值后的数组长度始终一致。
+   */
   elements: ExpressionNode[]
 }
 
 /** 对象字面量节点，如 `{ a: 1, 'b-c': a }` */
 export interface ExpressionObjectNode {
+  /** 可辨识字段 */
   kind: 'object'
-  properties: { key: string; value: ExpressionNode }[]
+  /**
+   * 属性列表，按书写顺序写入。
+   *
+   * 键只可能是标识符或字符串字面量；重名时后写的覆盖先写的。
+   * 键名不做危险名校验，因为读取口只认自有数据属性，写毒路径已在读取侧封死。
+   */
+  properties: {
+    /** 属性名，写入前不做规范化 */
+    key: string
+    /** 属性值表达式 */
+    value: ExpressionNode
+  }[]
 }
 
 /**
@@ -221,8 +286,16 @@ export interface ExpressionObjectNode {
  * 输入输出契约（见 `functions.ts`）并不要求这一点。
  */
 export interface ExpressionArrowNode {
+  /** 可辨识字段 */
   kind: 'arrow'
+  /**
+   * 形参名，按宿主回调的实参位置绑定。
+   *
+   * 不校验重名：后声明的形参会覆盖同名前者的绑定，属于设计器可自查的小问题，
+   * 不值得为此在语法层增加一遍扫描。
+   */
   params: string[]
+  /** 函数体表达式 */
   body: ExpressionNode
 }
 
