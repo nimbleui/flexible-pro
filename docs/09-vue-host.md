@@ -227,7 +227,7 @@ ContextScope(editor.context)                            :81
 
 宿主侧不再直接引用 `CanvasStage`：舞台由远程模块 `apps/designer/src/CanvasModule.vue:40` 渲染，`CanvasStage` / `LayerHost` 仍是 `@lc/vue` 的导出，只是消费者换成了远程包。
 
-**当前没有活动栏（activity bar）**：面板直接堆在左 240px / 右 280px 的 `aside` 里（`apps/host/src/styles/app.css:127`/`:135`/`:150`），每个 `aside` 顶部只有一个静态标题「面板」/「属性」。插槽为空时用 `#empty` 具名插槽显示「暂无面板贡献」。
+设计器外壳（`DesignerView.vue`）有活动栏：56px 的 `.lc-rail`（`apps/host/src/styles/app.css:769`）排 7 个入口，其中「组件库 / 页面大纲 / 事件链」开关各自的界面、「数据源 / 方法管理」执行宿主命令、「版本管理 / 设置」是禁用占位。左栏 248px（`:856`）与右栏 300px（`:863`）都是常驻 `aside`，左栏不再画标题，标题、页签与搜索由面板自己提供；页面大纲改走覆盖在画布上的浮层（`components/OverlayPanel.vue`）。插槽为空时用 `#empty` 具名插槽显示「暂无面板贡献」。
 
 ### 三个宿主组件
 

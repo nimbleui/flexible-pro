@@ -185,7 +185,7 @@ window keydown（service-keybinding/src/index.ts:71-74）
 ### 3.3 物料拖入画布
 
 ```text
-物料面板 dragstart（plugin-panel-materials/src/index.ts:52）
+物料面板 dragstart（plugin-panel-materials/src/MaterialsPanel.vue:84）
   → dataTransfer.setData(toMaterialDragType(name), name)   // contracts/src/drag.ts:17：按码点转十六进制，大小写安全
 CanvasStage dragover（packages/vue/src/components/CanvasStage.vue:197）
   → materialNameFromDragTypes(dataTransfer.types)（:178 → contracts/src/drag.ts:25）

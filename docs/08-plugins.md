@@ -45,12 +45,12 @@ for (const feature of features)
 | 包                            | manifest.name      | 贡献点      | 条目 | 关键属性                                                                                                                           |
 | ----------------------------- | ------------------ | ----------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `@lc/plugin-materials-basic`  | `materials-basic`  | `materials` | 4    | `certification: 'platform'`、`executionProfile: 'inline'`、**无 `main`**（纯声明式，`plugin-materials-basic/src/manifest.ts:3-7`） |
-| `@lc/plugin-panel-outline`    | `panel-outline`    | `panels`    | 1    | slot `designer.leftPanel`、`order: 10`、`activationEvents: ['onPanel:outline']`                                                    |
-| `@lc/plugin-panel-materials`  | `panel-materials`  | `panels`    | 1    | slot `designer.leftPanel`、`order: 20`、`onPanel:materials`                                                                        |
+| `@lc/plugin-panel-outline`    | `panel-outline`    | `panels`    | 1    | slot `designer.overlayPanel`、title「页面大纲」、`order: 10`、`activationEvents: ['onPanel:outline']`                              |
+| `@lc/plugin-panel-materials`  | `panel-materials`  | `panels`    | 1    | slot `designer.leftPanel`、title「组件库」、`order: 20`、`onPanel:materials`                                                       |
 | `@lc/plugin-panel-properties` | `panel-properties` | `panels`    | 1    | slot `designer.rightPanel`、`order: 10`、`onPanel:properties`                                                                      |
 | `@lc/plugin-panel-eventflow`  | `panel-eventflow`  | `panels`    | 1    | slot `designer.bottomPanel`、`order: 10`、`onPanel:eventflow`（`plugin-panel-eventflow/src/manifest.ts:3-22`）                     |
 
-左槽最终顺序：大纲在前、物料在后（`order` 10 < 20）；底槽只有事件流一个贡献者。
+左槽现在只剩物料面板一个贡献者（大纲改投浮层槽，`order` 10 < 20 的先后关系因此不再有意义）；底槽是事件流、浮层槽是页面大纲，各一个贡献者。
 
 ### 3.1 `materials-basic`：四个物料
 
@@ -78,14 +78,15 @@ export default { components }
 
 ### 3.2 大纲面板
 
-`packages/plugins/plugin-panel-outline/src/index.ts:6`（默认导出 `OutlinePanel.vue`）。
+`packages/plugins/plugin-panel-outline/src/index.ts:6`（默认导出 `OutlinePanel.vue`）。贡献到 `designer.overlayPanel`，由外壳活动栏的「页面大纲」唤出。
 
-- 服务获取：`ctx.get<DocumentService>('document')`、`ctx.get<SelectionService>('selection')`（`:15-16`），**可空取值而非 require**——面板理论上可能在无 Realm 的作用域里渲染。
-- 刷新桥：`onMounted` 里把 `document.onDidChange` / `selection.onDidChange` 绑到 `bump()`（`:39-40`），`bump` 递增一个 `ref(0)` 计数；`computed` 里先读 `version.value` 建立依赖。
-- 树来源：`buildOutlineTree(document.model.schema)`（`:83` → `packages/schema/src/tree.ts:154`），返回 `OutlineItem{node, children, position}`；面板用 `walk` 把它摊平成行数组并叠加折叠集合（`:25`、`:92`）。
-- 写回全部走 patch：`document.apply(patches, { record: true })`（`:87-89`）——`setNodeFlags`（`:114` 显隐/锁定）、`renameNode`（`:132`）、`reorderChildren`（`:188`，带同父约束守卫 `:153-157`）。
-- 选中：`selection.set` / `selection.toggle`（`:106-107`），Shift 走 toggle 保持主选语义。
-- 行高常量 `ROW_HEIGHT = 28`（`:19`），HTML5 拖放自实现排序。
+- 服务获取：`ctx.get` 取 `document` / `selection` / `material`（`:21-23`），**可空取值而非 require**——面板理论上可能在无 Realm 的作用域里渲染。
+- 刷新桥：`onMounted` 里把 `document.onDidChange` / `selection.onDidChange` 绑到 `bump()`（`:46-48`），`bump` 递增一个 `ref(0)` 计数；`computed` 里先读 `version.value` 建立依赖。
+- 树来源：`buildOutlineTree(document.model.schema)` 再过一遍 `filterOutlineTree(..., query)`（`:92-95` → `packages/schema/src/tree.ts:162`、`:208`），返回 `OutlineItem{node, children, position}`；面板用 `walk` 把它摊平成行数组并叠加折叠集合（`:32`）。搜索态强制展开（`isSearching` `:99`），否则命中的后代藏在折叠的父级下面搜不出来。
+- 行图标：容器一律 `folder`，叶子按 `componentName` 回查物料贡献的 `icon`（`:82-90`）；图标名取自 `@lc/vue` 的共享图标注册表（`packages/vue/src/icons.ts`），未注册名回退成方框而不是空白。
+- 写回全部走 patch：`document.apply(patches, { record: true })`（`:129-132`）——`setNodeFlags`（`:152` 显隐/锁定）、`renameNode`（`:169`）、`reorderChildren`（`:216`，带同父约束守卫 `:195-200`）。
+- 选中：`selection.set` / `selection.toggle`（`:148-149`），Shift 走 toggle 保持主选语义。
+- 行高常量 `ROW_HEIGHT = 28`（`:26`），HTML5 拖放自实现排序。
 
 ### 3.3 属性面板
 
@@ -100,9 +101,11 @@ export default { components }
 
 ### 3.4 物料面板
 
-`packages/plugins/plugin-panel-materials/src/index.ts:14`（`LcMaterialPanel`）：读 `material` 服务（`:22`）、`onDidChange` 版本桥（`:28`）、按 `category` 分组列表（`:38-48`）。
+`packages/plugins/plugin-panel-materials/src/index.ts:6`（默认导出 `MaterialsPanel.vue`）：读 `material` / `command` 服务（`:27-28`）、`onDidChange` 版本桥（`:42-47`）、按 `category` 分组并按关键词过滤（`:60-75`）、分组折叠集合（`:34`、`toggleGroup` `:77`）。
 
-拖拽起点在这里（`:50-55`）：
+面板头部自带「组件库 / 区块模板 / 我的组件」三个来源页签，后两个是 `disabled` 占位（`:13-24`）——外壳不再画左栏标题，与底槽同一约定。瓦片用 3 列网格，图标取物料贡献的 `icon`。
+
+拖拽起点在这里（`:84-94`）：
 
 ```ts
 event.dataTransfer.setData(toMaterialDragType(entry.name), entry.name)
