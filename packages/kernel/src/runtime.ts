@@ -22,6 +22,17 @@ interface InternalRecord extends PluginRecord {
 }
 
 /**
+ * 一条服务授权的记录。
+ *
+ * 提供权与覆盖权是两个独立授权位：只要 `grant` 过就拥有提供权，
+ * `override` 为 true 才允许顶掉同层已有的提供者。
+ */
+interface GrantEntry {
+  /** 是否允许覆盖同层已有的同名服务提供者 */
+  override: boolean
+}
+
+/**
  * 插件运行时：依赖检查、激活、停用、卸载与调度。
  *
  * 调度采用微任务批处理，避免 apply 内同步创建插件导致递归激活；
@@ -40,8 +51,8 @@ export class PluginRuntime {
   /** 所有排队中/执行中的激活任务，供 whenIdle 等待 */
   private pending = new Set<Promise<void>>()
 
-  /** 平台签发的服务授权：pluginId → service → 是否允许覆盖 */
-  private grants = new Map<string, Map<string, { override: boolean }>>()
+  /** 平台签发的服务授权：pluginId → service → 授权记录 */
+  private grants = new Map<string, Map<string, GrantEntry>>()
 
   /** root 的私有总线；本类订阅 `service`，并向外发 `plugin` 与 `error` */
   private readonly internal: InternalBus
@@ -71,9 +82,12 @@ export class PluginRuntime {
   grant(
     pluginId: string,
     names: readonly string[],
-    options: { override?: boolean } = {},
+    options: {
+      /** 是否同时授予覆盖权；缺省只授予提供权，不能替换已有实现 */
+      override?: boolean
+    } = {},
   ): void {
-    const map = this.grants.get(pluginId) ?? new Map<string, { override: boolean }>()
+    const map = this.grants.get(pluginId) ?? new Map<string, GrantEntry>()
     for (const name of names) {
       map.set(name, { override: Boolean(options.override) })
     }
@@ -117,7 +131,26 @@ export class PluginRuntime {
       throw new Error(`[lowcode] 插件实例 id 重复: ${id}`)
     }
 
-    const record: InternalRecord = {
+    const record = this.buildRecord(parent, definition, id, rawConfig)
+    parent.children.add(record)
+    this.records.set(id, record)
+    this.schedule(id)
+    return record
+  }
+
+  /**
+   * 用定义与挂载位置组装内部记录，状态停留在 `loading`。
+   *
+   * 只做纯组装、不做登记：id 查重与入队调度留在 `load`，
+   * 保证「记录字段」与「运行时表变更」是两个可独立推理的阶段。
+   */
+  private buildRecord(
+    parent: Context,
+    definition: PluginDefinition,
+    id: string,
+    rawConfig: unknown,
+  ): InternalRecord {
+    return {
       id,
       name: definition.name,
       state: 'loading',
@@ -134,11 +167,6 @@ export class PluginRuntime {
       abort: null,
       resolved: new Map(),
     }
-
-    parent.children.add(record)
-    this.records.set(id, record)
-    this.schedule(id)
-    return record
   }
 
   /**
@@ -302,32 +330,70 @@ export class PluginRuntime {
   private async activate(id: string): Promise<void> {
     const record = this.records.get(id)
     if (!record) return
-    // 只拦进行中与终态；loading / pending 是等待激活，failed 保留被重新调度的可能
-    if (
-      record.state === 'active' ||
-      record.state === 'applying' ||
-      record.state === 'disposing' ||
-      record.state === 'disposed'
-    ) {
-      return
-    }
+    if (this.shouldSkipActivation(record)) return
 
     // 依赖检查读父上下文，不读自己上次激活残留的服务
-    const missing = record.inject.required.filter(
-      (name) => record.parentCtx.get(name) === undefined,
-    )
-    if (missing.length > 0) {
+    if (!this.dependenciesReady(record)) {
       record.state = 'pending'
       return
     }
 
-    record.resolved = new Map(
+    record.resolved = this.resolvedDeps(record)
+
+    const { context, abort } = this.openActivationContext(record)
+
+    let config: unknown
+    try {
+      config = resolveConfig(record.definition, record.rawConfig, context.collectIntercepts())
+    } catch (error) {
+      this.fail(record, error, 'config')
+      return
+    }
+
+    await this.runApply(record, context, config, abort)
+  }
+
+  /**
+   * 本轮是否无需再激活：进行中（applying）与终态（active / disposing / disposed）都不重入。
+   *
+   * loading / pending 是等待激活，failed 保留被重新调度的可能，因此这三态都不拦截。
+   */
+  private shouldSkipActivation(record: InternalRecord): boolean {
+    return (
+      record.state === 'active' ||
+      record.state === 'applying' ||
+      record.state === 'disposing' ||
+      record.state === 'disposed'
+    )
+  }
+
+  /** 本轮激活要解析的依赖快照（必需 + 可选）；onServiceChange 据此比对服务身份是否变化 */
+  private resolvedDeps(record: InternalRecord): Map<string, unknown> {
+    return new Map(
       [...record.inject.required, ...record.inject.optional].map((name) => [
         name,
         record.parentCtx.get(name),
       ]),
     )
+  }
 
+  /**
+   * 为本次激活新建 Context 与 AbortController，并回填记录上的引用。
+   *
+   * 每轮激活都是全新实例：上一轮的 effects 与中止信号不会带到这一轮，
+   * 依赖变化引起的「重启」走的也是同一条路径。
+   *
+   * 三处回填缺一不可：`record.context` 供回收、`record.abort` 供 deactivate 中止、
+   * `context.record.context` 让从上下文反查实例时拿到本轮而非上一轮。
+   * 同时把本轮控制器作为返回值交出：`runApply` 提交状态时要比对的是
+   * 「这一轮」的信号，而不是重启后已被替换的 `record.abort`。
+   */
+  private openActivationContext(record: InternalRecord): {
+    /** 本轮新建的服务作用域；同时已回填到 record.context，交出的副本省去调用方再读一次 */
+    context: Context
+    /** 本轮中止信号；runApply 提交 active 前比对它，拒绝上一轮迟到的 apply 覆盖新一轮状态 */
+    abort: AbortController
+  } {
     const abort = new AbortController()
     const context = new Context(
       record.parentCtx,
@@ -341,14 +407,21 @@ export class PluginRuntime {
     record.context = context
     context.record.context = context
 
-    let config: unknown
-    try {
-      config = resolveConfig(record.definition, record.rawConfig, context.collectIntercepts())
-    } catch (error) {
-      this.fail(record, error, 'config')
-      return
-    }
+    return { context, abort }
+  }
 
+  /**
+   * 装配阶段：进入 `applying`、执行 `apply`、成功则提交 `active`。
+   *
+   * 失败经 `fail` 上报后落入 `failed`，不向外抛：调度批内一个插件失败
+   * 不应中断同批其余实例的激活。
+   */
+  private async runApply(
+    record: InternalRecord,
+    context: Context,
+    config: unknown,
+    abort: AbortController,
+  ): Promise<void> {
     record.state = 'applying'
     record.attempts += 1
     const startedAt = Date.now()

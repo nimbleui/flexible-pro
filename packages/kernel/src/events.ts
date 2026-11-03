@@ -49,8 +49,25 @@ export type EventMonitor = (record: EventDispatchRecord) => void
 /** 监视器回调；`entry` 为空表示这次分发没有监听器。 */
 type Tracker = (entry: ListenerEntry | undefined, duration: number, error?: unknown) => void
 
+/**
+ * 单个监听器的存储条目。
+ *
+ * 内部结构，不对外暴露：`add` 返回的注销句柄只闭包 `entry` 引用本身，
+ * 防止插件改写优先级或伪造 owner 来操纵分发顺序。
+ */
 interface ListenerEntry {
+  /**
+   * 回调本体。
+   *
+   * 参数被擦成 `never[]` 只为让任意签名都能存入；调用必须经过 `invoke`
+   * 还原，直接调用会把实参类型检查掉。
+   */
   listener: Listener
+  /**
+   * 排序依据，注册后不再读取以外的用途。
+   *
+   * 变更 options 不会触发重排（排序只发生在 `add` 时），所以句柄上不暴露它。
+   */
   options: EventOptions
   /** 注册该监听器的插件实例；供 devtools 归属，内核分发不读它 */
   owner?: PluginRecord

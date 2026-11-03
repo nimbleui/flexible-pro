@@ -7,6 +7,13 @@ import type { Context } from './context'
  * 并交给 `ctx.effect` 托管，否则插件卸载后会泄漏。
  */
 export interface Disposable {
+  /**
+   * 回收资源。
+   *
+   * 由宿主（EffectScope / Context）决定时机：正常路径在上下文销毁时批量逆序调用，
+   * 实现抛错会被宿主捕获上报、不影响其余副作用；作用域已关闭时会在登记的
+   * 瞬间立即调用并把异常抛回调用方，实现必须能在任意生命周期安全执行。
+   */
   dispose(): void
 }
 

@@ -3,9 +3,18 @@ import type { Disposable, PluginRecord } from './types'
 
 /** 内核错误来源阶段。 */
 export interface InternalErrorPayload {
+  /** 原始抛出品，未经包装：可能是 Error，也可能是插件 throw 的任意值 */
   cause: unknown
+  /** 出错实例的实例 id（非逻辑名）：同一插件多实例时要能区分是哪一个 */
   pluginId: string
+  /** 插件逻辑名：devtools 按名字聚合展示，与实例 id 各司其职 */
   pluginName: string
+  /**
+   * 失败发生的阶段，决定错误归入「配置校验」还是「插件主体」。
+   *
+   * 当前内核只在 config 与 apply 两个阶段发出本载荷；`dispose` 为回收阶段
+   * 预留，消费方不能假设它一定不出现。
+   */
   phase: 'config' | 'apply' | 'dispose'
 }
 

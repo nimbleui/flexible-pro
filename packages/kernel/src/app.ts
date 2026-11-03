@@ -18,14 +18,11 @@ export interface AppOptions {
 }
 
 /**
- * 创建应用根上下文与插件运行时。
- *
- * 只做最小启动：内核不安装任何业务服务，核心服务由 `@lc/presets` 中的
- * 预设插件按依赖顺序挂载。
+ * 根上下文对应的合成记录：它不对应任何插件定义，只为让根 Context 与
+ * 普通插件实例走同一套记录结构，devtools 才能统一渲染层级树。
  */
-export function createApp(options: AppOptions = {}): Context {
-  const id = options.id ?? 'app'
-  const rootRecord: PluginRecord = {
+function createRootRecord(id: string): PluginRecord {
+  return {
     id,
     name: id,
     state: 'active',
@@ -38,6 +35,17 @@ export function createApp(options: AppOptions = {}): Context {
     error: undefined,
     attempts: 0,
   }
+}
+
+/**
+ * 创建应用根上下文与插件运行时。
+ *
+ * 只做最小启动：内核不安装任何业务服务，核心服务由 `@lc/presets` 中的
+ * 预设插件按依赖顺序挂载。
+ */
+export function createApp(options: AppOptions = {}): Context {
+  const id = options.id ?? 'app'
+  const rootRecord = createRootRecord(id)
 
   const context = new Context(
     null,
