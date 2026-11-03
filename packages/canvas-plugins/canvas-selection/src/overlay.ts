@@ -54,93 +54,33 @@ export const SelectionOverlay = defineComponent({
       // 单独读取一次建立渲染依赖，否则设置变化不会触发重绘
       version.value
 
+      const marquee = canvas.settings.get<Rect | null>(MARQUEE_SETTING)
+      const hovered = canvas.settings.get<string | null>(HOVER_SETTING)
+
       /** 取节点的屏幕矩形与自身旋转；没有几何（隐藏/未同步）时返回 null */
-      function outlineOf(id: string): { rect: Rect; rotate: number } | null {
+      function outlineOf(id: string): NodeOutline | null {
         const rect = canvas.scene.getBounds(id)
         if (!rect) return null
         return {
+          id,
           rect: toScreenRect(props.frame, rect),
           rotate: document.model.schema.nodes[id]?.layout?.rotate ?? 0,
         }
       }
 
       const outlines = props.frame.selection
-        .map((id) => {
-          const outline = outlineOf(id)
-          return outline ? { id, ...outline } : null
-        })
-        .filter((item): item is { id: string; rect: Rect; rotate: number } => item !== null)
+        .map((id) => outlineOf(id))
+        .filter((item): item is NodeOutline => item !== null)
 
-      const marquee = canvas.settings.get<Rect | null>(MARQUEE_SETTING)
-
-      const hovered = canvas.settings.get<string | null>(HOVER_SETTING)
-      const hoverRect =
+      // 悬停框只画在未选中的节点上，避免同处出现两套框
+      const hoverOutline =
         hovered && !props.frame.selection.includes(hovered) ? outlineOf(hovered) : null
 
       const children: ReturnType<typeof h>[] = []
 
-      if (hoverRect) {
-        children.push(
-          h('div', {
-            key: 'hover',
-            class: 'lc-hover-outline',
-            style: {
-              position: 'absolute',
-              left: `${hoverRect.rect.x}px`,
-              top: `${hoverRect.rect.y}px`,
-              width: `${hoverRect.rect.width}px`,
-              height: `${hoverRect.rect.height}px`,
-              transform: hoverRect.rotate ? `rotate(${hoverRect.rotate}deg)` : undefined,
-              transformOrigin: 'center',
-              border: '1px dashed rgba(37, 99, 235, 0.55)',
-              boxSizing: 'border-box',
-              pointerEvents: 'none',
-            },
-          }),
-        )
-      }
-
-      children.push(
-        ...outlines.map(({ id, rect, rotate }) =>
-          h('div', {
-            key: id,
-            class: 'lc-selection-outline',
-            'data-selection-id': id,
-            style: {
-              position: 'absolute',
-              left: `${rect.x}px`,
-              top: `${rect.y}px`,
-              width: `${rect.width}px`,
-              height: `${rect.height}px`,
-              transform: rotate ? `rotate(${rotate}deg)` : undefined,
-              transformOrigin: 'center',
-              border: '1px solid var(--lc-accent, #2563eb)',
-              boxSizing: 'border-box',
-              pointerEvents: 'none',
-            },
-          }),
-        ),
-      )
-
-      if (marquee) {
-        const screen = toScreenRect(props.frame, marquee)
-        children.push(
-          h('div', {
-            class: 'lc-marquee',
-            style: {
-              position: 'absolute',
-              left: `${screen.x}px`,
-              top: `${screen.y}px`,
-              width: `${screen.width}px`,
-              height: `${screen.height}px`,
-              border: '1px dashed var(--lc-accent, #2563eb)',
-              background: 'rgba(37, 99, 235, 0.08)',
-              boxSizing: 'border-box',
-              pointerEvents: 'none',
-            },
-          }),
-        )
-      }
+      if (hoverOutline) children.push(renderHoverBox(hoverOutline))
+      children.push(...outlines.map(renderSelectionBox))
+      if (marquee) children.push(renderMarqueeBox(toScreenRect(props.frame, marquee)))
 
       return h(
         'div',
@@ -150,5 +90,74 @@ export const SelectionOverlay = defineComponent({
     }
   },
 })
+
+/** 一个节点在覆盖层里的绘制输入：屏幕矩形 + 节点自身角度 */
+interface NodeOutline {
+  /** 节点 id，作为列表 key 与 data-selection-id 供命中回查 */
+  id: string
+  /** 已换算到屏幕空间的矩形（CSS 像素，相对舞台原点） */
+  rect: Rect
+  /** 节点 layout.rotate，度数；0 时不写 transform，避免多余合成层 */
+  rotate: number
+}
+
+/** 悬停虚线框：与选中框同样的几何，但永不接管指针 */
+function renderHoverBox(outline: NodeOutline): ReturnType<typeof h> {
+  return h('div', {
+    key: 'hover',
+    class: 'lc-hover-outline',
+    style: {
+      position: 'absolute',
+      left: `${outline.rect.x}px`,
+      top: `${outline.rect.y}px`,
+      width: `${outline.rect.width}px`,
+      height: `${outline.rect.height}px`,
+      transform: outline.rotate ? `rotate(${outline.rotate}deg)` : undefined,
+      transformOrigin: 'center',
+      border: '1px dashed rgba(37, 99, 235, 0.55)',
+      boxSizing: 'border-box',
+      pointerEvents: 'none',
+    },
+  })
+}
+
+/** 选中节点的实线描边 */
+function renderSelectionBox(outline: NodeOutline): ReturnType<typeof h> {
+  return h('div', {
+    key: outline.id,
+    class: 'lc-selection-outline',
+    'data-selection-id': outline.id,
+    style: {
+      position: 'absolute',
+      left: `${outline.rect.x}px`,
+      top: `${outline.rect.y}px`,
+      width: `${outline.rect.width}px`,
+      height: `${outline.rect.height}px`,
+      transform: outline.rotate ? `rotate(${outline.rotate}deg)` : undefined,
+      transformOrigin: 'center',
+      border: '1px solid var(--lc-accent, #2563eb)',
+      boxSizing: 'border-box',
+      pointerEvents: 'none',
+    },
+  })
+}
+
+/** 框选过程中的临时矩形 */
+function renderMarqueeBox(screen: Rect): ReturnType<typeof h> {
+  return h('div', {
+    class: 'lc-marquee',
+    style: {
+      position: 'absolute',
+      left: `${screen.x}px`,
+      top: `${screen.y}px`,
+      width: `${screen.width}px`,
+      height: `${screen.height}px`,
+      border: '1px dashed var(--lc-accent, #2563eb)',
+      background: 'rgba(37, 99, 235, 0.08)',
+      boxSizing: 'border-box',
+      pointerEvents: 'none',
+    },
+  })
+}
 
 export default SelectionOverlay

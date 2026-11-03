@@ -15,6 +15,18 @@ const HOVER_LABEL = '悬停高亮'
 /** Alt 连点判定为「同一处」的屏幕半径；超过它视为换了目标，循环重新开始 */
 const CYCLE_RESET_PX = 4
 
+/**
+ * Alt+连点的循环状态：锚点必须停在原地，换位置就重新从最上层开始。
+ *
+ * 只在插件实例内存活，其它选中方式（Ctrl / Shift / 空白处）都会把它清空。
+ */
+interface AltCycle {
+  /** 上次点击的屏幕坐标，作为循环锚点（CSS 像素，相对舞台原点） */
+  screen: Point
+  /** 本次已展示到的节点 id，下次点击从它的下一层继续 */
+  current: string
+}
+
 /** 加选 / 减选修饰键：Shift、Ctrl、⌘ 同义 */
 function additiveOf(modifiers: CanvasModifiers): boolean {
   return modifiers.shift || modifiers.ctrl || modifiers.meta
@@ -44,8 +56,8 @@ export default defineCanvasPlugin({
     /** 上一次写入高亮的节点；undefined 表示当前没有高亮 */
     let hovered: string | undefined
 
-    /** Alt+连点的循环状态：锚点必须停在原地，换位置就重新从最上层开始 */
-    let cycle: { screen: Point; current: string } | null = null
+    /** Alt+连点的循环状态；null 表示当前不在循环里 */
+    let cycle: AltCycle | null = null
 
     function setHover(next: string | undefined): void {
       if (next === hovered) return
@@ -202,8 +214,10 @@ export default defineCanvasPlugin({
            *
            * 世界 AABB 与屏幕 AABB 不等价，因此这里重新换算而不是复用 marquee；
            * 每帧写设置会触发一次设置订阅通知，覆盖层据此重绘。
+           *
+           * @param world 指针当前世界坐标（世界单位）；与起点 start 张成框选矩形
            */
-          const applyMarquee = (world: { x: number; y: number }): void => {
+          const applyMarquee = (world: Point): void => {
             const marquee = normalizeRect(start, world)
             canvas.settings.set(MARQUEE_SETTING, marquee)
 

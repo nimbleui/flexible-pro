@@ -19,13 +19,36 @@ const BAND_ORDER: Record<LayerBand, number> = {
 }
 
 /**
+ * 图层登记项。
+ *
+ * 排序权重复合在 `sorted` 里现算，登记项只存定义与序号，因此插件改 zIndex 后
+ * 无需 invalidate，下一次 `list()` 自然生效。
+ */
+interface LayerEntry {
+  /**
+   * 覆盖层定义本体。
+   *
+   * `list()` 原样返回这个引用，不做拷贝：插件在 mount 里改 mount 元素是预期行为，
+   * 但外部改写 band / zIndex 会绕过排序约定。
+   */
+  layer: CanvasLayer
+
+  /**
+   * 注册时的单调递增序号（从 1 开始，0 保留给「未登记」）。
+   *
+   * band 与 zIndex 都相同时用它保证先到先得，使图层顺序可复现。
+   */
+  seq: number
+}
+
+/**
  * 创建覆盖层注册表。
  *
  * 覆盖层统一挂在一个 LayerHost 下，按 band → zIndex → 注册顺序排序；
  * 插件不能直接改 DOM 的 z-index，否则拖拽临时层会与常驻层打架。
  */
 export function createLayerService(): CanvasLayerService {
-  const layers = new Map<string, { layer: CanvasLayer; seq: number }>()
+  const layers = new Map<string, LayerEntry>()
   const listeners = new Set<() => void>()
 
   // 单调递增的注册序号：band 与 zIndex 都相同时用它保持先到先得的稳定顺序

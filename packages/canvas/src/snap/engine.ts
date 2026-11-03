@@ -70,6 +70,24 @@ export function createSnapService(options: CreateSnapServiceOptions = {}): SnapS
   }
 
   /**
+   * 向全部 provider 收候选，单个 provider 异常只跳过它自己。
+   *
+   * 吸附属于体验降级：一个候选源出错不应打断拖拽主流程，所以异常在这里被吞掉
+   * 并转交 `onError`；未传 onError 时表现为「候选变少」而不是报错。
+   */
+  function collectCandidates(context: SnapContext): SnapCandidate[] {
+    const candidates: SnapCandidate[] = []
+    for (const provider of providers.values()) {
+      try {
+        candidates.push(...provider.getCandidates(context))
+      } catch (error) {
+        options.onError?.(error, provider.id)
+      }
+    }
+    return candidates
+  }
+
+  /**
    * 收集候选并计算 x / y 两轴的吸附。
    *
    * zoom 下限取 0.0001 而不是直接相除：视口在未测量阶段可能是 0，放大后的
@@ -95,14 +113,7 @@ export function createSnapService(options: CreateSnapServiceOptions = {}): SnapS
       edges: input.edges,
     }
 
-    const candidates: SnapCandidate[] = []
-    for (const provider of providers.values()) {
-      try {
-        candidates.push(...provider.getCandidates(context))
-      } catch (error) {
-        options.onError?.(error, provider.id)
-      }
-    }
+    const candidates = collectCandidates(context)
 
     if (candidates.length === 0) return NO_RESULT
 
@@ -111,30 +122,24 @@ export function createSnapService(options: CreateSnapServiceOptions = {}): SnapS
     const guides: SnapGuide[] = []
 
     if (x?.showGuide) {
-      // axis 'x' 画的是竖线：value 取世界 x，range 补成视口的 y 跨度（两轴相反）
-      guides.push({
-        axis: 'x',
-        value: x.value,
-        source: x.source,
-        range: x.range ?? [
+      guides.push(
+        toGuide(x, 'x', [
           input.viewportRect.y,
           input.viewportRect.y + input.viewportRect.height,
-        ],
-      })
+        ]),
+      )
     }
     if (y?.showGuide) {
-      guides.push({
-        axis: 'y',
-        value: y.value,
-        source: y.source,
-        range: y.range ?? [
+      guides.push(
+        toGuide(y, 'y', [
           input.viewportRect.x,
           input.viewportRect.x + input.viewportRect.width,
-        ],
-      })
+        ]),
+      )
     }
 
     return {
+      // delta 是世界坐标修正量（candidate.value − edge，已含符号），调用方直接加到被拖矩形上
       delta: { x: x?.diff ?? 0, y: y?.diff ?? 0 },
       guides,
       matched: Boolean(x ?? y),
@@ -188,8 +193,7 @@ export function createSnapService(options: CreateSnapServiceOptions = {}): SnapS
      * 解析吸附结果并记录 lastResult。
      *
      * 关闭吸附时也会清掉上一轮结果并通知，防止辅助线残留。
-     * 变化判定只比较 matched、delta 与 guides 数量：辅助线条数不变而位置或来源
-     * 改变时不会通知，覆盖层应每帧主动读取 `lastResult` 而不是只依赖通知。
+     * 是否广播变化由 `hasVisibleChange` 决定（它刻意忽略「条数不变但位置变了」）。
      */
     resolve(input) {
       if (!enabled) {
@@ -201,14 +205,9 @@ export function createSnapService(options: CreateSnapServiceOptions = {}): SnapS
       }
 
       const result = resolve(input)
-      const changed =
-        result.matched !== (lastResult?.matched ?? false) ||
-        result.delta.x !== (lastResult?.delta.x ?? 0) ||
-        result.delta.y !== (lastResult?.delta.y ?? 0) ||
-        result.guides.length !== (lastResult?.guides.length ?? 0)
-
+      const previous = lastResult
       lastResult = result
-      if (changed) notify()
+      if (hasVisibleChange(result, previous)) notify()
       return result
     },
 
@@ -245,8 +244,48 @@ interface AxisHit {
 }
 
 /**
+ * 由单轴命中生成一条辅助线。
+ *
+ * axis 为 'x' 时画的是竖线：value 取世界 x，缺省 range 必须补成视口的 **y** 跨度，
+ * 两轴的跨轴范围是反的，所以由调用处算好传入，这里不猜。
+ *
+ * @param hit 该轴的命中结果。
+ * @param axis 辅助线所属轴，决定覆盖层画竖线还是横线。
+ * @param viewportSpan 候选未自带 range 时使用的视口跨度（世界坐标）。
+ */
+function toGuide(hit: AxisHit, axis: 'x' | 'y', viewportSpan: [number, number]): SnapGuide {
+  return {
+    axis,
+    value: hit.value,
+    source: hit.source,
+    range: hit.range ?? viewportSpan,
+  }
+}
+
+/**
+ * 由候选与边差值构造一次命中。
+ *
+ * `diff` 的符号就是修正方向（candidate.value − edge），因此 delta 直接取它，
+ * 不再做第二次符号判断；缺省字段在此统一补齐，比较逻辑只看已补齐的字段。
+ */
+function axisHitOf(candidate: SnapCandidate, diff: number): AxisHit {
+  return {
+    value: candidate.value,
+    source: candidate.source,
+    diff,
+    priority: candidate.priority ?? 0,
+    showGuide: candidate.showGuide ?? true,
+    range: candidate.range,
+  }
+}
+
+/**
  * 在单轴上选择吸附候选：
  * priority 分层 → 层内距离最近 → source 稳定排序（字典序），保证结果可复现。
+ *
+ * 单遍扫描只维护一份 best 游标，不物化命中列表：候选量在视口裁剪后仍然不小，
+ * 排序一次的成本远高于这条 O(n) 比较。非有限 value 直接跳过，
+ * 否则 NaN 会参与距离比较并把整轴结果污染成 NaN delta。
  */
 function pickAxis(
   input: SnapInput,
@@ -262,18 +301,9 @@ function pickAxis(
 
     for (const edge of edges) {
       const diff = candidate.value - edge
-      const distance = Math.abs(diff)
-      if (distance > threshold) continue
+      if (Math.abs(diff) > threshold) continue
 
-      const hit: AxisHit = {
-        value: candidate.value,
-        source: candidate.source,
-        diff,
-        priority: candidate.priority ?? 0,
-        showGuide: candidate.showGuide ?? true,
-        range: candidate.range,
-      }
-
+      const hit = axisHitOf(candidate, diff)
       if (!best || isBetter(hit, best)) best = hit
     }
   }
@@ -311,4 +341,20 @@ function isBetter(a: AxisHit, b: AxisHit): boolean {
   const distanceB = Math.abs(b.diff)
   if (distanceA !== distanceB) return distanceA < distanceB
   return a.source < b.source
+}
+
+/**
+ * 判断两次吸附结果是否需要在覆盖层上体现。
+ *
+ * 只比 matched、delta 与辅助线条数：条数相同而位置或来源变化时判为「未变化」，
+ * 这是有意的取舍——拖拽主流程每帧主动读 `lastResult`，通知只用于唤醒旁观者，
+ * 不值得为它多走一轮覆盖层重绘。previous 为 null 表示上一轮未解析或吸附刚关闭。
+ */
+function hasVisibleChange(result: SnapResult, previous: SnapResult | null): boolean {
+  return (
+    result.matched !== (previous?.matched ?? false) ||
+    result.delta.x !== (previous?.delta.x ?? 0) ||
+    result.delta.y !== (previous?.delta.y ?? 0) ||
+    result.guides.length !== (previous?.guides.length ?? 0)
+  )
 }

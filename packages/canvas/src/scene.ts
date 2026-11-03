@@ -15,6 +15,22 @@ export interface CreateSceneOptions {
 }
 
 /**
+ * 节点几何登记项。
+ *
+ * 独立成类型是为了让「存的是拷贝」这件事写在字段注释里，而不是藏在 register 的
+ * 展开语法中——`getBounds` 返回的就是这个对象持有的引用。
+ */
+interface SceneEntry {
+  /**
+   * 节点未旋转的世界矩形。
+   *
+   * 单位是画布逻辑坐标（世界像素），原点为场景坐标系 (0,0)，与视口 zoom / origin
+   * 无关；宽高为非负数，旋转不进这里，由命中测试按 `getRotation` 单独补偿。
+   */
+  rect: Rect
+}
+
+/**
  * 创建场景图（节点几何索引）。
  *
  * 骨架阶段的几何来源是 `layout.rect`：绝对定位画布不需要读 DOM，
@@ -22,7 +38,7 @@ export interface CreateSceneOptions {
  * 命中测试按逆序取最上层。
  */
 export function createScene(options: CreateSceneOptions): SceneService {
-  const entries = new Map<string, { rect: Rect }>()
+  const entries = new Map<string, SceneEntry>()
 
   // 绘制与命中的层级权威：首次登记时追加，节点卸载时移除，重复登记不改变位置
   const order: string[] = []
@@ -41,7 +57,7 @@ export function createScene(options: CreateSceneOptions): SceneService {
      * 都会广播一次变化。
      */
     register(nodeId, rect): Disposable {
-      const entry = { rect: { ...rect } }
+      const entry: SceneEntry = { rect: { ...rect } }
 
       if (!entries.has(nodeId)) order.push(nodeId)
       entries.set(nodeId, entry)

@@ -64,6 +64,9 @@ export function gridCandidates(context: SnapContext, step: number): SnapCandidat
  * `movingIds` 里的元素被排除，避免拖拽元素吸附到自己。
  * `priority: 1` 使其位于网格层之上：对象对齐是用户看到的辅助线，优先级不该输给
  * 由自身几何推导出来的网格候选。
+ *
+ * @param elements 各节点的 id 与世界矩形；id 仅用于与 movingIds 比对排除自身，不进入候选结果；
+ * rect 是节点当前世界矩形（含拖拽中的实时位移，不是 schema 静态值）
  */
 export function elementCandidates(
   context: SnapContext,

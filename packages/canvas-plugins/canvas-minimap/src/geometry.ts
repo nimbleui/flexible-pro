@@ -10,8 +10,11 @@ export const MINIMAP_HEADER = 20
 
 /** 视口状态里换算世界矩形需要的字段（避免依赖整个视口服务） */
 export interface ViewportSnapshot {
+  /** 舞台左上角对应的世界坐标 X（世界单位，非屏幕像素） */
   x: number
+  /** 舞台左上角对应的世界坐标 Y（世界单位，非屏幕像素） */
   y: number
+  /** 世界 → 屏幕的等比缩放系数，恒为正数 */
   zoom: number
 }
 
@@ -42,8 +45,9 @@ export function viewportWorldRect(viewport: ViewportSnapshot, size: Size): Rect 
 export interface MinimapLayout {
   /** 世界 → 小地图的统一缩放（等比，不拉伸） */
   scale: number
-  /** 世界包围盒左上角对应到内容区原点时再居中的偏移 */
+  /** 世界包围盒左上角映射到内容区原点后再居中的偏移（内容区本地 CSS 像素） */
   offsetX: number
+  /** 与 offsetX 同口径，作用于 Y 轴（内容区本地 CSS 像素） */
   offsetY: number
 }
 
@@ -67,11 +71,25 @@ export function fitLayout(bounds: Rect, box: Size): MinimapLayout {
   }
 }
 
+/**
+ * 世界矩形映射到小地图内容区后的绝对定位盒子。
+ *
+ * 不复用 `Rect`：覆盖层直接把它写进 `left` / `top`，用 x/y 命名反而要再换算一次。
+ * 四个值都是地图内容区本地 CSS 像素；宽高下限 0.5px，防止极小节点在小地图上整体消失。
+ */
+interface MapRectBox {
+  /** 矩形左缘的绝对定位偏移 */
+  left: number
+  /** 矩形上缘的绝对定位偏移 */
+  top: number
+  /** 缩放后的显示宽度 */
+  width: number
+  /** 缩放后的显示高度 */
+  height: number
+}
+
 /** 世界矩形 → 小地图矩形（绝对定位用） */
-export function toMapRect(
-  layout: MinimapLayout,
-  rect: Rect,
-): { left: number; top: number; width: number; height: number } {
+export function toMapRect(layout: MinimapLayout, rect: Rect): MapRectBox {
   return {
     left: rect.x * layout.scale + layout.offsetX,
     top: rect.y * layout.scale + layout.offsetY,
@@ -85,12 +103,12 @@ export function toMapRect(
  *
  * 与 `toMapRect` 严格互逆：点击小地图要落回用户点的那个位置，两个方向的手算
  * 公式各写一份迟早会分叉，所以这里只做一次反解。
+ *
+ * @param x 地图内容区本地 CSS 像素横坐标
+ * @param y 地图内容区本地 CSS 像素纵坐标
+ * @returns 反解出的世界坐标（世界单位）
  */
-export function toWorldPoint(
-  layout: MinimapLayout,
-  x: number,
-  y: number,
-): { x: number; y: number } {
+export function toWorldPoint(layout: MinimapLayout, x: number, y: number): Point {
   return { x: (x - layout.offsetX) / layout.scale, y: (y - layout.offsetY) / layout.scale }
 }
 

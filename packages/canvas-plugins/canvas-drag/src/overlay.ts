@@ -22,7 +22,10 @@ export const DragBadgeOverlay = defineComponent({
     const canvas = ctx.require<CanvasService>('canvas')
 
     const version = ref(0)
-    const disposables: Array<{ dispose(): void }> = []
+    const disposables: Array<{
+      /** 退订画布设置监听，组件卸载时统一释放 */
+      dispose(): void
+    }> = []
 
     onMounted(() => {
       disposables.push(
@@ -44,32 +47,39 @@ export const DragBadgeOverlay = defineComponent({
       if (!rect) return null
 
       const { zoom, x, y } = props.frame.viewport
-      const left = (rect.x - x) * zoom
-      const top = (rect.y - y) * zoom
-
-      return h(
-        'div',
-        {
-          class: 'lc-drag-badge',
-          style: {
-            position: 'absolute',
-            left: `${left}px`,
-            top: `${top - 6}px`,
-            transform: 'translateY(-100%)',
-            padding: '2px 6px',
-            borderRadius: '4px',
-            background: 'rgba(15, 23, 42, 0.86)',
-            color: '#ffffff',
-            fontSize: '11px',
-            lineHeight: '14px',
-            whiteSpace: 'nowrap',
-            pointerEvents: 'none',
-          },
-        },
-        `${Math.round(rect.x)}, ${Math.round(rect.y)}`,
-      )
+      return badgeChip(rect, (rect.x - x) * zoom, (rect.y - y) * zoom)
     }
   },
 })
+
+/**
+ * 标注本体。
+ *
+ * 左上角外侧锚定（top 再上提 6px 配 translateY(-100%)），既避开节点也
+ * 避开吸附辅助线；显示的数值取世界矩形原点并四舍五入到整像素。
+ */
+function badgeChip(rect: Rect, left: number, top: number): ReturnType<typeof h> {
+  return h(
+    'div',
+    {
+      class: 'lc-drag-badge',
+      style: {
+        position: 'absolute',
+        left: `${left}px`,
+        top: `${top - 6}px`,
+        transform: 'translateY(-100%)',
+        padding: '2px 6px',
+        borderRadius: '4px',
+        background: 'rgba(15, 23, 42, 0.86)',
+        color: '#ffffff',
+        fontSize: '11px',
+        lineHeight: '14px',
+        whiteSpace: 'nowrap',
+        pointerEvents: 'none',
+      },
+    },
+    `${Math.round(rect.x)}, ${Math.round(rect.y)}`,
+  )
+}
 
 export default DragBadgeOverlay

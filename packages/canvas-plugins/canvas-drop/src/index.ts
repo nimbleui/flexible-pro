@@ -1,6 +1,12 @@
-import type { CanvasDropPayload, CanvasTransaction, SchemaPatch } from '@lc/contracts'
+import type {
+  CanvasDropPayload,
+  CanvasTransaction,
+  MaterialEntry,
+  Point,
+  SchemaPatch,
+} from '@lc/contracts'
 import { defineCanvasPlugin } from '@lc/contracts'
-import type { NodeSchema } from '@lc/schema'
+import type { NodeSchema, Rect } from '@lc/schema'
 import { nodePath } from '@lc/schema'
 import { createId } from '@lc/shared'
 import { DEFAULT_DROP_HEIGHT, DEFAULT_DROP_WIDTH, DROP_PREVIEW_SETTING } from './constants'
@@ -10,6 +16,61 @@ export { manifest } from './manifest'
 
 function cloneNode(node: NodeSchema): NodeSchema {
   return JSON.parse(JSON.stringify(node)) as NodeSchema
+}
+
+/**
+ * 落点层级：取兄弟中最大 zIndex + 1，使新节点落在最上层。
+ *
+ * 缺失 layout 或 zIndex 的兄弟按 0 参与比较，空兄弟列表返回 1（而非 0），
+ * 与「新节点始终压在最上层」的手感一致。
+ */
+function nextDropZIndex(
+  nodes: Readonly<Record<string, NodeSchema>>,
+  siblings: readonly string[],
+): number {
+  const maxZ = siblings.reduce((max, id) => Math.max(max, nodes[id]?.layout?.zIndex ?? 0), 0)
+  return maxZ + 1
+}
+
+/**
+ * 落点矩形：以 drop 的世界坐标为中心，宽高取物料 snippet 的 rect，缺失时用默认值。
+ *
+ * snippet 自带的 x/y 是「复制源位置」，与落点无关，因此整体丢弃。
+ */
+function dropRect(snippet: NodeSchema | undefined, world: Point): Rect {
+  const width = snippet?.layout?.rect?.width ?? DEFAULT_DROP_WIDTH
+  const height = snippet?.layout?.rect?.height ?? DEFAULT_DROP_HEIGHT
+  return { x: world.x - width / 2, y: world.y - height / 2, width, height }
+}
+
+/**
+ * 由物料 snippet 生成待插入节点。
+ *
+ * 新 id 由 createId 分配；落点尺寸与层级分别见 `dropRect` 与 `nextDropZIndex`。
+ * snippet 的子引用一律清空：物料里的后代节点不在本次插入范围内，留着就是悬空引用。
+ */
+function buildDropNode(
+  entry: MaterialEntry,
+  payload: CanvasDropPayload,
+  nodes: Readonly<Record<string, NodeSchema>>,
+  siblings: readonly string[],
+): NodeSchema {
+  const snippet = entry.snippet ? cloneNode(entry.snippet) : undefined
+
+  return {
+    ...(snippet ?? { componentName: entry.name }),
+    id: createId('node'),
+    componentName: entry.name,
+    children: undefined,
+    slots: undefined,
+    props: snippet?.props ?? {},
+    layout: {
+      ...(snippet?.layout ?? {}),
+      mode: 'absolute',
+      rect: dropRect(snippet, payload.world),
+      zIndex: nextDropZIndex(nodes, siblings),
+    },
+  }
 }
 
 /**
@@ -50,74 +111,65 @@ export default defineCanvasPlugin({
       }),
     )
 
-    ctx.effect(() =>
-      ctx.on('canvas:drop', (payload: CanvasDropPayload) => {
-        const schema = document.model.schema
-        const entry = material.get(payload.materialName)
-        if (!entry) {
-          ctx.diagnostics.report(new Error(`未知物料: ${payload.materialName}`), {
-            scope: 'canvas-drop',
-          })
-          return false
-        }
+    ctx.effect(() => ctx.on('canvas:drop', (payload: CanvasDropPayload) => handleDrop(payload)))
 
-        const parentId = canvas.hitTest.containerAt(payload.screen) ?? schema.nodeId
-        const parent = schema.nodes[parentId]
-        if (!parent) return false
+    /**
+     * 一次 drop 的完整流程：解析物料 → 构建节点 → 事务提交。
+     *
+     * 返回 false 表示本次落入无效（未知物料 / 父节点缺失 / 事务无法开启）；
+     * 无效时不清预览设置，宿主可以维持 dragover 反馈不变。
+     */
+    function handleDrop(payload: CanvasDropPayload): boolean {
+      const entry = material.get(payload.materialName)
+      if (!entry) {
+        ctx.diagnostics.report(new Error(`未知物料: ${payload.materialName}`), {
+          scope: 'canvas-drop',
+        })
+        return false
+      }
 
-        const snippet = entry.snippet ? cloneNode(entry.snippet) : undefined
-        const snippetRect = snippet?.layout?.rect
-        const width = snippetRect?.width ?? DEFAULT_DROP_WIDTH
-        const height = snippetRect?.height ?? DEFAULT_DROP_HEIGHT
+      const schema = document.model.schema
+      // 未命中容器时回落到文档根节点，保证任何落点都能插入
+      const parentId = canvas.hitTest.containerAt(payload.screen) ?? schema.nodeId
+      const parent = schema.nodes[parentId]
+      if (!parent) return false
 
-        const siblings = parent.children ?? []
-        const maxZ = siblings.reduce((max, id) => {
-          const z = schema.nodes[id]?.layout?.zIndex ?? 0
-          return Math.max(max, z)
-        }, 0)
+      const siblings = parent.children ?? []
+      const node = buildDropNode(entry, payload, schema.nodes, siblings)
+      return commitDrop(node, parentId, siblings)
+    }
 
-        const node: NodeSchema = {
-          ...(snippet ?? { componentName: entry.name }),
-          id: createId('node'),
-          componentName: entry.name,
-          children: undefined,
-          slots: undefined,
-          props: snippet?.props ?? {},
-          layout: {
-            ...(snippet?.layout ?? {}),
-            mode: 'absolute',
-            rect: {
-              x: payload.world.x - width / 2,
-              y: payload.world.y - height / 2,
-              width,
-              height,
-            },
-            zIndex: maxZ + 1,
-          },
-        }
+    /**
+     * 单事务提交「加节点 + 挂父」两条 patch，保证历史里只产生一步可撤销记录。
+     *
+     * transaction.begin 在只读文档等场景会抛错，此时按落入失败处理且不写选中集。
+     */
+    function commitDrop(
+      node: NodeSchema,
+      parentId: string,
+      siblings: readonly string[],
+    ): boolean {
+      let transaction: CanvasTransaction
+      try {
+        transaction = canvas.transaction.begin({ label: '添加节点', owner: 'canvas-drop' })
+      } catch {
+        return false
+      }
 
-        const patches: SchemaPatch[] = [
-          { op: 'add', path: nodePath(node.id), value: node },
-          {
-            op: 'replace',
-            path: nodePath(parentId, 'children'),
-            value: [...siblings, node.id],
-          },
-        ]
+      const patches: SchemaPatch[] = [
+        { op: 'add', path: nodePath(node.id), value: node },
+        {
+          op: 'replace',
+          path: nodePath(parentId, 'children'),
+          value: [...siblings, node.id],
+        },
+      ]
+      transaction.preview(patches)
+      transaction.commit()
 
-        let transaction: CanvasTransaction
-        try {
-          transaction = canvas.transaction.begin({ label: '添加节点', owner: 'canvas-drop' })
-        } catch {
-          return false
-        }
-        transaction.preview(patches)
-        transaction.commit()
-
-        canvas.selection.set([node.id])
-        canvas.settings.set(DROP_PREVIEW_SETTING, null)
-        return true
-      }),
-    )
+      canvas.selection.set([node.id])
+      canvas.settings.set(DROP_PREVIEW_SETTING, null)
+      return true
+    }
   },
 })

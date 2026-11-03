@@ -1,6 +1,7 @@
 import type {
   HitTestService,
   MeasureService,
+  Point,
   SceneService,
   ViewportService,
 } from '@lc/contracts'
@@ -61,8 +62,12 @@ export function createHitTest(options: CreateHitTestOptions): HitTestService {
    *
    * filter 在读几何之前执行，让容器筛选少算一批包围盒；返回的是第一个命中节点，
    * 因此叠放层级由场景登记顺序决定，与 rect 面积无关。
+   *
+   * @param world 世界坐标点（画布逻辑单位，已含视口 origin 平移、不含 zoom），
+   * 调用方负责先经 `viewport.screenToWorld` 换算，这里不再读视口。
+   * @param filter 候选准入谓词；返回 false 的节点直接跳过，不参与几何比较。
    */
-  function atWorld(world: { x: number; y: number }, filter?: (id: string) => boolean) {
+  function atWorld(world: Point, filter?: (id: string) => boolean) {
     const ids = scene.list()
     for (let index = ids.length - 1; index >= 0; index -= 1) {
       const nodeId = ids[index] as string

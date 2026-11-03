@@ -2,6 +2,24 @@ import type { Disposable } from '@lc/kernel'
 import type { CanvasContextMenuService, CanvasMenuItem } from '@lc/contracts'
 
 /**
+ * 菜单项登记项。
+ *
+ * 只登记定义，不登记「菜单此刻开在哪个节点上」：`visible` / `enabled` 由渲染方
+ * 带目标求值，注册表因此不需要随悬停、选中状态变化而重写条目。
+ */
+interface MenuItemEntry {
+  /** 菜单项定义本体；`list()` 原样返回该引用，渲染方负责调用其回调 */
+  item: CanvasMenuItem
+
+  /**
+   * 注册时的单调递增序号（从 1 开始）。
+   *
+   * order 相同时用它保证先到先得，使同一批插件的菜单顺序可复现。
+   */
+  seq: number
+}
+
+/**
  * 创建右键菜单注册表。
  *
  * 排序与图层一致：order 升序，相同则按注册顺序先到先得。注册表只存项目，
@@ -9,7 +27,7 @@ import type { CanvasContextMenuService, CanvasMenuItem } from '@lc/contracts'
  * 注册方因此不需要知道菜单此刻的状态，插件卸载时项目自动消失。
  */
 export function createContextMenuService(): CanvasContextMenuService {
-  const items = new Map<string, { item: CanvasMenuItem; seq: number }>()
+  const items = new Map<string, MenuItemEntry>()
   const listeners = new Set<() => void>()
 
   // 单调递增序号：order 相同时保持先到先得的稳定顺序

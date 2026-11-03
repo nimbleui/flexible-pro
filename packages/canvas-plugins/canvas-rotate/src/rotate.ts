@@ -46,10 +46,12 @@ export function snapRadians(radians: number, stepDeg = 15): number {
  *
  * 矩形宽高保持不变：schema 存的是未旋转矩形，视觉尺寸由 rotate 渲染时体现，
  * 因此这里只需重新落位中心点。
+ *
+ * @param center 旋转中心（世界坐标，与 node.rect 同一坐标空间，通常为多选包围盒中心）
  */
 export function rotateNodes(
   nodes: readonly RotatableNode[],
-  center: { x: number; y: number },
+  center: Point,
   deltaRadians: number,
 ): RotatableNode[] {
   const cos = Math.cos(deltaRadians)

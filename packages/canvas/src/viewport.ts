@@ -55,6 +55,53 @@ function finiteOr(value: number, current: number): number {
 }
 
 /**
+ * 把屏幕空间的向量换算成世界空间的增量：先逆旋转、再除以缩放。
+ *
+ * `screenToWorld` / `zoomAt` / `panBy` / `fit` 共用这一条逆变换。四处各自展开
+ * cos/sin 时，任一处符号写反都会在旋转视口下产生系统性偏移，所以只保留一份
+ * 闭式实现。这里处理的是「差值 / 位移」，不含 origin 平移，由调用方自行加减。
+ *
+ * 保持纯计算：不读 state，cos / sin 由调用方一次算好后传入，
+ * pointermove 高频路径上每帧只调用一次三角函数。
+ *
+ * @param vector 屏幕空间向量（CSS 像素）
+ * @param cos 当前视口旋转的余弦
+ * @param sin 当前视口旋转的正弦
+ * @param zoom 目标缩放，必须为正数
+ * @returns 世界坐标增量（画布逻辑单位）
+ */
+function screenVectorToWorld(vector: Point, cos: number, sin: number, zoom: number): Point {
+  return {
+    x: (cos * vector.x + sin * vector.y) / zoom,
+    y: (-sin * vector.x + cos * vector.y) / zoom,
+  }
+}
+
+/**
+ * 完整容纳 rect 所需的缩放：宽、高两个比例取小者后夹紧到上下限。
+ *
+ * 可用宽高下限取 1 而不是直接用 `size - padding * 2`：padding 大于视口时该值
+ * 为负或 0，除法会得到负缩放或 Infinity，画面会翻转或直接消失。
+ * 夹紧生效时画面会留白或被裁切，不保证一定看得见整个 rect。
+ */
+function fitZoom(
+  size: Size,
+  rect: Rect,
+  padding: number,
+  minZoom: number,
+  maxZoom: number,
+): number {
+  const availableWidth = Math.max(size.width - padding * 2, 1)
+  const availableHeight = Math.max(size.height - padding * 2, 1)
+
+  return clamp(
+    Math.min(availableWidth / rect.width, availableHeight / rect.height),
+    minZoom,
+    maxZoom,
+  )
+}
+
+/**
  * 创建视口服务。
  *
  * 变换顺序固定为 `screen = S(zoom) · R(rotation) · (world - origin)`：
@@ -151,10 +198,8 @@ export function createViewport(options: CreateViewportOptions = {}): ViewportSer
     screenToWorld(point) {
       const cos = Math.cos(state.rotation)
       const sin = Math.sin(state.rotation)
-      return {
-        x: state.x + (cos * point.x + sin * point.y) / state.zoom,
-        y: state.y + (-sin * point.x + cos * point.y) / state.zoom,
-      }
+      const offset = screenVectorToWorld(point, cos, sin, state.zoom)
+      return { x: state.x + offset.x, y: state.y + offset.y }
     },
 
     worldToScreen(point) {
@@ -183,11 +228,12 @@ export function createViewport(options: CreateViewportOptions = {}): ViewportSer
 
       const cos = Math.cos(state.rotation)
       const sin = Math.sin(state.rotation)
-      // 保持指针下的世界坐标不动：origin' = world - R⁻¹(screen / zoom')
+      // 保持指针下的世界坐标不动：origin' = world - 新缩放下的屏幕逆变换
       const world = service.screenToWorld(screen)
+      const anchor = screenVectorToWorld(screen, cos, sin, nextZoom)
       commit({
-        x: world.x - (cos * screen.x + sin * screen.y) / nextZoom,
-        y: world.y - (-sin * screen.x + cos * screen.y) / nextZoom,
+        x: world.x - anchor.x,
+        y: world.y - anchor.y,
         zoom: nextZoom,
         rotation: state.rotation,
       })
@@ -202,9 +248,10 @@ export function createViewport(options: CreateViewportOptions = {}): ViewportSer
     panBy(delta) {
       const cos = Math.cos(state.rotation)
       const sin = Math.sin(state.rotation)
+      const move = screenVectorToWorld(delta, cos, sin, state.zoom)
       commit({
-        x: state.x - (cos * delta.x + sin * delta.y) / state.zoom,
-        y: state.y - (-sin * delta.x + cos * delta.y) / state.zoom,
+        x: state.x - move.x,
+        y: state.y - move.y,
         zoom: state.zoom,
         rotation: state.rotation,
       })
@@ -213,16 +260,14 @@ export function createViewport(options: CreateViewportOptions = {}): ViewportSer
     /**
      * 缩放到完整容纳一个世界矩形，并把它摆到视口中心。
      *
-     * padding 是每边的屏幕像素，可用宽高不足 1 时按 1 计算，避免极窄视口除零。
-     * zoom 由宽高两个比例取小后夹紧到上下限，因此夹紧生效时画面会留白或被裁切，
-     * 不保证一定看得见整个 rect。矩形尺寸按未旋转的轴算，视口处于旋转状态时
-     * 只保证中心对齐，不保证视觉上完整包含。
+     * 缩放取值见 `fitZoom`；矩形尺寸按未旋转的轴算，视口处于旋转状态时只保证中心
+     * 对齐，不保证视觉上完整包含。
      *
-     * 视口尺寸尚未测得（width/height 为 0）时静默返回，此时应先 `setSize`；
+     * 视口尺寸尚未测得（width / height 为 0）时静默返回，此时应先 `setSize`；
      * 矩形宽高为非有限值时同样静默返回，否则 NaN 会顺着 zoom 落进矩阵。
      *
-     * @param rect 需要容纳的世界坐标矩形
-     * @param padding 每边留白，单位屏幕像素；未传时按 40 计算
+     * @param rect 需要容纳的世界坐标矩形（画布逻辑单位，非屏幕像素）
+     * @param padding 每边留白，单位屏幕 CSS 像素；未传时按 40 计算
      */
     fit(rect, padding = 40) {
       // NaN 过不了 `<= 0` 这道判断，却会把 NaN 带进 zoom 与中心点，所以先拒掉
@@ -230,23 +275,18 @@ export function createViewport(options: CreateViewportOptions = {}): ViewportSer
       if (rect.width <= 0 || rect.height <= 0) return
       if (size.width <= 0 || size.height <= 0) return
 
-      const availableWidth = Math.max(size.width - padding * 2, 1)
-      const availableHeight = Math.max(size.height - padding * 2, 1)
-      const zoom = clamp(
-        Math.min(availableWidth / rect.width, availableHeight / rect.height),
-        minZoom,
-        maxZoom,
-      )
+      const zoom = fitZoom(size, rect, padding, minZoom, maxZoom)
+      const centerWorld = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
 
+      // origin 为 0 时屏幕中心对应的世界偏移，用矩形中心减掉它就把它落到了屏幕中心
       const cos = Math.cos(state.rotation)
       const sin = Math.sin(state.rotation)
-      const centerWorld = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
-      // 相当于「origin 取 0 时屏幕中心对应的世界偏移」，用 centerWorld 减掉它
-      // 就把矩形中心落到了屏幕中心
-      const offset = {
-        x: (cos * (size.width / 2) + sin * (size.height / 2)) / zoom,
-        y: (-sin * (size.width / 2) + cos * (size.height / 2)) / zoom,
-      }
+      const offset = screenVectorToWorld(
+        { x: size.width / 2, y: size.height / 2 },
+        cos,
+        sin,
+        zoom,
+      )
 
       commit({
         x: centerWorld.x - offset.x,

@@ -1,4 +1,12 @@
-import type { CanvasTransaction, SchemaPatch, SnapService } from '@lc/contracts'
+import type {
+  CanvasPointerEvent,
+  CanvasService,
+  CanvasTransaction,
+  DocumentService,
+  Point,
+  SchemaPatch,
+  SnapService,
+} from '@lc/contracts'
 import { defineCanvasPlugin, transformableIds } from '@lc/contracts'
 import { normalizeRect } from '@lc/canvas'
 import type { Rect } from '@lc/schema'
@@ -12,6 +20,148 @@ export { manifest } from './manifest'
  * 低于它的抖动不写 patch，避免一次误点产生一条「移动 1px」的历史。
  */
 const DRAG_THRESHOLD_PX = 3
+
+/**
+ * 取视口对应的世界矩形，作为吸附候选的裁剪范围。
+ *
+ * 只换算左上、右下两角，视口 rotation 为 0 时准确；旋转后得到的是偏小的
+ * AABB，可能裁掉本应可见的候选，因此吸附在旋转视图下按粗筛理解。
+ */
+function viewportWorldRect(canvas: CanvasService): Rect {
+  const topLeft = canvas.viewport.screenToWorld({ x: 0, y: 0 })
+  const bottomRight = canvas.viewport.screenToWorld({
+    x: canvas.viewport.size.width,
+    y: canvas.viewport.size.height,
+  })
+  return normalizeRect(topLeft, bottomRight)
+}
+
+/**
+ * 用空 rects 触发一次解析，把 lastResult 复位成无结果。
+ *
+ * 吸附服务没有显式的 clear 入口，靠 `rects.length === 0` 的短路分支清空
+ * 缓存并广播变化，让覆盖层撤掉残留辅助线。
+ */
+function clearSnap(snap: SnapService, canvas: CanvasService, ids: readonly string[]): void {
+  snap.resolve({
+    rects: [],
+    zoom: canvas.viewport.state.zoom,
+    viewportRect: viewportWorldRect(canvas),
+    movingIds: ids,
+  })
+}
+
+/**
+ * 解析按下节点对应的拖拽集合。
+ *
+ * rect 是世界坐标且渲染子级按父级原点补偿，子级不会随父级 rect 自动平移，
+ * 所以拖动容器必须把整棵子树算进来，否则父级移动后子级留在原地。
+ */
+function dragTargetsOf(
+  canvas: CanvasService,
+  document: DocumentService,
+  targetNodeId: string,
+): {
+  /** 参与吸附基准的节点 id（世界矩形所属者）：只含被直接拖动的节点，不含后代 */
+  roots: string[]
+  /** 实际一起平移的完整子树 id：roots 及其全部后代，与 roots 同为世界坐标基准 */
+  ids: string[]
+} {
+  // 按下已选中节点 → 整组一起拖；按下未选中节点 → 只拖它自己
+  const group = canvas.selection.ids.includes(targetNodeId)
+    ? canvas.selection.ids
+    : [targetNodeId]
+  // 命中测试已经挡住了锁定节点，这里再过滤一次：图层树可以把锁定节点
+  // 放进取景框，整组拖拽时必须让它留在原地
+  const roots = transformableIds(group, document.model.schema)
+  return { roots, ids: [...collectSubtree(document.model.schema, roots)] }
+}
+
+/**
+ * 按下时刻的起始 rect 快照。
+ *
+ * 每帧位移都相对快照计算，避免逐帧累加产生浮点漂移；隐藏节点不登记场景，
+ * 回落到 schema 里的 rect，保证重新显示后仍在原位。
+ */
+function snapshotStartRects(
+  canvas: CanvasService,
+  document: DocumentService,
+  ids: readonly string[],
+): Map<string, Rect> {
+  const starts = new Map<string, Rect>()
+  for (const id of ids) {
+    const rect = canvas.scene.getBounds(id) ?? document.model.schema.nodes[id]?.layout?.rect
+    if (rect) starts.set(id, rect)
+  }
+  return starts
+}
+
+/** 已有其他手势事务（如缩放手柄）时 begin 抛错，返回 null 表示让位 */
+function beginMoveTransaction(canvas: CanvasService): CanvasTransaction | null {
+  try {
+    return canvas.transaction.begin({ label: '移动节点', owner: 'canvas-drag' })
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 本帧的世界位移：指针位移叠加吸附结果。
+ *
+ * 吸附用「已位移」的矩形做候选比对，命中的 delta 再叠加到最终位移；没有吸附服务
+ * 时直接返回指针位移。Alt 是临时禁用吸附：不仅要跳过计算，还要撤掉上一帧残留的辅助线。
+ */
+function frameWorldOffset(
+  move: CanvasPointerEvent,
+  startWorld: Point,
+  snap: SnapService | undefined,
+  canvas: CanvasService,
+  anchors: readonly Rect[],
+  ids: readonly string[],
+): Point {
+  const offset = { x: move.world.x - startWorld.x, y: move.world.y - startWorld.y }
+  if (!snap) return offset
+
+  if (move.modifiers.alt) {
+    clearSnap(snap, canvas, ids)
+    return offset
+  }
+
+  const result = snap.resolve({
+    rects: anchors.map((rect) => ({ ...rect, x: rect.x + offset.x, y: rect.y + offset.y })),
+    zoom: canvas.viewport.state.zoom,
+    viewportRect: viewportWorldRect(canvas),
+    movingIds: ids,
+  })
+  return { x: offset.x + result.delta.x, y: offset.y + result.delta.y }
+}
+
+/**
+ * 提交本帧预览并同步尺寸标注；只写事务预览与设置，不提交历史。
+ *
+ * 整块 rect 一次 replace，而不是 x / y 两条 path：事务按 path 去重，
+ * 合并成一条能天然保证 x、y 来自同一帧。
+ */
+function previewDragFrame(
+  canvas: CanvasService,
+  transaction: CanvasTransaction,
+  starts: ReadonlyMap<string, Rect>,
+  primaryRect: Rect,
+  offset: Point,
+): void {
+  const patches: SchemaPatch[] = [...starts.entries()].flatMap(([id, rect]) =>
+    createNodeLayoutPatch(id, {
+      rect: { ...rect, x: rect.x + offset.x, y: rect.y + offset.y },
+    }),
+  )
+  transaction.preview(patches)
+
+  canvas.settings.set<Rect | null>(DRAG_BADGE_SETTING, {
+    ...primaryRect,
+    x: primaryRect.x + offset.x,
+    y: primaryRect.y + offset.y,
+  })
+}
 
 /**
  * 节点拖拽插件。
@@ -50,36 +200,6 @@ export default defineCanvasPlugin({
       }),
     )
 
-    /**
-     * 取视口对应的世界矩形，作为吸附候选的裁剪范围。
-     *
-     * 只换算左上、右下两角，视口 rotation 为 0 时准确；旋转后得到的是偏小的
-     * AABB，可能裁掉本应可见的候选，因此吸附在旋转视图下按粗筛理解。
-     */
-    function viewportWorldRect(): Rect {
-      const topLeft = canvas.viewport.screenToWorld({ x: 0, y: 0 })
-      const bottomRight = canvas.viewport.screenToWorld({
-        x: canvas.viewport.size.width,
-        y: canvas.viewport.size.height,
-      })
-      return normalizeRect(topLeft, bottomRight)
-    }
-
-    /**
-     * 用空 rects 触发一次解析，把 lastResult 复位成无结果。
-     *
-     * 吸附服务没有显式的 clear 入口，靠 `rects.length === 0` 的短路分支清空
-     * 缓存并广播变化，让覆盖层撤掉残留辅助线。
-     */
-    function clearSnap(service: SnapService, ids: readonly string[]): void {
-      service.resolve({
-        rects: [],
-        zoom: canvas.viewport.state.zoom,
-        viewportRect: viewportWorldRect(),
-        movingIds: ids,
-      })
-    }
-
     ctx.effect(() =>
       canvas.interaction.register({
         id: 'canvas-drag.move',
@@ -92,30 +212,13 @@ export default defineCanvasPlugin({
         handle: (event) => {
           if (event.type !== 'pointerdown' || !event.targetNodeId) return 'pass'
 
-          // 按下已选中节点 → 整组一起拖；按下未选中节点 → 只拖它自己
-          const group = canvas.selection.ids.includes(event.targetNodeId)
-            ? canvas.selection.ids
-            : [event.targetNodeId]
-          // 命中测试已经挡住了锁定节点，这里再过滤一次：图层树可以把锁定节点
-          // 放进取景框，整组拖拽时必须让它留在原地
-          const roots = transformableIds(group, document.model.schema)
+          const { roots, ids } = dragTargetsOf(canvas, document, event.targetNodeId)
 
-          // rect 是世界坐标，渲染子级时按父级原点补偿，所以子级不会随父级 rect
-          // 自动平移；拖动容器必须把整棵子树一起算进来，否则父级移动后子级留在原地
-          const ids = [...collectSubtree(document.model.schema, roots)]
-
-          // 起始 rect 快照：每帧位移都相对按下时刻计算，避免逐帧累加产生浮点漂移。
-          // 隐藏节点不登记场景，回落到 schema 里的 rect，保证重新显示后仍在原位
-          const starts = new Map<string, Rect>()
-          for (const id of ids) {
-            const rect =
-              canvas.scene.getBounds(id) ?? document.model.schema.nodes[id]?.layout?.rect
-            if (rect) starts.set(id, rect)
-          }
+          const starts = snapshotStartRects(canvas, document, ids)
           if (starts.size === 0) return 'pass'
 
           // 标注只跟主节点：多选时整组位置与组框左上角重合，显示单个更贴近手感
-          const primary = [...starts.entries()][0]
+          const primaryRect = [...starts.values()][0]
 
           // 吸附只以被直接拖动的节点为基准：整棵子树刚性平移，用后代边参与候选
           // 只会引入无关的吸附点
@@ -123,13 +226,8 @@ export default defineCanvasPlugin({
             .map((id) => starts.get(id))
             .filter((rect): rect is Rect => rect !== undefined)
 
-          let transaction: CanvasTransaction
-          try {
-            transaction = canvas.transaction.begin({ label: '移动节点', owner: 'canvas-drag' })
-          } catch {
-            // 已有其他手势事务（如缩放手柄），让位
-            return 'pass'
-          }
+          const transaction = beginMoveTransaction(canvas)
+          if (!transaction) return 'pass'
 
           const startWorld = event.world
           const startScreen = event.screen
@@ -148,52 +246,13 @@ export default defineCanvasPlugin({
                   started = true
                 }
 
-                let dx = move.world.x - startWorld.x
-                let dy = move.world.y - startWorld.y
-
-                // 吸附用「已位移」的矩形做候选比对，命中的 delta 再叠加到最终位移
-                const movedRects = anchors.map((rect) => ({
-                  ...rect,
-                  x: rect.x + dx,
-                  y: rect.y + dy,
-                }))
-
-                if (snap) {
-                  // Alt 是临时禁用吸附：不仅要跳过计算，还要撤掉上一帧残留的辅助线
-                  if (move.modifiers.alt) {
-                    clearSnap(snap, ids)
-                  } else {
-                    const result = snap.resolve({
-                      rects: movedRects,
-                      zoom: canvas.viewport.state.zoom,
-                      viewportRect: viewportWorldRect(),
-                      movingIds: ids,
-                    })
-                    dx += result.delta.x
-                    dy += result.delta.y
-                  }
-                }
-
-                // 整块 rect 一次 replace，而不是 x / y 两条 path：事务按 path 去重，
-                // 合并成一条能天然保证 x、y 来自同一帧
-                const patches: SchemaPatch[] = [...starts.entries()].flatMap(([id, rect]) =>
-                  createNodeLayoutPatch(id, {
-                    rect: { ...rect, x: rect.x + dx, y: rect.y + dy },
-                  }),
-                )
-                transaction.preview(patches)
-
-                const [, primaryRect] = primary
-                canvas.settings.set<Rect | null>(DRAG_BADGE_SETTING, {
-                  ...primaryRect,
-                  x: primaryRect.x + dx,
-                  y: primaryRect.y + dy,
-                })
+                const offset = frameWorldOffset(move, startWorld, snap, canvas, anchors, ids)
+                previewDragFrame(canvas, transaction, starts, primaryRect, offset)
               },
 
               // commit=false 来自 Esc 或 pointercancel：撤销预览并清掉辅助线
               onFinish: (commit) => {
-                if (snap) clearSnap(snap, ids)
+                if (snap) clearSnap(snap, canvas, ids)
                 canvas.settings.set<Rect | null>(DRAG_BADGE_SETTING, null)
                 if (commit) transaction.commit()
                 else transaction.cancel()

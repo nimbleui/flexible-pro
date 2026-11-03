@@ -154,6 +154,8 @@ export interface TransactionService {
   /**
    * 开始一次手势事务。
    *
+   * @param options.label 历史条目的操作名；提交时原样写入文档历史的 label
+   * @param options.owner 发起方标识（一般是插件 id）；出现在「事务被占用」的报错文案与结束回调里
    * @throws 已有活动事务时抛错；抢不到事务的插件应放弃本次手势。
    */
   begin(options: { label: string; owner: string }): CanvasTransaction

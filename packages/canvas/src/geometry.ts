@@ -166,8 +166,31 @@ export function rotatedRectIntersectsRect(rect: Rect, radians: number, other: Re
   })
 }
 
-/** 点集在轴上的投影区间；轴不必单位化，区间比较只看相对次序。 */
-function projectExtent(points: readonly Point[], axis: Point): { min: number; max: number } {
+/**
+ * 点集在一条分离轴上的投影区间。
+ *
+ * 轴不要求是单位向量，因此 min / max 是「按轴长度缩放过的标量投影」而不是世界
+ * 距离；分离轴判定只比较两个区间的相对次序，两侧用同一条轴时量纲自然一致。
+ */
+interface ProjectionExtent {
+  /**
+   * 投影最小值。
+   *
+   * 点集为空时保持初始的 `+Infinity`：调用方（分离轴判定）总是传入非空点集，
+   * 因此不做空集特判。
+   */
+  min: number
+
+  /** 投影最大值；点集为空时保持初始的 `-Infinity` */
+  max: number
+}
+
+/**
+ * 求点集在给定轴上的投影区间。
+ *
+ * 一次遍历同时收敛 min / max，不物化投影数组——框选路径上每帧会对四条轴各调用一次。
+ */
+function projectExtent(points: readonly Point[], axis: Point): ProjectionExtent {
   let min = Number.POSITIVE_INFINITY
   let max = Number.NEGATIVE_INFINITY
 

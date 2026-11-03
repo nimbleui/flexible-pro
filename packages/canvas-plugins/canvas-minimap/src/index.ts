@@ -1,3 +1,4 @@
+import type { Point } from '@lc/contracts'
 import { defineCanvasPlugin } from '@lc/contracts'
 import { clamp } from '@lc/shared'
 import { MINIMAP_SIZE, layoutFor, mapOrigin, toWorldPoint } from './geometry'
@@ -33,8 +34,12 @@ export default defineCanvasPlugin({
       }),
     )
 
-    /** 屏幕坐标 → 地图内容区本地坐标 → 世界坐标（本地坐标夹在地图盒内） */
-    function worldAt(screen: { x: number; y: number }) {
+    /**
+     * 屏幕坐标 → 地图内容区本地坐标 → 世界坐标（本地坐标夹在地图盒内）。
+     *
+     * @param screen 相对舞台左上角的屏幕坐标（CSS 像素，非世界单位）
+     */
+    function worldAt(screen: Point) {
       const origin = mapOrigin(canvas.viewport.size)
       const layout = layoutFor(
         canvas.scene.getRootBounds(),
@@ -48,8 +53,12 @@ export default defineCanvasPlugin({
       return toWorldPoint(layout, localX, localY)
     }
 
-    /** 把视口中心对齐到某个世界点；只改原点，缩放保持不变 */
-    function centerOn(world: { x: number; y: number }): void {
+    /**
+     * 把视口中心对齐到某个世界点；只改原点，缩放保持不变。
+     *
+     * @param world 目标视口中心的世界坐标（世界单位）
+     */
+    function centerOn(world: Point): void {
       const size = canvas.viewport.size
       const zoom = canvas.viewport.state.zoom
       if (size.width === 0 || size.height === 0) return

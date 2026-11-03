@@ -2,6 +2,30 @@ import type { Disposable } from '@lc/kernel'
 import type { CanvasSetting, CanvasSettingsService } from '@lc/contracts'
 
 /**
+ * 设置项登记条目。
+ *
+ * 定义与当前值分开存：`set` 只替换 value 而不动 setting，因此插件持有 definition
+ * 引用时不会看到 value 被就地改写，撤销注册与重复注册的判定也都只看 setting。
+ */
+interface SettingsEntry {
+  /**
+   * 设置项定义（已抹掉泛型）。
+   *
+   * Map 的 value 类型必须与注册时的 T 无关，T 只在 `get` / `register` 的调用点由
+   * 调用方重新声明；`dispose` 比对的就是这个引用，用于识别「同 id 已被重新注册」。
+   */
+  setting: CanvasSetting
+
+  /**
+   * 当前值。
+   *
+   * 注册时初始化为 `setting.default`，之后由 `set` 覆盖为任意形状；未做 schema
+   * 校验，实际类型与读取方声明的 T 是否一致由插件自己保证。
+   */
+  value: unknown
+}
+
+/**
  * 创建画布设置服务（单层内存实现）。
  *
  * 生产环境的合并顺序为「平台默认 → 租户锁定 → 工作区 → 用户 → 文档」；
@@ -9,7 +33,7 @@ import type { CanvasSetting, CanvasSettingsService } from '@lc/contracts'
  */
 export function createSettingsService(): CanvasSettingsService {
   /** id → 定义与当前值；value 初始化为 setting.default，之后由 set 覆盖 */
-  const settings = new Map<string, { setting: CanvasSetting; value: unknown }>()
+  const settings = new Map<string, SettingsEntry>()
 
   /** id → 订阅者；按 id 分桶，未注册的 id 也可以先订阅 */
   const listeners = new Map<string, Set<(value: unknown) => void>>()
@@ -27,7 +51,6 @@ export function createSettingsService(): CanvasSettingsService {
         throw new Error(`[canvas] 设置项 id 重复: ${setting.id}`)
       }
 
-      // 存为无泛型的 CanvasSetting：Map 的 value 类型必须与 T 无关，读取时再按调用方的 T 还原
       settings.set(setting.id, { setting: setting as CanvasSetting, value: setting.default })
 
       return {

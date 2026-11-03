@@ -245,7 +245,12 @@ export interface SnapContext {
    * 从被拖框自身推导候选的提供者（网格）要读它：缩放只拖一条边时，固定锚点上
    * 的候选只会与移动边争位。
    */
-  readonly edges?: { x?: SnapEdgeMode; y?: SnapEdgeMode }
+  readonly edges?: {
+    /** 水平轴（左/右边）的参与方式；省略表示该轴起、中、止都参与 */
+    x?: SnapEdgeMode
+    /** 垂直轴（上/下边）的参与方式；省略语义同 x */
+    y?: SnapEdgeMode
+  }
 }
 
 /** 吸附提供者；每个插件可注册多个来源（网格、节点、参考线） */
@@ -256,7 +261,6 @@ export interface SnapProvider {
   getCandidates(context: SnapContext): readonly SnapCandidate[]
 }
 
-/** 吸附输入 */
 /**
  * 单轴参与吸附的边。
  *
@@ -266,17 +270,31 @@ export interface SnapProvider {
  */
 export type SnapEdgeMode = 'start' | 'end' | 'both'
 
+/**
+ * 吸附计算的一次输入，对应 `SnapService.resolve`。
+ *
+ * 与 {@link SnapContext} 的差别：本类型是调用方给出的原始数据，不携带阈值——
+ * 阈值是服务内部的屏幕像素配置，由 resolve 除以 zoom 折算成世界单位后再分发给
+ * provider，所以插件不该自行构造 SnapContext。
+ * 多选时每个矩形的边都参与比较，命中的 delta 是同一个修正量、统一施加到整组矩形，
+ * 不存在「每个矩形各吸附一次」。
+ */
 export interface SnapInput {
-  /** 正在移动的矩形（世界坐标） */
+  /** 正在移动的矩形（世界坐标）；空数组表示本次无需吸附，resolve 直接返回未命中 */
   rects: readonly Rect[]
-  /** 当前缩放 */
+  /** 当前缩放；屏幕阈值除以它才得到世界单位 */
   zoom: number
   /** 当前视口世界矩形 */
   viewportRect: Rect
   /** 正在移动的节点 id；元素提供者排除自身用 */
   movingIds?: readonly string[]
   /** 各轴参与吸附的边；缺省两轴都是 both */
-  edges?: { x?: SnapEdgeMode; y?: SnapEdgeMode }
+  edges?: {
+    /** 水平轴参与方式 */
+    x?: SnapEdgeMode
+    /** 垂直轴参与方式 */
+    y?: SnapEdgeMode
+  }
 }
 
 /** 吸附辅助线 */

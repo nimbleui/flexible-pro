@@ -106,7 +106,14 @@ export default defineCanvasPlugin({
     }
 
     function nudge(commandCtx: CommandContext): void {
-      const args = (commandCtx.args ?? {}) as { dx?: number; dy?: number }
+      // args 由键绑定表注入，服务层只保证 unknown；这里按约定的形状窄化，
+      // 缺省按 0 处理而不是报错，保证命令被无参调用时安全落空
+      const args = (commandCtx.args ?? {}) as {
+        /** x 轴位移（世界单位，正方向向右） */
+        dx?: number
+        /** y 轴位移（世界单位，正方向向下） */
+        dy?: number
+      }
       const ids = editableIds()
       if (ids.length === 0) return
       commit(nudgeSelection(schema(), ids, args.dx ?? 0, args.dy ?? 0), '微调位置')
@@ -271,9 +278,13 @@ export default defineCanvasPlugin({
     }
 
     const bindings: Array<{
+      /** 键位绑定 id，用于卸载与冲突诊断 */
       id: string
+      /** 键位序列，Mod = Ctrl/⌘；由键位服务解析，本表只声明组合 */
       key: string
+      /** 目标命令 id，必须与上面 commands 表里的注册 id 一致 */
       command: string
+      /** 传给命令的上下文参数；微调类用它携带位移量 */
       args?: unknown
     }> = [
       { id: 'canvas-commands.delete', key: 'Delete', command: 'canvas.deleteSelection' },

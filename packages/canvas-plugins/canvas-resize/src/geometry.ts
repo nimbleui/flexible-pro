@@ -1,4 +1,4 @@
-import type { SnapEdgeMode } from '@lc/contracts'
+import type { Point, SnapEdgeMode } from '@lc/contracts'
 import type { Rect } from '@lc/schema'
 
 /** 组/单节点缩放的最小边长（世界像素） */
@@ -7,6 +7,12 @@ export const MIN_RESIZE_SIZE = 8
 /** 单节点在组缩放中的最小边长；允许比组下限更小，避免薄元素被强行撑大 */
 const MIN_NODE_SIZE = 1
 
+/**
+ * `resizeRect` 的夹紧参数。
+ *
+ * 两项都只影响结果矩形的形态，不改变锚点语义；组缩放与单节点缩放共用本接口，
+ * 靠 `minSize` 区分两者不同的下限（组 8、节点 1）。
+ */
 export interface ResizeRectOptions {
   /**
    * 最小边长 @default MIN_RESIZE_SIZE
@@ -44,11 +50,14 @@ export function isCornerHandle(handleId: string): boolean {
  * 这是子串匹配：任何名字里带这四个字母的手柄都会被当作对应方位（`rotate` 含
  * `e` 会被当成东手柄），调用方必须先排除非缩放手柄；完全不含这四个字符时
  * 四个分支都不命中，原样返回入参矩形。
+ *
+ * @param point 指针所在的世界坐标（世界单位）；w / e 手柄按它的 x 移动对应竖边，
+ * n / s 手柄按它的 y 移动对应横边
  */
 export function resizeRect(
   rect: Rect,
   handleId: string,
-  point: { x: number; y: number },
+  point: Point,
   options: ResizeRectOptions = {},
 ): Rect {
   const minSize = options.minSize ?? MIN_RESIZE_SIZE
@@ -129,8 +138,8 @@ export interface RotatedResizeInput {
   /** 手柄方位 */
   handleId: string
 
-  /** 指针世界坐标；函数内部先反旋转回节点局部坐标系再算尺寸 */
-  point: { x: number; y: number }
+  /** 指针世界坐标（世界单位）；函数内部先反旋转回节点局部坐标系再算尺寸 */
+  point: Point
 
   /** 保持宽高比（仅角手柄） @default false */
   keepAspect?: boolean
@@ -141,13 +150,10 @@ export interface RotatedResizeInput {
 /**
  * 绕任意中心旋转折点；传 `-rotation` 即为逆变换（世界 → 局部）。
  *
- * 与 `@lc/canvas` 的 `rotatePoint` 区别在于旋转中心不是世界原点。
+ * 三个坐标都是世界单位。与 `@lc/canvas` 的 `rotatePoint` 区别在于旋转中心
+ * 不是世界原点，因此不能直接复用那一个。
  */
-function rotateAround(
-  point: { x: number; y: number },
-  center: { x: number; y: number },
-  radians: number,
-): { x: number; y: number } {
+function rotateAround(point: Point, center: Point, radians: number): Point {
   const cos = Math.cos(radians)
   const sin = Math.sin(radians)
   const dx = point.x - center.x
@@ -158,8 +164,11 @@ function rotateAround(
   }
 }
 
-/** 手柄的对侧锚点（局部坐标）：拖 west 时锚右边，拖 se 时锚 nw 角。 */
-function anchorPoint(rect: Rect, handleId: string): { x: number; y: number } {
+/**
+ * 手柄的对侧锚点（节点局部坐标，世界单位）：拖 west 取右边、east 取左边，
+ * 拖 north 取底边、south 取顶边；该轴没有分量时取该轴中点（如拖 se 锚 nw 角）。
+ */
+function anchorPoint(rect: Rect, handleId: string): Point {
   const x = handleId.includes('w')
     ? rect.x + rect.width
     : handleId.includes('e')
@@ -232,9 +241,19 @@ export function scaleSelection(
   }))
 }
 
+/**
+ * 手柄在各轴上驱动的边；与 `SnapInput.edges` 同形状，两轴各自可为缺省。
+ */
+interface EdgeModes {
+  /** 该手柄驱动的 x 轴边模式；手柄无横向分量时为 undefined */
+  x?: SnapEdgeMode
+  /** 该手柄驱动的 y 轴边模式；手柄无纵向分量时为 undefined */
+  y?: SnapEdgeMode
+}
+
 /** 缩放手柄决定哪条边在动：x 轴 e→end / w→start，y 轴 s→end / n→start */
-export function edgeModesOf(handleId: string): { x?: SnapEdgeMode; y?: SnapEdgeMode } {
-  const modes: { x?: SnapEdgeMode; y?: SnapEdgeMode } = {}
+export function edgeModesOf(handleId: string): EdgeModes {
+  const modes: EdgeModes = {}
   if (handleId.includes('e')) modes.x = 'end'
   else if (handleId.includes('w')) modes.x = 'start'
   if (handleId.includes('s')) modes.y = 'end'
@@ -246,34 +265,57 @@ export function edgeModesOf(handleId: string): { x?: SnapEdgeMode; y?: SnapEdgeM
  * 把吸附位移只作用到正在拖动的边上。
  *
  * 吸附结果给的是「边要移动多少」，而缩放里固定边是锚点不能动：e/s 只改宽高，
- * w/n 还要同步移动原点。碰到最小尺寸时返回原矩形——宁可这一帧不吸附，
- * 也不能把节点压成负尺寸或翻面。
+ * w/n 还要同步移动原点。方位判定复用 `edgeModesOf`，与手柄解析保持单一口径。
+ * 任一轴压到最小尺寸时整次吸附作废、返回原矩形（宁可这一帧不吸附，
+ * 也不能把节点压成负尺寸或翻面）。
+ *
+ * @param delta 吸附给出的两轴位移（世界单位），不是坐标点；x 只作用于正在拖动的竖边、
+ * y 只作用于正在拖动的横边
  */
 export function applyEdgeSnap(
   rect: Rect,
   handleId: string,
-  delta: { x: number; y: number },
+  delta: Point,
   minSize: number = MIN_NODE_SIZE,
 ): Rect {
-  let { x, y, width, height } = rect
+  const modes = edgeModesOf(handleId)
+  const x = snapEdgeAxis(rect.x, rect.width, modes.x, delta.x, minSize)
+  const y = snapEdgeAxis(rect.y, rect.height, modes.y, delta.y, minSize)
+  if (!x || !y) return rect
 
-  if (handleId.includes('e')) {
-    width += delta.x
-    if (width < minSize) return rect
-  } else if (handleId.includes('w')) {
-    x += delta.x
-    width -= delta.x
-    if (width < minSize) return rect
-  }
+  return { x: x.origin, y: y.origin, width: x.length, height: y.length }
+}
 
-  if (handleId.includes('s')) {
-    height += delta.y
-    if (height < minSize) return rect
-  } else if (handleId.includes('n')) {
-    y += delta.y
-    height -= delta.y
-    if (height < minSize) return rect
-  }
+/**
+ * 单轴缩放结果：原点 + 长度，单位是世界单位。
+ *
+ * 之所以不复用 `Rect` 的一半：吸附只在单轴上工作，另一轴的 origin/length
+ * 是各自独立返回的，凑成矩形反而会诱导出「两轴已同时成立」的误读。
+ */
+interface AxisSpan {
+  /** 吸附后该轴原点；拖 start 边时与边一起移动，拖 end 边时不变 */
+  origin: number
+  /** 吸附后该轴长度，命中成功时恒不小于 minSize */
+  length: number
+}
 
-  return { x, y, width, height }
+/**
+ * 单轴吸附：`end` 只改长度，`start` 同时把原点推出去（对侧边才是锚点）。
+ *
+ * @param mode 该轴驱动的边；undefined 表示手柄在该轴没有分量，原样返回
+ * @returns 吸附后的原点与长度；结果长度小于 `minSize` 时为 null，调用方需放弃吸附
+ */
+function snapEdgeAxis(
+  origin: number,
+  length: number,
+  mode: SnapEdgeMode | undefined,
+  delta: number,
+  minSize: number,
+): AxisSpan | null {
+  if (!mode) return { origin, length }
+
+  const next = mode === 'end' ? length + delta : length - delta
+  if (next < minSize) return null
+
+  return { origin: mode === 'end' ? origin : origin + delta, length: next }
 }

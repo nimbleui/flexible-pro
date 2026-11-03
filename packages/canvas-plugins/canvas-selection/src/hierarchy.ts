@@ -1,4 +1,4 @@
-import type { NodeFlagView } from '@lc/contracts'
+import type { NodeFlagView, Point } from '@lc/contracts'
 import type { Rect } from '@lc/schema'
 import type { PageSchema } from '@lc/schema'
 import { findPosition } from '@lc/schema'
@@ -33,8 +33,10 @@ export function selectableParent(
  *
  * 用 1×1 的屏幕矩形查命中，和点选共用同一套 AABB 与锁定过滤；场景登记顺序
  * 是底 → 顶，反转后第一项就是普通点击会选中的那个。
+ *
+ * @param screen 查询点的屏幕坐标（CSS 像素，相对舞台原点）；命中盒取 1×1，与点选同口径
  */
-export function stackAt(hitTest: StackHitTest, screen: { x: number; y: number }): string[] {
+export function stackAt(hitTest: StackHitTest, screen: Point): string[] {
   const near: Rect = { x: screen.x, y: screen.y, width: 1, height: 1 }
   return [...hitTest.inRect(near)].reverse()
 }

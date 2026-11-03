@@ -25,11 +25,21 @@ export interface SubtreeSet {
 
 /** 插入结果 */
 export interface InsertResult {
+  /**
+   * 可直接提交事务的补丁序列：先逐节点 add，再按父级 replace children；
+   * 顺序保证 add 先于引用生效，父级缺失时不会产生悬空 children。
+   */
   patches: SchemaPatch[]
   /** 新根节点 id，用于插入后选中 */
   newRootIds: string[]
 }
 
+/**
+ * `insertSubtrees` 的定位参数。
+ *
+ * 复制与再制共用同一插入逻辑，差异只在偏移量；`createId` 注入是为了
+ * 让单测得到确定的 id 序列。
+ */
 export interface InsertOptions {
   /** 新节点整体偏移（世界像素） */
   offset: number
@@ -76,49 +86,131 @@ export function insertSubtrees(
   source: SubtreeSet,
   options: InsertOptions,
 ): InsertResult {
-  const idMap = new Map<string, string>()
-  for (const oldId of Object.keys(source.nodes)) idMap.set(oldId, options.createId())
+  const idMap = planIdMap(source.nodes, options.createId)
 
+  // 先逐节点 add，再按父级 replace children：顺序保证引用生效时目标节点已在文档里
+  const patches = [
+    ...planNodeAdds(source.nodes, idMap, options.offset),
+    ...planParentPatches(schema, planRootAppends(schema, source, idMap)),
+  ]
+
+  // 新根顺序跟随 source.roots：选中集顺序决定 primary，不能按父级分组重排
+  return { patches, newRootIds: remapIds(source.roots, idMap) }
+}
+
+/**
+ * 为复制集合里的每个旧 id 预先分配新 id。
+ *
+ * 一次插入共用同一张映射表，节点自身 id、children 引用与新根 id 才不会互相错位。
+ */
+function planIdMap(
+  nodes: Readonly<Record<string, NodeSchema>>,
+  createId: () => string,
+): Map<string, string> {
+  const idMap = new Map<string, string>()
+  for (const oldId of Object.keys(nodes)) idMap.set(oldId, createId())
+  return idMap
+}
+
+/** 逐节点 add 补丁；path 用新 id，值由 `cloneWithNewId` 完成换 id、重映射与平移 */
+function planNodeAdds(
+  nodes: Readonly<Record<string, NodeSchema>>,
+  idMap: Map<string, string>,
+  offset: number,
+): SchemaPatch[] {
   const patches: SchemaPatch[] = []
-  for (const [oldId, node] of Object.entries(source.nodes)) {
+
+  for (const [oldId, node] of Object.entries(nodes)) {
+    // idMap 覆盖了 source.nodes 的全部键，取值必命中
     const newId = idMap.get(oldId) as string
-    const mappedChildren = node.children
-      ?.map((childId) => idMap.get(childId))
-      .filter((childId): childId is string => Boolean(childId))
-    const mappedSlots = node.slots
+    patches.push({
+      op: 'add',
+      path: nodePath(newId),
+      value: cloneWithNewId(node, newId, idMap, offset),
+    })
+  }
+
+  return patches
+}
+
+/**
+ * 父级 children 的 replace 补丁。
+ *
+ * 在当前 children 末尾追加该父级名下的新根；父级已被删除时 `planRootAppends`
+ * 已把它归到文档根节点，这里不会再产生悬空引用。
+ */
+function planParentPatches(schema: PageSchema, appends: Map<string, string[]>): SchemaPatch[] {
+  const patches: SchemaPatch[] = []
+
+  for (const [parentId, children] of appends) {
+    const current = schema.nodes[parentId]?.children ?? []
+    patches.push({
+      op: 'replace',
+      path: nodePath(parentId, 'children'),
+      value: [...current, ...children],
+    })
+  }
+
+  return patches
+}
+
+/** children、slot 与新根列表共用：旧 id → 新 id，映射不到的（不在本次复制集合里）丢弃 */
+function remapIds(childIds: readonly string[], idMap: Map<string, string>): string[] {
+  return childIds
+    .map((childId) => idMap.get(childId))
+    .filter((childId): childId is string => childId !== undefined)
+}
+
+/**
+ * 深拷贝单个节点并改写身份：换新 id、重映射子引用、整体平移。
+ *
+ * rect 平移同时作用于 x/y 两个轴（与 `InsertOptions.offset` 的对角偏移语义一致）；
+ * 没有 rect 的流式布局节点原样保留 layout。
+ */
+function cloneWithNewId(
+  node: NodeSchema,
+  newId: string,
+  idMap: Map<string, string>,
+  offset: number,
+): NodeSchema {
+  const rect = node.layout?.rect
+  return {
+    ...cloneNode(node),
+    id: newId,
+    children: node.children ? remapIds(node.children, idMap) : undefined,
+    slots: node.slots
       ? Object.fromEntries(
           Object.entries(node.slots).map(([slot, children]) => [
             slot,
-            children
-              .map((childId) => idMap.get(childId))
-              .filter((childId): childId is string => Boolean(childId)),
+            remapIds(children, idMap),
           ]),
         )
-      : undefined
-
-    const rect = node.layout?.rect
-    const next: NodeSchema = {
-      ...cloneNode(node),
-      id: newId,
-      children: mappedChildren,
-      slots: mappedSlots,
-      layout: rect
-        ? {
-            ...node.layout,
-            rect: {
-              ...rect,
-              x: rect.x + options.offset,
-              y: rect.y + options.offset,
-            },
-          }
-        : node.layout,
-    }
-
-    patches.push({ op: 'add', path: nodePath(newId), value: next })
+      : undefined,
+    layout: rect
+      ? {
+          ...node.layout,
+          rect: {
+            ...rect,
+            x: rect.x + offset,
+            y: rect.y + offset,
+          },
+        }
+      : node.layout,
   }
+}
 
+/**
+ * 规划各根节点的挂载：新根 id → 追加到哪个父级的 children。
+ *
+ * 原父级仍在文档里就回原父级末尾，否则退到文档根节点；同一父级的多个根
+ * 保持 source.roots 的相对顺序。
+ */
+function planRootAppends(
+  schema: PageSchema,
+  source: SubtreeSet,
+  idMap: Map<string, string>,
+): Map<string, string[]> {
   const appends = new Map<string, string[]>()
-  const newRootIds: string[] = []
 
   for (const root of source.roots) {
     const mappedRoot = idMap.get(root)
@@ -127,23 +219,12 @@ export function insertSubtrees(
     const storedParent = source.parents[root]
     const parentId = storedParent && schema.nodes[storedParent] ? storedParent : schema.nodeId
 
-    newRootIds.push(mappedRoot)
     const list = appends.get(parentId) ?? []
     list.push(mappedRoot)
     appends.set(parentId, list)
   }
 
-  for (const [parentId, children] of appends) {
-    const parent = schema.nodes[parentId]
-    const current = parent?.children ?? []
-    patches.push({
-      op: 'replace',
-      path: nodePath(parentId, 'children'),
-      value: [...current, ...children],
-    })
-  }
-
-  return { patches, newRootIds }
+  return appends
 }
 
 /**

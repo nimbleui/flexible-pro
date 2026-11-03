@@ -10,6 +10,7 @@ import type {
   HitTestService,
   InteractionHandler,
   InteractionResult,
+  Point,
   PointerPhase,
   ViewportService,
 } from '@lc/contracts'
@@ -82,19 +83,70 @@ type AnyHandler = {
   handle: (event: CanvasInputEvent, ctx: CanvasContext) => InteractionResult
 }
 
+/**
+ * 舞台本地屏幕坐标。
+ *
+ * 单位是 CSS 像素，原点在舞台 `getBoundingClientRect()` 的左上角（已减掉 rect
+ * 偏移），不是 clientX / clientY；数值不含视口 zoom 与 origin 平移，
+ * 世界坐标一律用 `Point` 表示。
+ */
+type ScreenPoint = {
+  /** 水平方向，向右为正 */
+  x: number
+
+  /** 垂直方向，向下为正（屏幕 y 轴朝下，与世界 y 轴同向） */
+  y: number
+}
+
+/**
+ * 相邻两次指针事件的屏幕位移。
+ *
+ * 与 `ScreenPoint` 同一坐标空间（舞台本地 CSS 像素），可为负；指针首次入场、
+ * `click` 等合成事件按约定给 0，不表示「没有移动过」。
+ */
+type ScreenDelta = ScreenPoint
+
+/**
+ * pointerdown 解析出的命中信息。
+ *
+ * 一次按下只解析一次，后续 move / up / click 全部复用它，指针滑出原节点不会改判目标。
+ */
+interface DownHit {
+  /** 命中的场景节点 id；命中覆盖层手柄或空白处时为 undefined */
+  targetNodeId?: string
+
+  /** 命中的覆盖层手柄 id（取自最近的 `[data-handle-id]` 属性值）；非手柄时为 undefined */
+  targetHandleId?: string
+}
+
+/** 按下时的完整基准：命中信息 + 按下点，抬手时据此判定这一次算拖拽还是点击 */
+interface DownState extends DownHit {
+  /** 按下点的屏幕坐标（舞台本地 CSS 像素），与抬手点求欧氏距离后与阈值比较 */
+  screen: ScreenPoint
+}
+
+/** 一次指针事件的坐标对，构造事件时整体展开，保证两个值同源 */
+interface EventCoords {
+  /** 舞台本地屏幕坐标（CSS 像素，原点为舞台 rect 左上角） */
+  screen: ScreenPoint
+
+  /** screen 经视口换算得到的世界坐标（画布逻辑单位） */
+  world: Point
+}
+
 /** 构造 CanvasPointerEvent 所需的入参，缺省字段由管线补齐 */
 interface PointerInit {
   /** 对外暴露的事件类型，与原生事件名不一定同名（click 由管线合成） */
   type: CanvasPointerEvent['type']
 
-  /** 舞台本地屏幕坐标（已减去舞台 rect 偏移），不是 clientX/clientY */
-  screen: { x: number; y: number }
+  /** 舞台本地屏幕坐标（CSS 像素，原点为舞台 rect 左上角），不是 clientX / clientY */
+  screen: ScreenPoint
 
-  /** screen 经视口换算后的世界坐标 */
-  world: { x: number; y: number }
+  /** screen 经 `viewport.screenToWorld` 换算的世界坐标（画布逻辑单位，含 origin 平移、已除 zoom） */
+  world: Point
 
-  /** 相对上一次指针事件的屏幕位移；首个事件与合成事件均为 0 */
-  delta: { x: number; y: number }
+  /** 相对上一次指针事件的屏幕位移（舞台本地 CSS 像素）；首个事件与合成事件均为 0 */
+  delta: ScreenDelta
 
   /** 原生 buttons 快照；非指针来源的合成事件按调用处给定值透传 */
   buttons: number
@@ -145,20 +197,21 @@ export function createInteractionPipeline(
   /** 舞台 rect 快照：指针事件里只读缓存，避免每次 move 触发一次布局读取 */
   let stageRect: DOMRect | null = null
 
-  /** 上一次指针事件的屏幕坐标，用于算 delta；attach 解绑时清空 */
-  let lastScreen: { x: number; y: number } | null = null
+  /**
+   * 上一次指针事件的屏幕坐标，用于算 delta。
+   *
+   * null 表示「没有前一次可比的位置」：尚未收到过指针事件、pointerleave 之后，
+   * 或 attach 解绑重来；此时第一个 move 的 delta 记 0，而不是拿更早的按下点当基准。
+   */
+  let lastScreen: ScreenPoint | null = null
 
   /**
    * 本次按下的起点与命中信息。
    *
    * pointermove / pointerup 复用它的命中结果，指针移出原节点不会改判目标；
-   * pointerup 结束时置 null。
+   * pointerup 收尾与 pointercancel、解绑时置 null。
    */
-  let down: {
-    screen: { x: number; y: number }
-    targetNodeId?: string
-    targetHandleId?: string
-  } | null = null
+  let down: DownState | null = null
 
   /** 当前接管手势的回调；非空时 pointermove / pointerup 不再走普通分发 */
   let gesture: GestureCallbacks | null = null
@@ -177,12 +230,23 @@ export function createInteractionPipeline(
    * rect 尚未测量时按 0 偏移处理，结果等价于 client 坐标；舞台滚动或缩放后
    * 必须先 `updateStageRect`，否则整条手势会带上固定偏移。
    */
-  function toScreen(native: MouseEvent): { x: number; y: number } {
+  function toScreen(native: MouseEvent): ScreenPoint {
     const rect = stageRect
     return {
       x: native.clientX - (rect?.left ?? 0),
       y: native.clientY - (rect?.top ?? 0),
     }
+  }
+
+  /**
+   * 一次性产出 screen + world 两个事件字段。
+   *
+   * 滚轮 / 右键 / 双击此前各调用两次 `toScreen` 再各自换算一次，合并后既省掉重复
+   * 换算，也保证 screen 与 world 来自同一次 rect 快照。
+   */
+  function coordsOf(native: MouseEvent): EventCoords {
+    const screen = toScreen(native)
+    return { screen, world: options.viewport.screenToWorld(screen) }
   }
 
   /** 取修饰键快照；处理器读到的是事件发生瞬间的按键状态，不会在异步逻辑里变化 */
@@ -312,7 +376,7 @@ export function createInteractionPipeline(
    * targetNodeId，节点级处理器因此不会与手柄抢同一次按下。手柄由覆盖层渲染，
    * 不在场景登记中，无需额外的图层过滤。
    */
-  function resolveTarget(native: MouseEvent, screen: { x: number; y: number }) {
+  function resolveTarget(native: MouseEvent, screen: ScreenPoint): DownHit {
     const target = native.target
     const handleElement = target instanceof Element ? target.closest('[data-handle-id]') : null
     const targetHandleId = handleElement?.getAttribute('data-handle-id') ?? undefined
@@ -432,7 +496,7 @@ export function createInteractionPipeline(
       const onPointerDown = (native: PointerEvent): void => {
         // 每次按下重新测量：舞台位置可能在两次按下之间变化
         updateStageRect()
-        const screen = toScreen(native)
+        const { screen, world } = coordsOf(native)
         lastScreen = screen
 
         // 捕获后 move/up 全部回到舞台，指针滑出画布也不会丢手势；
@@ -453,7 +517,7 @@ export function createInteractionPipeline(
           createPointerEvent({
             type: 'pointerdown',
             screen,
-            world: options.viewport.screenToWorld(screen),
+            world,
             delta: { x: 0, y: 0 },
             buttons: native.buttons,
             pointerId: native.pointerId,
@@ -463,17 +527,38 @@ export function createInteractionPipeline(
         )
       }
 
+      /**
+       * 抬手位移在阈值内时补发合成 click。
+       *
+       * click 的 delta 恒为 0（合成事件没有「上一次指针位置」），命中信息沿用按下时的
+       * down，与同一次 pointerup 保持一致；超过阈值即视为拖拽，不再补 click。
+       */
+      const dispatchTap = (native: PointerEvent, screen: ScreenPoint, world: Point): void => {
+        if (!down || distance(down.screen, screen) > threshold) return
+
+        dispatch(
+          createPointerEvent({
+            type: 'click',
+            screen,
+            world,
+            delta: { x: 0, y: 0 },
+            buttons: native.buttons,
+            pointerId: native.pointerId,
+            ...downTarget(down),
+            originalEvent: native,
+          }),
+        )
+      }
+
       const onPointerMove = (native: PointerEvent): void => {
-        const screen = toScreen(native)
-        const delta = lastScreen
-          ? { x: screen.x - lastScreen.x, y: screen.y - lastScreen.y }
-          : { x: 0, y: 0 }
+        const { screen, world } = coordsOf(native)
+        const delta = deltaFrom(lastScreen, screen)
         lastScreen = screen
 
         const event = createPointerEvent({
           type: 'pointermove',
           screen,
-          world: options.viewport.screenToWorld(screen),
+          world,
           delta,
           buttons: native.buttons,
           pointerId: native.pointerId,
@@ -491,20 +576,19 @@ export function createInteractionPipeline(
           }
           return
         }
+
         dispatch(event)
       }
 
       const onPointerUp = (native: PointerEvent): void => {
-        const screen = toScreen(native)
-        const delta = lastScreen
-          ? { x: screen.x - lastScreen.x, y: screen.y - lastScreen.y }
-          : { x: 0, y: 0 }
+        const { screen, world } = coordsOf(native)
+        const delta = deltaFrom(lastScreen, screen)
         lastScreen = screen
 
         const event = createPointerEvent({
           type: 'pointerup',
           screen,
-          world: options.viewport.screenToWorld(screen),
+          world,
           delta,
           buttons: native.buttons,
           pointerId: native.pointerId,
@@ -519,21 +603,7 @@ export function createInteractionPipeline(
 
         releaseCapture()
 
-        // 位移未超过阈值才算点击；拖拽结束不再补 click
-        if (down && distance(down.screen, screen) <= threshold) {
-          dispatch(
-            createPointerEvent({
-              type: 'click',
-              screen,
-              world: options.viewport.screenToWorld(screen),
-              delta: { x: 0, y: 0 },
-              buttons: native.buttons,
-              pointerId: native.pointerId,
-              ...downTarget(down),
-              originalEvent: native,
-            }),
-          )
-        }
+        dispatchTap(native, screen, world)
         down = null
       }
 
@@ -547,8 +617,7 @@ export function createInteractionPipeline(
         dispatch(
           createPointerEvent({
             type: 'pointercancel',
-            screen: toScreen(native),
-            world: options.viewport.screenToWorld(toScreen(native)),
+            ...coordsOf(native),
             delta: { x: 0, y: 0 },
             buttons: native.buttons,
             pointerId: native.pointerId,
@@ -566,13 +635,11 @@ export function createInteractionPipeline(
       const onPointerLeave = (native: PointerEvent): void => {
         if (gesture) return
         updateStageRect()
-        const screen = toScreen(native)
         lastScreen = null
         dispatch(
           createPointerEvent({
             type: 'pointerleave',
-            screen,
-            world: options.viewport.screenToWorld(screen),
+            ...coordsOf(native),
             delta: { x: 0, y: 0 },
             buttons: 0,
             pointerId: native.pointerId,
@@ -588,8 +655,7 @@ export function createInteractionPipeline(
         dispatch(
           createPointerEvent({
             type: 'wheel',
-            screen: toScreen(native),
-            world: options.viewport.screenToWorld(toScreen(native)),
+            ...coordsOf(native),
             delta: { x: 0, y: 0 },
             buttons: 0,
             pointerId: -1,
@@ -618,8 +684,7 @@ export function createInteractionPipeline(
         dispatch(
           createPointerEvent({
             type: 'contextmenu',
-            screen: toScreen(native),
-            world: options.viewport.screenToWorld(toScreen(native)),
+            ...coordsOf(native),
             delta: { x: 0, y: 0 },
             buttons: native.buttons,
             pointerId: -1,
@@ -635,8 +700,7 @@ export function createInteractionPipeline(
         dispatch(
           createPointerEvent({
             type: 'dblclick',
-            screen: toScreen(native),
-            world: options.viewport.screenToWorld(toScreen(native)),
+            ...coordsOf(native),
             delta: { x: 0, y: 0 },
             buttons: native.buttons,
             pointerId: -1,
@@ -690,17 +754,33 @@ export function createInteractionPipeline(
   return service
 }
 
-/** 取按下时解析到的命中信息；避免把 screen/delta 重复展开到新事件上。 */
-function downTarget(
-  value: { targetNodeId?: string; targetHandleId?: string } | null,
-): {
-  targetNodeId?: string
-  targetHandleId?: string
-} {
+/**
+ * 取按下时解析到的命中信息。
+ *
+ * 存在是为了不把 `down.screen` / delta 一起重复展开进每个新事件：move / up / click /
+ * 右键都只想要那两个可选 id。`down` 为 null（尚未按下或本次抬手已收尾）时返回空对象，
+ * 事件上这两个字段因此是缺省而不是显式 undefined。
+ */
+function downTarget(value: DownHit | null): DownHit {
   return value ? { targetNodeId: value.targetNodeId, targetHandleId: value.targetHandleId } : {}
 }
 
-/** 两点间的直线距离；用欧氏距离而非位移分量之和，斜向拖拽不会被误判成点击 */
-function distance(a: { x: number; y: number }, b: { x: number; y: number }): number {
+/**
+ * 两次指针事件之间的屏幕位移。
+ *
+ * `prev` 为 null 表示没有前一次可比的位置（首次入场 / 指针离开舞台 / 解绑重挂），
+ * 此时返回 0 而不是拿更早的按下点当基准，否则重新入场的第一个 move 会带一个巨大 delta。
+ */
+function deltaFrom(prev: ScreenPoint | null, screen: ScreenPoint): ScreenDelta {
+  return prev ? { x: screen.x - prev.x, y: screen.y - prev.y } : { x: 0, y: 0 }
+}
+
+/**
+ * 两点间的直线距离（舞台本地屏幕 CSS 像素）。
+ *
+ * 用欧氏距离而非位移分量之和：斜向拖拽分量都不大但总位移超过阈值时，
+ * 按分量求和会被误判成点击。
+ */
+function distance(a: ScreenPoint, b: ScreenPoint): number {
   return Math.hypot(a.x - b.x, a.y - b.y)
 }

@@ -31,6 +31,12 @@ export const DropOverlay = defineComponent({
       onUnmounted(off.dispose)
     })
 
+    /**
+     * 世界矩形 → 屏幕矩形。
+     *
+     * 公式与视口服务的 `worldToScreen` 一致，但读的是 frame 快照而非实时服务：
+     * 预览必须和同帧画出来的场景对齐，读活视口会在提交瞬间错位。
+     */
     function toScreen(rect: Rect): Rect {
       const { zoom, x, y } = props.frame.viewport
       return {
@@ -41,11 +47,8 @@ export const DropOverlay = defineComponent({
       }
     }
 
-    return () => {
-      version.value
-      const preview = canvas.settings.get<DropPreview | null>(DROP_PREVIEW_SETTING)
-      if (!preview) return null
-
+    /** 幽灵框矩形（屏幕空间）：以落点世界坐标为中心，尺寸取物料 snippet 默认宽高 */
+    function computeGhostRect(preview: DropPreview): Rect {
       const entry = material.get(preview.materialName)
       const snippetRect = entry?.snippet?.layout?.rect
       const size = {
@@ -58,49 +61,59 @@ export const DropOverlay = defineComponent({
         width: size.width,
         height: size.height,
       })
+      return ghost
+    }
+
+    /** 绘制物料落点幽灵框 */
+    function ghostBox(ghost: Rect): ReturnType<typeof h> {
+      return h('div', {
+        key: 'ghost',
+        class: 'lc-drop-ghost',
+        style: {
+          position: 'absolute',
+          left: `${ghost.x}px`,
+          top: `${ghost.y}px`,
+          width: `${ghost.width}px`,
+          height: `${ghost.height}px`,
+          border: '1px dashed var(--lc-accent, #2563eb)',
+          background: 'rgba(37, 99, 235, 0.10)',
+          borderRadius: '4px',
+          boxSizing: 'border-box',
+          pointerEvents: 'none',
+        },
+      })
+    }
+
+    /** 命中容器时的外沿高亮框 */
+    function containerHighlight(containerScreen: Rect): ReturnType<typeof h> {
+      return h('div', {
+        key: 'container',
+        class: 'lc-drop-container',
+        style: {
+          position: 'absolute',
+          left: `${containerScreen.x}px`,
+          top: `${containerScreen.y}px`,
+          width: `${containerScreen.width}px`,
+          height: `${containerScreen.height}px`,
+          outline: '1px solid var(--lc-accent, #2563eb)',
+          outlineOffset: '2px',
+          pointerEvents: 'none',
+        },
+      })
+    }
+
+    return () => {
+      version.value
+      const preview = canvas.settings.get<DropPreview | null>(DROP_PREVIEW_SETTING)
+      if (!preview) return null
 
       const containerRect = preview.containerId
         ? canvas.scene.getBounds(preview.containerId)
         : undefined
       const containerScreen = containerRect ? toScreen(containerRect) : null
 
-      const children = [
-        h('div', {
-          key: 'ghost',
-          class: 'lc-drop-ghost',
-          style: {
-            position: 'absolute',
-            left: `${ghost.x}px`,
-            top: `${ghost.y}px`,
-            width: `${ghost.width}px`,
-            height: `${ghost.height}px`,
-            border: '1px dashed var(--lc-accent, #2563eb)',
-            background: 'rgba(37, 99, 235, 0.10)',
-            borderRadius: '4px',
-            boxSizing: 'border-box',
-            pointerEvents: 'none',
-          },
-        }),
-      ]
-
-      if (containerScreen) {
-        children.push(
-          h('div', {
-            key: 'container',
-            class: 'lc-drop-container',
-            style: {
-              position: 'absolute',
-              left: `${containerScreen.x}px`,
-              top: `${containerScreen.y}px`,
-              width: `${containerScreen.width}px`,
-              height: `${containerScreen.height}px`,
-              outline: '1px solid var(--lc-accent, #2563eb)',
-              outlineOffset: '2px',
-              pointerEvents: 'none',
-            },
-          }),
-        )
-      }
+      const children = [ghostBox(computeGhostRect(preview))]
+      if (containerScreen) children.push(containerHighlight(containerScreen))
 
       return h(
         'div',

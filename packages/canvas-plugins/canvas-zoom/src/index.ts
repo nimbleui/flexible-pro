@@ -1,5 +1,5 @@
 import { defineCanvasPlugin } from '@lc/contracts'
-import type { KeybindingService } from '@lc/contracts'
+import type { KeybindingService, Point } from '@lc/contracts'
 import { clamp } from '@lc/shared'
 
 export { manifest } from './manifest'
@@ -39,8 +39,10 @@ export default defineCanvasPlugin({
      * 插件先按自己的 MIN/MAX 夹紧，再把 `target / current` 交给视口：视口的区间
      * 由宿主创建时决定，可能比这里更宽，预夹紧保证缩放范围以本插件语义为准。
      * 已在上下限时直接返回，省掉一次视口写入与通知。
+     *
+     * @param screen 缩放锚点的屏幕坐标（CSS 像素，相对舞台原点；滚轮用指针位置、命令用视口中心）
      */
-    function zoomTowards(screen: { x: number; y: number }, factor: number): void {
+    function zoomTowards(screen: Point, factor: number): void {
       const current = canvas.viewport.state.zoom
       const target = clamp(current * factor, MIN_ZOOM, MAX_ZOOM)
       if (target === current) return

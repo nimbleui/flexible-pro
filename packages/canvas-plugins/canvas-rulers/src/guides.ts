@@ -6,13 +6,17 @@ export type GuideAxis = 'horizontal' | 'vertical'
 
 /** 用户参考线集合，值全部是世界坐标 */
 export interface UserGuides {
+  /** 水平参考线的世界 Y 值列表；数组下标即手柄 id 里的序号，手势期间不可增删 */
   horizontal: number[]
+  /** 垂直参考线的世界 X 值列表；与 horizontal 同口径 */
   vertical: number[]
 }
 
 /** 拖拽标尺时的草稿线；落在参考线设置之外，避免拖动过程反复写文档态数据 */
 export interface GuideDraft {
+  /** 草稿线轴向，决定落位时写回 UserGuides 的哪一侧 */
   axis: GuideAxis
+  /** 指针所在轴的世界坐标（世界单位，非屏幕像素） */
   value: number
 }
 
@@ -39,6 +43,8 @@ export function guideHandleId(axis: GuideAxis, index: number): string {
  *
  * 下标是「当时数组里的位置」，只在一次手势内有效：手势期间不增删参考线，
  * 所以移动过程可以放心按下标回写。非参考线手柄返回 undefined。
+ *
+ * @returns 命中时为 {axis,index}：axis 是手柄所属轴向，index 是手柄在对应轴向数组中的下标（仅当次手势内有效）
  */
 export function parseGuideHandleId(
   handleId: string,

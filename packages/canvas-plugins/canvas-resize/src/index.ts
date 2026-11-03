@@ -1,4 +1,4 @@
-import type { CanvasTransaction, SnapService } from '@lc/contracts'
+import type { CanvasModifiers, CanvasTransaction, SnapService } from '@lc/contracts'
 import { defineCanvasPlugin, isPointerEvent, transformableIds } from '@lc/contracts'
 import { normalizeRect } from '@lc/canvas'
 import type { Rect } from '@lc/schema'
@@ -91,7 +91,7 @@ export default defineCanvasPlugin({
     function withSnap(
       rect: Rect,
       handleId: string,
-      move: { modifiers: { alt: boolean; shift: boolean } },
+      move: { modifiers: CanvasModifiers },
       movingIds: readonly string[],
     ): Rect {
       if (!snap) return rect
