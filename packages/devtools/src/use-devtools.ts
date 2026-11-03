@@ -97,6 +97,88 @@ function emptyStates(): Record<PluginRow['state'], number> {
 }
 
 /**
+ * 把多次触发合并成一次提交。
+ *
+ * 启动期连续 `provide` 会在同一轮里打出几十个事件，逐个自增版本会让整棵
+ * computed 依赖树重复求值；合并成一次微任务后的自增仍然在同一帧可见。
+ *
+ * @param commit 微任务里真正执行的版本自增
+ */
+function createCoalescedBump(commit: () => void): () => void {
+  let queued = false
+
+  return (): void => {
+    if (queued) return
+    queued = true
+    queueMicrotask(() => {
+      queued = false
+      commit()
+    })
+  }
+}
+
+/** 顶栏摘要：只做计数，不再读内核，保证与列表用的是同一批行数据。 */
+function buildSummary(
+  plugins: readonly PluginRow[],
+  services: readonly ServiceRow[],
+  events: readonly EventLogEntry[],
+  diagnostics: readonly DiagnosticRecord[],
+): DevtoolsSummary {
+  const states = emptyStates()
+  for (const row of plugins) states[row.state] += 1
+
+  return {
+    states,
+    plugins: plugins.length,
+    services: services.length,
+    events: events.length,
+    diagnostics: diagnostics.length,
+  }
+}
+
+/**
+ * 订阅画布侧的变化，统一收敛成一次画布快照重算。
+ *
+ * 视口、场景、覆盖层、选中集、文档、历史各有自己的 `onDidChange`，而快照是一次
+ * 全量读取，因此不需要区分来源，任何一个通道都只负责触发重算。
+ *
+ * @param canvas 画布上下文
+ * @param bumpCanvas 画布版本自增
+ * @returns 待登记的订阅句柄；调用方负责在作用域销毁时释放
+ */
+function subscribeCanvasUpdates(canvas: Context, bumpCanvas: () => void): Disposable[] {
+  const disposables: Disposable[] = []
+  const view = canvas.get<CanvasService>('canvas')
+  const document = canvas.get<DocumentService>('document')
+  const history = canvas.get<HistoryService>('history')
+
+  if (view) {
+    disposables.push(view.viewport.onDidChange(bumpCanvas))
+    disposables.push(view.scene.onDidChange(bumpCanvas))
+    disposables.push(view.layers.onDidChange(bumpCanvas))
+    disposables.push(view.selection.onDidChange(bumpCanvas))
+  }
+  if (document) disposables.push(document.onDidChange(bumpCanvas))
+  if (history) disposables.push(history.onDidChange(bumpCanvas))
+
+  return disposables
+}
+
+/**
+ * 把内核的事件分发观测写进日志缓冲。
+ *
+ * 事件通道有独立的版本号：日志只驱动事件面板，不该连带重算插件树与依赖图。
+ * 缓冲按 `EVENT_LOG_LIMIT` 封顶并淘汰最早的一条，因此高频手势（拖拽、框选）
+ * 可以放开订阅而不积累内存。
+ */
+function subscribeEventLog(root: Context, log: EventLog, bumpEvents: () => void): Disposable {
+  return root.bus.monitor((record) => {
+    log.push(record)
+    bumpEvents()
+  })
+}
+
+/**
  * 建立 devtools 的响应式自省状态。
  *
  * 更新全部由内核事件驱动，没有轮询：插件状态与服务变化走 `internalBus` 与
@@ -118,15 +200,9 @@ export function useDevtools(source: DevtoolsSource): DevtoolsState {
   const log = new EventLog()
   const disposables: Disposable[] = []
 
-  let queued = false
-  const bump = (): void => {
-    if (queued) return
-    queued = true
-    queueMicrotask(() => {
-      queued = false
-      revision.value += 1
-    })
-  }
+  const bump = createCoalescedBump(() => {
+    revision.value += 1
+  })
 
   const scopes = computed<DevtoolsScope[]>(() => {
     void revision.value
@@ -168,26 +244,13 @@ export function useDevtools(source: DevtoolsSource): DevtoolsState {
     return buildCanvasView(source.canvas ?? null)
   })
 
-  const summary = computed<DevtoolsSummary>(() => {
-    const states = emptyStates()
-    for (const row of plugins.value) states[row.state] += 1
-    return {
-      states,
-      plugins: plugins.value.length,
-      services: services.value.length,
-      events: events.value.length,
-      diagnostics: diagnostics.value.length,
-    }
-  })
+  const summary = computed<DevtoolsSummary>(() =>
+    buildSummary(plugins.value, services.value, events.value, diagnostics.value),
+  )
 
   disposables.push(source.root.internalBus.on('plugin', bump))
   disposables.push(source.root.services.onDidChange(bump))
-  disposables.push(
-    source.root.bus.monitor((record) => {
-      log.push(record)
-      eventRevision.value += 1
-    }),
-  )
+  disposables.push(subscribeEventLog(source.root, log, () => (eventRevision.value += 1)))
   disposables.push(
     source.root.diagnostics.onChange(() => {
       diagnosticRevision.value += 1
@@ -203,17 +266,7 @@ export function useDevtools(source: DevtoolsSource): DevtoolsState {
     const bumpCanvas = (): void => {
       canvasRevision.value += 1
     }
-    const view = canvas.get<CanvasService>('canvas')
-    const document = canvas.get<DocumentService>('document')
-    const history = canvas.get<HistoryService>('history')
-    if (view) {
-      disposables.push(view.viewport.onDidChange(bumpCanvas))
-      disposables.push(view.scene.onDidChange(bumpCanvas))
-      disposables.push(view.layers.onDidChange(bumpCanvas))
-      disposables.push(view.selection.onDidChange(bumpCanvas))
-    }
-    if (document) disposables.push(document.onDidChange(bumpCanvas))
-    if (history) disposables.push(history.onDidChange(bumpCanvas))
+    disposables.push(...subscribeCanvasUpdates(canvas, bumpCanvas))
   }
 
   onScopeDispose(() => {

@@ -16,10 +16,21 @@ const rotationDegrees = computed(() => {
   return `${((props.view.viewport.rotation * 180) / Math.PI).toFixed(1)}°`
 })
 
+/**
+ * 截断长 id 列表：面板只展示前 `limit` 条，其余折算成「还有多少条」。
+ *
+ * 快照本身不截断（`scene.order` 是完整登记顺序），截断只发生在展示层，
+ * 这样「数得清」和「看得下」两件事不会互相妥协。
+ */
 function preview(
   ids: readonly string[],
   limit = PREVIEW_LIMIT,
-): { shown: string[]; rest: number } {
+): {
+  /** 实际渲染的前若干条，长度不超过 limit */
+  shown: string[]
+  /** 被截断掉的条数；不大于 0 时不展示省略提示 */
+  rest: number
+} {
   return { shown: ids.slice(0, limit), rest: Math.max(0, ids.length - limit) }
 }
 </script>

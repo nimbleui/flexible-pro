@@ -21,8 +21,11 @@ const emit = defineEmits<{
   unload: [id: string]
 }>()
 
+/** 按作用域分组后的一组插件行。 */
 interface ScopeGroup {
+  /** 分组依据的作用域层；一个作用域一组，没有实例的层不出现 */
   scope: DevtoolsScope
+  /** 该层下的插件行，保持插件树的先父后子顺序 */
   rows: PluginRow[]
 }
 

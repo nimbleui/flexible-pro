@@ -42,8 +42,18 @@ const {
 const activeTab = ref<TabId>('plugins')
 const selectedPluginId = ref<string | null>(null)
 
-const tabs = computed<{ id: TabId; label: string; count: number }[]>(() => {
-  const list: { id: TabId; label: string; count: number }[] = [
+/** 顶栏的一个标签页；`count` 为 0 时角标不显示，画布页固定 0（内容由快照自证）。 */
+interface TabItem {
+  /** 页签标识，同时决定渲染哪个子面板 */
+  id: TabId
+  /** 页签文案 */
+  label: string
+  /** 条数角标：实例数 / 服务数 / 阻塞数 / 日志数，配置页只有选中与否 */
+  count: number
+}
+
+const tabs = computed<TabItem[]>(() => {
+  const list: TabItem[] = [
     { id: 'plugins', label: '插件树', count: summary.value.plugins },
     { id: 'services', label: '服务表', count: summary.value.services },
     { id: 'deps', label: '依赖图', count: dependencies.value.blocked.length },

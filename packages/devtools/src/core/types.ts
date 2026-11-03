@@ -255,10 +255,19 @@ export interface CanvasView {
   scene: {
     /** 登记节点数 */
     count: number
-    /** 登记顺序（底 → 顶） */
+    /** 登记顺序（底 → 顶）；引用服务内部的登记数组，不做副本，消费方不得修改 */
     order: readonly string[]
     /** 文档根包围盒 */
-    rootBounds: { x: number; y: number; width: number; height: number }
+    rootBounds: {
+      /** 左上角 x，画布世界坐标（非 CSS 像素；屏幕像素 = 世界值 × zoom） */
+      x: number
+      /** 左上角 y，画布世界坐标 */
+      y: number
+      /** 世界坐标系下的宽度，与 x/y 同一坐标空间 */
+      width: number
+      /** 世界坐标系下的高度 */
+      height: number
+    }
   }
   /** 覆盖层 */
   layers: readonly {

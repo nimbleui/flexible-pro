@@ -22,8 +22,11 @@ const filtered = computed<ServiceRow[]>(() => {
   )
 })
 
+/** 按作用域分组后的一组服务条目。 */
 interface ScopeGroup {
+  /** 分组依据的作用域层；过滤后没有条目的层不出现 */
   scope: DevtoolsScope
+  /** 该层实际注册的服务行，已按关键字过滤 */
   rows: ServiceRow[]
 }
 
