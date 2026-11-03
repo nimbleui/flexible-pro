@@ -22,7 +22,11 @@ export default defineComponent({
     const material = ctx.get<MaterialService>('material')
     const command = ctx.get<CommandService>('command')
     const version = ref(0)
-    let off: { dispose(): void } | null = null
+    /** 物料服务的订阅句柄；onMounted 注册、onUnmounted 释放，只保留一条 */
+    let off: {
+      /** 解绑本面板的 material 监听，重复调用不安全 */
+      dispose(): void
+    } | null = null
 
     onMounted(() => {
       if (!material) return
@@ -36,6 +40,15 @@ export default defineComponent({
       off = null
     })
 
+    /**
+     * 按 category 分组的物料。
+     *
+     * 写成函数而不是 computed：渲染函数每次执行都直接读 `version`，
+     * 分组结果就不必再占一份响应式缓存，也不会出现「订阅已更新但 computed 未失效」的时序缝隙。
+     * 分组顺序即 `material.list()` 的返回顺序，不额外排序。
+     *
+     * @returns category 直接取物料的 category（空串也是一组）；items 为该分组下的物料条目，保持 list 的原始顺序
+     */
     function groups(): Array<{ category: string; items: MaterialEntry[] }> {
       version.value
       const entries = material?.list() ?? []

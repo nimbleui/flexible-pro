@@ -47,11 +47,17 @@ onUnmounted(() => {
 
 /** 图层行：树结构展平后的渲染单元 */
 interface LayerRow {
+  /** 行 key，等于节点 id；展平后同一棵树里 id 唯一，可直接作 v-for key */
   key: string
+  /** 节点本体，引用 schema 里的对象，不做副本 */
   node: NodeSchema
+  /** 缩进层级；根节点为 0，每下钻一层 +1 */
   depth: number
+  /** 是否有子节点；决定展开箭头是否出现，与当前折叠状态无关 */
   expandable: boolean
+  /** 自身子树是否展开；只由折叠集合取反，父级被折叠时这一行根本不会出现在结果里 */
   expanded: boolean
+  /** 是否在当前选中集里；多选时多个行同时为 true */
   selected: boolean
   /** 在父级数组中的位置；根节点与游离节点没有 */
   position?: NodePosition
