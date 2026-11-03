@@ -18,6 +18,8 @@ declare module 'designerCanvas/CanvasModule' {
     appContext: Context
     /** 宿主创建的 CanvasRealm 上下文：文档、选中与视口服务都来自它 */
     canvasContext: CanvasContext
+    /** 宿主注入的表达式作用域，如 `$route` / `$params` / `$query` */
+    scope?: Record<string, unknown>
   }>
 
   export default CanvasModule

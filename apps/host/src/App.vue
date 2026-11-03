@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { useAppContext } from '@lc/vue'
 
 interface TopbarNavItem {
+  /** 导航文案，同时作为无障碍名 */
   label: string
   /** 有路由的入口；占位项只带 hint，渲染成不可用文本 */
   to?: string
@@ -18,7 +19,7 @@ const navItems: readonly TopbarNavItem[] = [
   { label: '项目管理', hint: '项目管理尚未接入' },
   { label: '页面管理', to: '/pages' },
   { label: '函数管理', to: '/functions' },
-  { label: '组件库', hint: '组件库尚未接入' },
+  { label: '组件管理', to: '/components' },
   { label: '插件市场', hint: '插件市场尚未接入' },
   { label: 'AI 助手', hint: 'AI 助手尚未接入' },
 ]

@@ -1,14 +1,5 @@
 <script setup lang="ts">
-import {
-  computed,
-  defineAsyncComponent,
-  defineComponent,
-  h,
-  onMounted,
-  onUnmounted,
-  ref,
-  shallowRef,
-} from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue'
 import { useRoute } from 'vue-router'
 import type {
   CanvasRealm,
@@ -21,34 +12,41 @@ import type {
 import type { ExpressionEngine, FunctionRegistration, FunctionSchema } from '@lc/schema'
 import { ContextScope, LcSlot, useAppContext } from '@lc/vue'
 import { LcDevtools } from '@lc/devtools'
+import { CanvasModule } from '../canvasRemote'
 import ToolbarStock from '../components/ToolbarStock.vue'
 import StatusBar from '../components/StatusBar.vue'
 import CommandPalette from '../components/CommandPalette.vue'
 import PageFunctionDialog from '../components/functions/PageFunctionDialog.vue'
+import PageDataDialog from '../components/page-data'
 import { findPage } from '../pages'
-
-/**
- * 远程画布模块。
- *
- * 地址在运行时才由 Module Federation 解析，因此只能异步装载；远程不可达时给出
- * 可操作的提示，而不是留下一片空白让人以为画布坏了。
- */
-const CanvasModule = defineAsyncComponent({
-  loader: () => import('designerCanvas/CanvasModule'),
-  errorComponent: defineComponent({
-    setup: () => () =>
-      h(
-        'div',
-        { class: 'lc-designer__notice' },
-        '画布模块不可用：请确认 designer 已在 5174 端口启动（pnpm dev 会并行拉起两个进程）',
-      ),
-  }),
-})
 
 const appCtx = useAppContext()
 const route = useRoute()
 const documentId = String(route.params.documentId)
 const page = findPage(documentId)
+
+/**
+ * 注入画布的宿主路由作用域。
+ *
+ * 画布只负责页面数据（data/page），路由值由宿主提供；这样同一个画布模块
+ * 既能被设计器装载，也能被预览/运行时装载，而不用自己依赖 vue-router。
+ */
+const routeScope = computed<Record<string, unknown>>(() => {
+  const params = { ...route.params }
+  const query = { ...route.query }
+  return {
+    $params: params,
+    $query: query,
+    $route: {
+      path: route.path,
+      fullPath: route.fullPath,
+      name: typeof route.name === 'string' ? route.name : null,
+      hash: route.hash,
+      params,
+      query,
+    },
+  }
+})
 
 // 重复进入同一文档复用已开的 Realm：workspace 对重复 documentId 直接抛错
 const editor: EditorRealm =
@@ -71,11 +69,17 @@ const commandService = shallowRef<CommandService | null>(null)
 const historyService = shallowRef<HistoryService | null>(null)
 
 const version = ref(0)
-const disposables: Array<{ dispose(): void }> = []
+const disposables: Array<{
+  /** 释放该条订阅；卸载时按注册逆序调用，重复调用由注册方保证幂等 */
+  dispose(): void
+}> = []
 let unmounted = false
 
 /** 页面函数弹框；由物料面板点击「自定义函数」触发 */
 const pageFunctionDialogOpen = ref(false)
+
+/** 页面数据弹框；由物料面板点击「页面数据」触发 */
+const pageDataDialogOpen = ref(false)
 
 /** 当前文档的页面函数注册；切文档 / 关闭视图时整体注销 */
 let pageFunctionRegistration: FunctionRegistration = { dispose: () => {} }
@@ -103,6 +107,61 @@ onUnmounted(() => {
  */
 const ready = shallowRef(false)
 
+/**
+ * 页面函数注册与文档变更联动。
+ *
+ * 必须早于画布挂载：CanvasStage 在 ready 之后才创建，先注册的话首次渲染就能
+ * 解析到本页函数，不必等一次无关的文档变更。
+ * 只比较 `schema.functions` 的数组引用——拖拽预览同样会触发文档变更，
+ * 逐次重注册会让引擎反复编译同一批函数。
+ */
+function watchPageFunctions(
+  documentService: DocumentService,
+  expression: ExpressionEngine,
+): void {
+  const sync = (): void => {
+    const next = documentService.model.schema.functions
+    if (next === registeredPageFunctions) return
+
+    registeredPageFunctions = next
+    pageFunctionRegistration.dispose()
+    pageFunctionRegistration = expression.functions.registerAll(next ?? [], 'page')
+  }
+
+  sync()
+  disposables.push(documentService.onDidChange(sync))
+}
+
+/** 物料面板里的「自定义函数」「页面数据」是纯入口物料，点击后执行这两条命令打开弹框 */
+function registerDialogCommands(): void {
+  const service = commandService.value
+  if (!service) return
+
+  disposables.push(
+    service.register({
+      id: 'pageFunction.openDialog',
+      title: '添加自定义函数',
+      run: () => {
+        pageFunctionDialogOpen.value = true
+      },
+    }),
+    service.register({
+      id: 'pageData.openDialog',
+      title: '编辑页面数据',
+      run: () => {
+        pageDataDialogOpen.value = true
+      },
+    }),
+  )
+}
+
+/** 视口变化刷新缩放读数；命令 / 历史变化刷新撤销与重做的可用态 */
+function subscribeRefreshSignals(canvasApi: CanvasService): void {
+  disposables.push(canvasApi.viewport.onDidChange(bump))
+  if (commandService.value) disposables.push(commandService.value.onDidChange(bump))
+  if (historyService.value) disposables.push(historyService.value.onDidChange(bump))
+}
+
 onMounted(async () => {
   await appCtx.runtime.whenIdle()
   // 等待期间用户可能已经离开：此时 Realm 已释放，不能再访问服务
@@ -112,42 +171,12 @@ onMounted(async () => {
   commandService.value = canvas.context.get<CommandService>('command') ?? null
   historyService.value = editor.context.get<HistoryService>('history') ?? null
 
-  /**
-   * 页面函数先于画布挂载注册：CanvasStage 在 ready 之后才创建，
-   * 首次渲染就能解析到本页函数，不必等一次无关的文档变更。
-   */
-  const documentService = editor.context.require<DocumentService>('document')
-  const expression = editor.context.require<ExpressionEngine>('expression')
-
-  const syncPageFunctions = (): void => {
-    const next = documentService.model.schema.functions
-    if (next === registeredPageFunctions) return
-
-    registeredPageFunctions = next
-    pageFunctionRegistration.dispose()
-    pageFunctionRegistration = expression.functions.registerAll(next ?? [], 'page')
-  }
-
-  syncPageFunctions()
-  disposables.push(documentService.onDidChange(syncPageFunctions))
-
-  // 物料面板里的「自定义函数」是纯入口物料，点击后执行这条命令打开弹框
-  if (commandService.value) {
-    disposables.push(
-      commandService.value.register({
-        id: 'pageFunction.openDialog',
-        title: '添加自定义函数',
-        run: () => {
-          pageFunctionDialogOpen.value = true
-        },
-      }),
-    )
-  }
-
-  // 视口变化刷新缩放读数；命令历史变化刷新撤销 / 重做可用态
-  disposables.push(canvasService.value.viewport.onDidChange(bump))
-  if (commandService.value) disposables.push(commandService.value.onDidChange(bump))
-  if (historyService.value) disposables.push(historyService.value.onDidChange(bump))
+  watchPageFunctions(
+    editor.context.require<DocumentService>('document'),
+    editor.context.require<ExpressionEngine>('expression'),
+  )
+  registerDialogCommands()
+  subscribeRefreshSignals(canvasService.value)
 
   ready.value = true
 })
@@ -190,9 +219,13 @@ function runCommand(id: string): void {
 }
 
 interface DesignerRailItem {
+  /** 工作区 id；当前只用于占位判断，尚未接入面板路由 */
   id: string
+  /** 图标下方的短标签 */
   label: string
+  /** 用字符画的图标，避免为占位项引入图标资源 */
   glyph: string
+  /** 是否可用；false 渲染成禁用态，提示尚未接入 */
   available: boolean
 }
 
@@ -209,7 +242,13 @@ const railItems: readonly DesignerRailItem[] = [
 
 type DeviceKind = 'desktop' | 'tablet' | 'mobile'
 
-const devices: ReadonlyArray<{ id: DeviceKind; label: string }> = [
+/** 预览设备档位；顺序即切换器展示顺序，与 DeviceKind 全集一致 */
+const devices: ReadonlyArray<{
+  /** 档位 id，写入 activeDevice 供模板比较 */
+  id: DeviceKind
+  /** 档位展示名 */
+  label: string
+}> = [
   { id: 'desktop', label: '桌面' },
   { id: 'tablet', label: '平板' },
   { id: 'mobile', label: '手机' },
@@ -217,8 +256,11 @@ const devices: ReadonlyArray<{ id: DeviceKind; label: string }> = [
 
 const activeDevice = ref<DeviceKind>('desktop')
 
+/** 右侧面板页签；id 与 activeRightTab 取值一致，四个页签全集固定，不做动态注册 */
 interface RightTab {
+  /** 页签 id，同时是 v-show 的判定值 */
   id: 'config' | 'style' | 'event' | 'advanced'
+  /** 页签文案，也用于 aria-label 与键盘导航朗读 */
   label: string
 }
 
@@ -399,7 +441,11 @@ const devtoolsOpen = shallowRef(false)
 
         <section class="lc-designer__center">
           <div class="lc-designer__stage">
-            <CanvasModule :app-context="appCtx" :canvas-context="canvas.context" />
+            <CanvasModule
+              :app-context="appCtx"
+              :canvas-context="canvas.context"
+              :scope="routeScope"
+            />
           </div>
 
           <section
@@ -535,5 +581,8 @@ const devtoolsOpen = shallowRef(false)
       :open="pageFunctionDialogOpen"
       @close="pageFunctionDialogOpen = false"
     />
+
+    <!-- 页面数据同样写入当前文档 schema -->
+    <PageDataDialog :open="pageDataDialogOpen" @close="pageDataDialogOpen = false" />
   </ContextScope>
 </template>

@@ -1288,6 +1288,28 @@
 }
 
 /* --------------------------------------------------------------------------
+ * 自定义组件嵌套超限提示
+ *
+ * 复合组件由 apps/host 用 h() 动态创建，拿不到 SFC 的 scoped 属性，
+ * 因此这条样式只能放在全局表里。
+ * -------------------------------------------------------------------------- */
+
+.lc-composite-overflow {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border: 1px dashed var(--lc-danger-border);
+  border-radius: var(--lc-radius-sm);
+  background: var(--lc-danger-surface);
+  color: var(--lc-danger);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* --------------------------------------------------------------------------
  * 玻璃回退：不支持 backdrop-filter 时用纯色面板，避免半透明叠字
  * -------------------------------------------------------------------------- */
 
