@@ -7,10 +7,11 @@ import type {
 } from '@lc/contracts'
 import { defineCanvasPlugin } from '@lc/contracts'
 import type { NodeSchema, Rect } from '@lc/schema'
-import { nodePath } from '@lc/schema'
+import { childPath, nodePath } from '@lc/schema'
 import { createId } from '@lc/shared'
 import { DEFAULT_DROP_HEIGHT, DEFAULT_DROP_WIDTH, DROP_PREVIEW_SETTING } from './constants'
 import DropOverlay from './overlay'
+import { resolveSlotTarget } from './slot-target'
 
 export { manifest } from './manifest'
 
@@ -41,6 +42,11 @@ function dropRect(snippet: NodeSchema | undefined, world: Point): Rect {
   const width = snippet?.layout?.rect?.width ?? DEFAULT_DROP_WIDTH
   const height = snippet?.layout?.rect?.height ?? DEFAULT_DROP_HEIGHT
   return { x: world.x - width / 2, y: world.y - height / 2, width, height }
+}
+
+/** 节点自转角换算成弧度：schema 按 CSS 语义存度数，几何比较一律用弧度 */
+function nodeRotation(node: NodeSchema): number {
+  return ((node.layout?.rotate ?? 0) * Math.PI) / 180
 }
 
 /**
@@ -78,7 +84,8 @@ function buildDropNode(
  *
  * drop 由画布宿主转成 `canvas:drop` 事件；这里负责：
  * 1. 从物料 snippet 生成节点（新 id、清除悬空子引用）
- * 2. 命中容器时挂到容器 children，否则挂到文档根节点
+ * 2. 命中容器时挂到容器 children，物料声明了具名插槽则按落点区域挂到对应插槽，
+ *    未命中容器时挂到文档根节点（见 `slot-target.ts` 的降级顺序）
  * 3. 一个事务写入一条历史，并选中新节点
  */
 export default defineCanvasPlugin({
@@ -134,9 +141,18 @@ export default defineCanvasPlugin({
       const parent = schema.nodes[parentId]
       if (!parent) return false
 
-      const siblings = parent.children ?? []
+      // 分格属于容器物料，占用来自容器当前文档
+      const slot = resolveSlotTarget({
+        container: parent,
+        slotsOf: (componentName) => material.get(componentName)?.slots,
+        bounds: canvas.measure.measure(parentId),
+        world: payload.world,
+        rotation: nodeRotation(parent),
+        materialName: entry.name,
+      })
+      const siblings = slot ? (parent.slots?.[slot] ?? []) : (parent.children ?? [])
       const node = buildDropNode(entry, payload, schema.nodes, siblings)
-      return commitDrop(node, parentId, siblings)
+      return commitDrop(node, parentId, siblings, slot)
     }
 
     /**
@@ -148,6 +164,7 @@ export default defineCanvasPlugin({
       node: NodeSchema,
       parentId: string,
       siblings: readonly string[],
+      slot: string | undefined,
     ): boolean {
       let transaction: CanvasTransaction
       try {
@@ -160,7 +177,7 @@ export default defineCanvasPlugin({
         { op: 'add', path: nodePath(node.id), value: node },
         {
           op: 'replace',
-          path: nodePath(parentId, 'children'),
+          path: childPath(parentId, slot),
           value: [...siblings, node.id],
         },
       ]
