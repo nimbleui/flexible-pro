@@ -202,3 +202,42 @@ export const Button = defineComponent({
     }
   },
 })
+
+/**
+ * 插槽出口：复合组件蓝图里的内容接收区。
+ *
+ * 它不渲染内容本身——页面填进来的内容由复合组件的覆盖层按实例坐标绘制，
+ * 位置归页面。本物料的作用是把「这一格收哪个插槽、在什么区域」画在蓝图上：
+ * 作者据此摆放接收区，运行时则据此决定该插槽要不要显示。
+ */
+export const SlotOutlet = defineComponent({
+  name: 'LcMaterialSlotOutlet',
+  props: {
+    /** 对应实例内容里的插槽名 */
+    name: { type: String, default: 'default' },
+  },
+  setup(props) {
+    return () =>
+      h(
+        'div',
+        {
+          class: 'lc-material-slot-outlet',
+          style: {
+            width: '100%',
+            height: '100%',
+            boxSizing: 'border-box',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: '1px dashed rgba(47, 140, 255, 0.55)',
+            borderRadius: '8px',
+            background: 'rgba(47, 140, 255, 0.06)',
+            color: '#2f8cff',
+            fontSize: '12px',
+            overflow: 'hidden',
+          },
+        },
+        `插槽 · ${props.name}`,
+      )
+  },
+})

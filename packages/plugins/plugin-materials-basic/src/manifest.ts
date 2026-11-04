@@ -139,6 +139,27 @@ export const manifest: PluginManifest = {
           props: { label: '按钮', tone: 'primary' },
         },
       },
+      {
+        // 只给自定义组件的蓝图使用：页面上拖它只会画一个虚线框
+        name: 'SlotOutlet',
+        title: '插槽出口',
+        category: '布局',
+        icon: 'group',
+        props: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', title: '插槽名', description: '与组件声明的插槽名对应' },
+          },
+        },
+        module: './src/index.ts',
+        snippet: {
+          id: 'slot-outlet-1',
+          componentName: 'SlotOutlet',
+          name: '插槽出口',
+          layout: { mode: 'absolute', rect: { x: 0, y: 0, width: 240, height: 80 } },
+          props: { name: 'default' },
+        },
+      },
     ],
   },
 }
