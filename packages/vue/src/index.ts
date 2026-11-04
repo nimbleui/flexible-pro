@@ -17,6 +17,11 @@ export {
 
 export { lcIconPaths } from './icons'
 
+export type { SlotContent } from './slot-content'
+
+export { HORIZONTAL_CONSTRAINTS, VERTICAL_CONSTRAINTS } from './render/constraints'
+export type { HorizontalConstraint, VerticalConstraint } from './render/constraints'
+
 export { default as LcIcon } from './components/LcIcon.vue'
 export { default as LcSearchField } from './components/LcSearchField.vue'
 export { default as LcSlot } from './components/Slot.vue'

@@ -18,6 +18,7 @@ import type { Rect } from '@lc/schema'
 import { PAGE_EVENT_SOURCE, buildEventPayload, buildExpressionScope } from '@lc/schema'
 import type { RenderNode } from '../render/tree'
 import { buildRenderTree } from '../render/tree'
+import { splitSlotChildren } from '../render/slots'
 import { eventListenerProp } from '../render/events'
 
 /**
@@ -59,6 +60,8 @@ const action = ctx.require<ActionService>('action')
 const docVersion = ref(0)
 const dataVersion = ref(0)
 const stateVersion = ref(0)
+// 物料插槽声明同样不是响应式源
+const slotVersion = ref(0)
 
 const components = shallowRef(new Map<string, Component | null>())
 // 只做并发去重，不参与渲染，因此故意不放进响应式系统
@@ -174,10 +177,16 @@ function nodeStyle(item: RenderNode): CSSProperties {
 }
 
 function renderNode(item: RenderNode): ReturnType<typeof h> {
-  const material = materialOf(item.node.componentName)
-  const children = item.children.length
-    ? h(NodeTree, { key: 'children', items: item.children })
-    : null
+  const component = materialOf(item.node.componentName)
+  const name = item.node.componentName
+
+  // 与 CanvasStage 同一套归属判定：声明了插槽的内容交给组件，其余继续平铺
+  slotVersion.value
+  const declared = component ? ctx.material.get(name)?.slots : undefined
+  const split = component ? splitSlotChildren(item.node, item.children, declared) : null
+  const rest = split ? split.rest : item.children
+  const children = rest.length ? h(NodeTree, { key: 'children', items: rest }) : null
+  const named = split ? slotFactories(split.named) : undefined
 
   return h(
     'div',
@@ -187,11 +196,27 @@ function renderNode(item: RenderNode): ReturnType<typeof h> {
       style: nodeStyle(item),
     },
     [
-      material
-        ? h(material, { ...item.props, ...listenersOf(item.node) })
+      component
+        ? h(component, { ...item.props, ...listenersOf(item.node) }, named)
         : h('div', { class: 'lc-runtime__placeholder' }, item.node.componentName),
       children,
     ],
+  )
+}
+
+/**
+ * 已声明插槽 → Vue 具名 slot 工厂。
+ *
+ * 只给真有内容的插槽建工厂：Vue 会为一个空的 `default` 覆盖掉组件自己的兜底内容。
+ */
+function slotFactories(
+  named: Record<string, RenderNode[]>,
+): Record<string, () => ReturnType<typeof h>[]> | undefined {
+  const entries = Object.entries(named)
+  if (entries.length === 0) return undefined
+
+  return Object.fromEntries(
+    entries.map(([slot, items]) => [slot, () => [h(NodeTree, { key: `slot-${slot}`, items })]]),
   )
 }
 
@@ -250,6 +275,9 @@ onMounted(() => {
     }),
     dataSource.onDidChange(() => {
       dataVersion.value += 1
+    }),
+    ctx.material.onDidChange(() => {
+      slotVersion.value += 1
     }),
   )
 

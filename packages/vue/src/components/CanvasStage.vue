@@ -17,12 +17,14 @@ import type {
   CanvasService,
   DataSourceService,
   DocumentService,
+  MaterialService,
   Point,
   RendererService,
 } from '@lc/contracts'
 import { CANVAS_DROP_PREVIEW_SETTING, materialNameFromDragTypes } from '@lc/contracts'
 import type { ExpressionEngine } from '@lc/schema'
 import { buildPageData } from '@lc/schema'
+import { splitSlotChildren } from '../render/slots'
 import { buildRenderTree } from '../render/tree'
 import type { RenderNode } from '../render/tree'
 import LayerHost from './LayerHost.vue'
@@ -43,6 +45,7 @@ const document = props.context.require<DocumentService>('document')
 const renderer = props.context.require<RendererService>('renderer')
 const expression = props.context.require<ExpressionEngine>('expression')
 const dataSource = props.context.get<DataSourceService>('dataSource')
+const material = props.context.get<MaterialService>('material')
 
 const rootRef = ref<HTMLElement | null>(null)
 
@@ -55,6 +58,9 @@ const docVersion = ref(0)
 
 // 数据源状态同样不是响应式源；loading/error/loaded 变化需要触发重渲染
 const dataVersion = ref(0)
+
+// 插槽声明来自物料注册表，同样不是响应式源：改自定义组件的插槽后要能重排内容
+const slotVersion = ref(0)
 
 const components = reactive(new Map<string, Component | null>())
 
@@ -109,14 +115,20 @@ function nodeStyle(item: RenderNode, origin: Point): CSSProperties {
 }
 
 function renderNode(item: RenderNode, origin: Point): ReturnType<typeof h> {
-  const material = materialOf(item.node.componentName)
-  const children = item.children.length
-    ? h(NodeTree, {
-        key: 'children',
-        items: item.children,
-        origin: { x: item.rect.x, y: item.rect.y },
-      })
+  const component = materialOf(item.node.componentName)
+  const name = item.node.componentName
+  const contentOrigin: Point = { x: item.rect.x, y: item.rect.y }
+
+  // 订阅物料变化：自定义组件改了插槽声明后，这里要重新决定内容归属
+  slotVersion.value
+  const declared = component ? material?.get(name)?.slots : undefined
+  // 拿不到物料或物料没声明插槽时 split 为 null，内容整体走平铺，与引入插槽分发前一致
+  const split = component ? splitSlotChildren(item.node, item.children, declared) : null
+  const rest = split ? split.rest : item.children
+  const children = rest.length
+    ? h(NodeTree, { key: 'children', items: rest, origin: contentOrigin })
     : null
+  const named = split ? slotFactories(split.named, contentOrigin) : undefined
 
   return h(
     'div',
@@ -128,11 +140,31 @@ function renderNode(item: RenderNode, origin: Point): ReturnType<typeof h> {
       style: nodeStyle(item, origin),
     },
     [
-      material
-        ? h(material, item.props)
+      component
+        ? h(component, item.props, named)
         : h('div', { class: 'lc-node__placeholder' }, item.node.componentName),
       children,
     ],
+  )
+}
+
+/**
+ * 已声明插槽 → Vue 具名 slot 工厂。
+ *
+ * 只给真有内容的插槽建工厂：Vue 会为一个空的 `default` 覆盖掉组件自己的兜底内容。
+ */
+function slotFactories(
+  named: Record<string, RenderNode[]>,
+  origin: Point,
+): Record<string, () => ReturnType<typeof h>[]> | undefined {
+  const entries = Object.entries(named)
+  if (entries.length === 0) return undefined
+
+  return Object.fromEntries(
+    entries.map(([slot, items]) => [
+      slot,
+      () => [h(NodeTree, { key: `slot-${slot}`, items, origin })],
+    ]),
   )
 }
 
@@ -276,6 +308,13 @@ onMounted(() => {
     disposables.push(
       dataSource.onDidChange(() => {
         dataVersion.value += 1
+      }),
+    )
+  }
+  if (material) {
+    disposables.push(
+      material.onDidChange(() => {
+        slotVersion.value += 1
       }),
     )
   }
