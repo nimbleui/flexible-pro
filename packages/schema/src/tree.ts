@@ -70,7 +70,13 @@ function childArray(node: NodeSchema, slot: string | undefined): string[] {
   return node.slots?.[slot] ?? []
 }
 
-function childPath(parentId: string, slot: string | undefined): string {
+/**
+ * 子引用数组所在路径。
+ *
+ * `slots/<name>` 的拼写只有这一处：新增插槽成员（拖入）、搬运已有成员（重排、层叠、
+ * 打组）与校验器报的 path 必须落在同一个位置上，否则会出现「补丁写到校验看不见的地方」。
+ */
+export function childPath(parentId: string, slot: string | undefined): string {
   return slot === undefined
     ? `${nodePath(parentId)}/children`
     : `${nodePath(parentId)}/slots/${slot}`

@@ -191,7 +191,7 @@ export type {
 } from './datasource'
 
 // -------------------- 插槽 -------------------- //
-export type { SlotDefinition } from './slots'
+export type { SlotDefinition, SlotRegion } from './slots'
 
 // -------------------- 样式与布局 -------------------- //
 export type {
@@ -211,6 +211,7 @@ export type { GroupResult, NodeFlagChange, NodePosition, OrderMode, OutlineItem 
 export {
   buildOutlineTree,
   changeOrders,
+  childPath,
   childRefs,
   collectSubtree,
   detachFromParents,
