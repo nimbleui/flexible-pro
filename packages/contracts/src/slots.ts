@@ -28,6 +28,30 @@ export const SLOT = {
    * 固定占一条右栏又和属性面板抢位置，所以给它一个可关掉的浮层槽。
    */
   designerOverlayPanel: 'designer.overlayPanel',
+  /**
+   * 设计器右侧「样式」页签（节点几何与 CSS 样式）
+   *
+   * 与 `designer.rightPanel` 分槽而不是塞进同一个面板：属性面板按物料 schema 生成
+   * 「这个组件能配什么」，样式面板回答「这个节点在画布上长什么样」，两者的字段来源、
+   * 变更原因和替换成本都不同，混在一起会让任一侧的改版必然碰另一侧。
+   */
+  designerStylePanel: 'designer.stylePanel',
+  /**
+   * 设计器右侧「事件」页签（选中节点的事件绑定）
+   *
+   * 只承载「这个节点的哪些事件已经接上动作链」这一层：动作链本体与分支结构归
+   * `designer.bottomPanel` 的事件流面板。两者写同一份 `connections` / `actions`，
+   * 但视角相反——右栏按节点筛、底栏按整页铺开。
+   */
+  designerEventPanel: 'designer.eventPanel',
+  /**
+   * 设计器右侧「高级」页签（节点级渲染指令）
+   *
+   * 条件渲染、循环、显隐/禁用指令与设计态开关（隐藏、锁定）都作用于「节点如何被
+   * 渲染」而不是「组件显示什么数据」，与属性、样式都不是一类，单独给一个槽才不必
+   * 把它们硬塞进前两个面板的表单里。
+   */
+  designerAdvancedPanel: 'designer.advancedPanel',
 } as const
 
 /** 插槽名联合类型；由 SLOT 常量推导，禁止两处手写 */
