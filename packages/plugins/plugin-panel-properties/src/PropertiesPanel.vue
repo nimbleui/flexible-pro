@@ -15,7 +15,6 @@ import type {
   PropOption,
   PropType,
   PropValue,
-  Rect,
   SchemaPatch,
 } from '@lc/schema'
 import { isExpressionString, nodePath } from '@lc/schema'
@@ -68,11 +67,6 @@ const node = computed<NodeSchema | undefined>(() => {
   version.value
   const id = selection?.primary
   return id ? document?.model.schema.nodes[id] : undefined
-})
-
-const rect = computed<Rect | undefined>(() => {
-  const current = node.value?.layout?.rect
-  return current ? { ...current } : undefined
 })
 
 const materialEntry = computed(() => {
@@ -192,11 +186,6 @@ const expressionFunctions = computed<readonly FunctionDescriptor[]>(() => {
   return expression?.functions.describe() ?? []
 })
 
-const styleValue = computed<Record<string, unknown>>(() => {
-  version.value
-  return (node.value?.style as Record<string, unknown> | undefined) ?? {}
-})
-
 function commit(patches: SchemaPatch[], label = '修改属性'): void {
   if (!document || !node.value || patches.length === 0) return
   document.apply(patches, { record: true, label })
@@ -210,34 +199,6 @@ function commit(patches: SchemaPatch[], label = '修改属性'): void {
  */
 function path(suffix: string): string {
   return node.value ? nodePath(node.value.id, suffix) : ''
-}
-
-function commitRect(field: keyof Rect, event: Event): void {
-  const input = event.target as HTMLInputElement
-  const value = Number(input.value)
-  if (!Number.isFinite(value)) return
-
-  const current = rect.value ?? { x: 0, y: 0, width: 100, height: 40 }
-  const next = {
-    ...current,
-    [field]: field === 'width' || field === 'height' ? Math.max(1, value) : value,
-  }
-  commit([{ op: 'replace', path: path('layout/rect'), value: next }], '修改位置尺寸')
-}
-
-function commitLayout(field: 'rotate' | 'zIndex', event: Event): void {
-  const input = event.target as HTMLInputElement
-  const value = Number(input.value)
-  if (!Number.isFinite(value)) return
-  const label = field === 'rotate' ? '修改旋转' : '修改层级'
-  commit([{ op: 'replace', path: path(`layout/${field}`), value }], label)
-}
-
-function commitStyle(field: string, event: Event): void {
-  const input = event.target as HTMLInputElement
-  const value = field === 'opacity' ? Number(input.value) : input.value
-  if (field === 'opacity' && !Number.isFinite(value)) return
-  commit([{ op: 'replace', path: path(`style/${field}`), value }], '修改样式')
 }
 
 function propValue(key: string): unknown {
@@ -298,101 +259,6 @@ function commitExpression(key: string, raw: string): void {
         <span class="lc-props__name">{{ node.componentName }}</span>
         <span class="lc-props__id">{{ node.id }}</span>
       </div>
-
-      <section class="lc-props__section">
-        <h4>位置与尺寸</h4>
-        <div class="lc-props__grid">
-          <label>
-            <span>X</span>
-            <input type="number" :value="rect?.x ?? 0" @change="commitRect('x', $event)" />
-          </label>
-          <label>
-            <span>Y</span>
-            <input type="number" :value="rect?.y ?? 0" @change="commitRect('y', $event)" />
-          </label>
-          <label>
-            <span>宽</span>
-            <input
-              type="number"
-              :value="rect?.width ?? 0"
-              @change="commitRect('width', $event)"
-            />
-          </label>
-          <label>
-            <span>高</span>
-            <input
-              type="number"
-              :value="rect?.height ?? 0"
-              @change="commitRect('height', $event)"
-            />
-          </label>
-          <label>
-            <span>角度</span>
-            <input
-              type="number"
-              step="1"
-              :value="node.layout?.rotate ?? 0"
-              @change="commitLayout('rotate', $event)"
-            />
-          </label>
-          <label>
-            <span>层级</span>
-            <input
-              type="number"
-              step="1"
-              :value="node.layout?.zIndex ?? 0"
-              @change="commitLayout('zIndex', $event)"
-            />
-          </label>
-        </div>
-      </section>
-
-      <section class="lc-props__section">
-        <h4>样式</h4>
-        <div class="lc-props__grid">
-          <label>
-            <span>内边距</span>
-            <input
-              type="text"
-              placeholder="如 12px"
-              :value="String(styleValue.padding ?? '')"
-              @change="commitStyle('padding', $event)"
-            />
-          </label>
-          <label>
-            <span>圆角</span>
-            <input
-              type="text"
-              placeholder="如 8px"
-              :value="String(styleValue.borderRadius ?? '')"
-              @change="commitStyle('borderRadius', $event)"
-            />
-          </label>
-          <label>
-            <span>背景</span>
-            <input
-              type="color"
-              :value="
-                typeof styleValue.backgroundColor === 'string'
-                  ? styleValue.backgroundColor
-                  : '#ffffff'
-              "
-              @change="commitStyle('backgroundColor', $event)"
-            />
-          </label>
-          <label>
-            <span>透明度</span>
-            <input
-              type="number"
-              min="0"
-              max="1"
-              step="0.1"
-              :value="typeof styleValue.opacity === 'number' ? styleValue.opacity : 1"
-              @change="commitStyle('opacity', $event)"
-            />
-          </label>
-        </div>
-      </section>
 
       <section v-if="propFields.length > 0" class="lc-props__section">
         <h4>组件属性</h4>
