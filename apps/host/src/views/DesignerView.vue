@@ -320,7 +320,12 @@ const devices: ReadonlyArray<{
 
 const activeDevice = ref<DeviceKind>('desktop')
 
-/** 右侧面板页签；id 与 activeRightTab 取值一致，四个页签全集固定，不做动态注册 */
+/**
+ * 右侧面板页签；id 与 activeRightTab 取值一致，四个页签全集固定，不做动态注册。
+ *
+ * 页签是外壳的产品边界，内容一律来自各自的插槽：属性、样式、事件、高级各占一个槽，
+ * 换掉或增装某个面板不必动外壳，也不必担心它把另外三个挤走。
+ */
 interface RightTab {
   /** 页签 id，同时是 v-show 的判定值 */
   id: 'config' | 'style' | 'event' | 'advanced'
@@ -611,7 +616,11 @@ const devtoolsOpen = shallowRef(false)
             role="tabpanel"
             aria-labelledby="lc-tab-style"
           >
-            <p class="lc-designer__placeholder">样式配置尚未接入</p>
+            <LcSlot name="designer.stylePanel" :context="{ documentId }">
+              <template #empty>
+                <p class="lc-designer__placeholder">样式面板尚未安装</p>
+              </template>
+            </LcSlot>
           </div>
 
           <div
@@ -621,7 +630,11 @@ const devtoolsOpen = shallowRef(false)
             role="tabpanel"
             aria-labelledby="lc-tab-event"
           >
-            <p class="lc-designer__placeholder">事件配置尚未接入</p>
+            <LcSlot name="designer.eventPanel" :context="{ documentId }">
+              <template #empty>
+                <p class="lc-designer__placeholder">事件面板尚未安装</p>
+              </template>
+            </LcSlot>
           </div>
 
           <div
@@ -631,7 +644,11 @@ const devtoolsOpen = shallowRef(false)
             role="tabpanel"
             aria-labelledby="lc-tab-advanced"
           >
-            <p class="lc-designer__placeholder">高级配置尚未接入</p>
+            <LcSlot name="designer.advancedPanel" :context="{ documentId }">
+              <template #empty>
+                <p class="lc-designer__placeholder">高级面板尚未安装</p>
+              </template>
+            </LcSlot>
           </div>
         </aside>
 

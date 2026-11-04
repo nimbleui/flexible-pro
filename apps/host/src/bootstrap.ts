@@ -9,10 +9,13 @@ import { installGlobalFunctions } from './functions/global-functions'
 import { navigationService } from './navigation'
 import { toastService } from './toast'
 import { manifest as materialsBasicManifest } from '@lc/plugin-materials-basic/manifest'
-import { manifest as materialsPanelManifest } from '@lc/plugin-panel-materials/manifest'
+import { manifest as advancedPanelManifest } from '@lc/plugin-panel-advanced/manifest'
 import { manifest as eventFlowPanelManifest } from '@lc/plugin-panel-eventflow/manifest'
+import { manifest as materialsPanelManifest } from '@lc/plugin-panel-materials/manifest'
+import { manifest as nodeEventPanelManifest } from '@lc/plugin-panel-node-event/manifest'
 import { manifest as outlinePanelManifest } from '@lc/plugin-panel-outline/manifest'
 import { manifest as propertiesPanelManifest } from '@lc/plugin-panel-properties/manifest'
+import { manifest as stylePanelManifest } from '@lc/plugin-panel-style/manifest'
 
 declare global {
   interface Window {
@@ -54,6 +57,9 @@ const BUILTIN_PACKAGES = [
   { manifest: materialsPanelManifest, load: () => import('@lc/plugin-panel-materials') },
   { manifest: outlinePanelManifest, load: () => import('@lc/plugin-panel-outline') },
   { manifest: propertiesPanelManifest, load: () => import('@lc/plugin-panel-properties') },
+  { manifest: stylePanelManifest, load: () => import('@lc/plugin-panel-style') },
+  { manifest: nodeEventPanelManifest, load: () => import('@lc/plugin-panel-node-event') },
+  { manifest: advancedPanelManifest, load: () => import('@lc/plugin-panel-advanced') },
   { manifest: eventFlowPanelManifest, load: () => import('@lc/plugin-panel-eventflow') },
 ] as const
 
