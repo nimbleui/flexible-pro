@@ -390,11 +390,50 @@
 
 .lc-flow-node--failed {
   border-color: var(--lc-danger, #e5484d);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lc-danger, #e5484d) 60%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--lc-danger, #e5484d) 60%, transparent),
+    0 0 18px color-mix(in srgb, var(--lc-danger, #e5484d) 35%, transparent);
 }
 
 .lc-flow-node--skipped {
-  opacity: 0.55;
+  border-color: color-mix(in srgb, var(--lc-warning, #f5a524) 70%, transparent);
+  opacity: 0.7;
+}
+
+/* 跑完了但没走到：降亮度与去光晕，跟「还没运行过」区分开——
+   两者都显示默认分组色时，作者分不清是分支没选中、上游失败停住了，还是压根没跑 */
+.lc-flow-node--unreached {
+  border-color: var(--lc-border, rgba(148, 184, 233, 0.2));
+  box-shadow: none;
+  opacity: 0.35;
+}
+
+/* 菱形卡片本体是透明的，形状交给 clip-path 的背景层：状态色若直接写 border-color，
+   会在菱形外面套一个看不见的矩形边框。这里改回透明，用 drop-shadow 表达状态。 */
+.lc-flow-node--diamond.lc-flow-node--success,
+.lc-flow-node--diamond.lc-flow-node--failed,
+.lc-flow-node--diamond.lc-flow-node--skipped,
+.lc-flow-node--diamond.lc-flow-node--unreached {
+  border-color: transparent;
+}
+
+.lc-flow-node--diamond.lc-flow-node--success .lc-flow-node__shape {
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--lc-success, #17a673) 60%, transparent));
+}
+
+.lc-flow-node--diamond.lc-flow-node--failed .lc-flow-node__shape {
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--lc-danger, #e5484d) 65%, transparent));
+}
+
+.lc-flow-node--diamond.lc-flow-node--skipped .lc-flow-node__shape {
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--lc-warning, #f5a524) 50%, transparent));
+}
+
+/* 执行中的那一步：只动描边与光晕，不碰尺寸与 transform，
+   否则节点会在缩放平移的图层里自己抖，也会让端口与连线锚点错位 */
+.lc-flow-node.is-running {
+  border-color: var(--lc-accent-bright, #1677ff);
+  animation: lc-flow-node-running 1.1s ease-in-out infinite;
 }
 
 /* ---------------------------------------------------------------------------
@@ -444,8 +483,51 @@
   stroke-width: 2.2;
 }
 
+.lc-flow-edges__line.is-skipped {
+  stroke: color-mix(in srgb, var(--lc-warning, #f5a524) 70%, var(--lc-border-strong, #889));
+  stroke-width: 2;
+}
+
+.lc-flow-edges__line.is-failed {
+  stroke: var(--lc-danger, #e5484d);
+  stroke-width: 2.2;
+}
+
+.lc-flow-edges__line.is-unreached {
+  stroke: color-mix(
+    in srgb,
+    var(--lc-border-strong, rgba(148, 184, 233, 0.35)) 45%,
+    transparent
+  );
+  stroke-width: 1.4;
+}
+
+/* 流动只属于推进途中：跑完之后一条永远在动的线会让人以为还在执行，
+   所以落定后收回静态的成功色，虚线与动画都只在 .is-stepping 下生效 */
+.lc-flow-canvas.is-stepping .lc-flow-edges__line.is-active {
+  stroke-dasharray: 7 5;
+  animation: lc-flow-edge-flow 0.7s linear infinite;
+}
+
 .lc-flow-edges__arrow {
   fill: var(--lc-border-strong, rgba(148, 184, 233, 0.5));
+}
+
+/* 箭头跟着线一起换色：失败的红色线顶着一只默认蓝箭头会读成两件事 */
+.lc-flow-edges__arrow--traversed {
+  fill: var(--lc-success, #17a673);
+}
+
+.lc-flow-edges__arrow--skipped {
+  fill: color-mix(in srgb, var(--lc-warning, #f5a524) 70%, var(--lc-border-strong, #889));
+}
+
+.lc-flow-edges__arrow--failed {
+  fill: var(--lc-danger, #e5484d);
+}
+
+.lc-flow-edges__arrow--unreached {
+  fill: color-mix(in srgb, var(--lc-border-strong, rgba(148, 184, 233, 0.35)) 45%, transparent);
 }
 
 .lc-flow-edges__hit {
@@ -514,9 +596,47 @@
   pointer-events: none;
 }
 
+/* ---------------------------------------------------------------------------
+ * 动画
+ * ------------------------------------------------------------------------ */
+
+@keyframes lc-flow-node-running {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--lc-accent-bright, #1677ff) 55%, transparent),
+      0 0 10px color-mix(in srgb, var(--lc-accent-bright, #1677ff) 25%, transparent);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--lc-accent-bright, #1677ff) 75%, transparent),
+      0 0 26px color-mix(in srgb, var(--lc-accent-bright, #1677ff) 55%, transparent);
+  }
+}
+
+@keyframes lc-flow-edge-flow {
+  to {
+    /* 位移量取 dasharray 周期的整数倍（7 + 5 = 12），否则每一轮首尾接不上会跳一下 */
+    stroke-dashoffset: -24;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .lc-flow-node,
   .lc-flow-edges__line {
     transition: none;
+  }
+
+  /* 脉冲与流动是「执行到哪一步」的唯一线索：放慢而不是关掉，
+     否则试运行退回「跑完一次性上色」，动画开关关不掉时反而更糟。
+     选择器要带 .is-stepping：流动规则本身就在这一层， specificity 低一档会盖不住
+     那条 shorthand 里的 0.7s */
+  .lc-flow-node.is-running {
+    animation-duration: 2.6s;
+  }
+
+  .lc-flow-canvas.is-stepping .lc-flow-edges__line.is-active {
+    animation-duration: 2.4s;
   }
 }

@@ -5,6 +5,7 @@ import type { useFlowCanvas } from './composables/use-flow-canvas'
 import FlowEdgeLayer from './FlowEdgeLayer.vue'
 import FlowMinimap from './FlowMinimap.vue'
 import FlowNodeCard from './FlowNodeCard.vue'
+import type { FlowEdgeRunState } from './utils/edge-path'
 import './styles/canvas.css'
 
 /**
@@ -18,8 +19,12 @@ const props = defineProps<{
   editor: FlowEditorHandle
   /** 视口与手势句柄 */
   canvas: ReturnType<typeof useFlowCanvas>
-  /** 本次试运行里各节点的结果（`success` / `failed` / `skipped`），用于给卡片描边着色 */
+  /** 本次试运行里各节点的结果，用于给卡片描边着色；跑完后没访问的节点是 `unreached` */
   nodeRunStates: Record<string, string>
+  /** 试运行正在执行的节点 id；没有则在 null，用于给该卡片加「执行中」动画 */
+  currentNodeId: string | null
+  /** 试运行是否还在推进；只有推进中连线才流动，跑完保留静态的成功色 */
+  stepping: boolean
 }>()
 
 const emit = defineEmits<{ undo: []; redo: [] }>()
@@ -34,32 +39,50 @@ const nodes = computed(() => (flow.value ? Object.values(flow.value.nodes) : [])
 const edges = computed(() => (flow.value ? flow.value.edges : {}))
 
 /**
- * 执行过的连线。
+ * 连线在本次运行里的走向。
  *
- * 执行器只逐步上报节点，不报边，所以这里按「目标节点跑过 = 它的入边被走过」推导。
- * 分支节点未选中的那一侧，其目标节点不会出现在记录里，因此不会被点亮。
+ * 执行器只逐步上报节点、不报边，所以「这条线走过没有」只能从两端状态推。两端都还没
+ * 状态时不下结论（运行途中的下游只是「还没轮到」，此时保持默认色）；有一端是
+ * `unreached` 就一定没走过——`unreached` 同样是状态，只按「有没有状态」判会让
+ * `pass → end` 因为 end 执行过而被算成走过。
+ * 目标的状态决定线的颜色：失败或跳过的节点若拖着一条成功绿的入边，读起来自相矛盾。
  */
-const activeEdgeIds = computed(() => {
-  const set = new Set<string>()
+const edgeRunStates = computed<Record<string, FlowEdgeRunState>>(() => {
+  const map: Record<string, FlowEdgeRunState> = {}
   const current = flow.value
-  if (!current) return set
+  if (!current) return map
 
   for (const [id, edge] of Object.entries(current.edges)) {
-    if (props.nodeRunStates[edge.target]) set.add(id)
+    const source = props.nodeRunStates[edge.source]
+    const target = props.nodeRunStates[edge.target]
+    if (!source || !target) continue
+    if (source === 'unreached' || target === 'unreached') {
+      map[id] = 'unreached'
+      continue
+    }
+
+    if (target === 'failed') map[id] = 'failed'
+    else if (target === 'skipped') map[id] = 'skipped'
+    else map[id] = 'traversed'
   }
 
-  return set
+  return map
 })
 
-function runStateOf(nodeId: string): 'success' | 'failed' | 'skipped' | null {
+function runStateOf(nodeId: string): 'success' | 'failed' | 'skipped' | 'unreached' | null {
   const state = props.nodeRunStates[nodeId]
 
-  return state === 'success' || state === 'failed' || state === 'skipped' ? state : null
+  return state === 'success' ||
+    state === 'failed' ||
+    state === 'skipped' ||
+    state === 'unreached'
+    ? state
+    : null
 }
 </script>
 
 <template>
-  <div class="lc-flow-canvas">
+  <div class="lc-flow-canvas" :class="{ 'is-stepping': stepping }">
     <div class="lc-flow-canvas__toolbar">
       <button
         type="button"
@@ -130,7 +153,7 @@ function runStateOf(nodeId: string): 'success' | 'failed' | 'skipped' | null {
           :edges="edges"
           :routes="canvas.edgeRoutes.value"
           :selected-edge-id="editor.selectedEdgeId.value"
-          :active-edge-ids="activeEdgeIds"
+          :run-states="edgeRunStates"
           :pending="canvas.pendingEdge.value"
           @select="(id) => editor.selectEdge(id)"
         />
@@ -142,6 +165,7 @@ function runStateOf(nodeId: string): 'success' | 'failed' | 'skipped' | null {
           :selected="editor.selectedNodeId.value === node.id"
           :connectable="canvas.connectTargetId.value === node.id"
           :run-state="runStateOf(node.id)"
+          :running="currentNodeId === node.id"
         />
       </div>
     </div>

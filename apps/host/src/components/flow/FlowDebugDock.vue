@@ -44,6 +44,7 @@ const {
   running,
   scope,
   initialInput,
+  stepAnimation,
   setInitialInput,
   totalDuration,
   slowestNode,
@@ -210,6 +211,15 @@ function onTabKeydown(event: KeyboardEvent, index: number): void {
         <span class="lc-flow-dock__running-dot" aria-hidden="true" />
         执行中…
       </span>
+
+      <!-- 步进动画开关：二三十步的流程按节拍播要等好几秒，回看结果时这层等待没有价值 -->
+      <label
+        class="lc-flow-dock__beat"
+        title="关掉后每一步即时落地，长流程回看不必等动画；节点耗时统计不受影响"
+      >
+        <input v-model="stepAnimation" type="checkbox" />
+        <span>步进动画</span>
+      </label>
 
       <button
         type="button"

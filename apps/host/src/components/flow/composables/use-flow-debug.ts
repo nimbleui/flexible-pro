@@ -91,6 +91,22 @@ const SIMULATED_LATENCY_MS = 40
 const LOG_STACK_LIMIT = 300
 
 /**
+ * 一步动画的节拍（毫秒）。
+ *
+ * 步进引擎在 `handler.execute` 外面计时，任何塞进处理器的 `await` 都会被算进
+ * `durationMs`，「性能监控」里的耗时就不再是真实耗时。所以节拍只作用于呈现侧：
+ * 执行照常全速跑，跑出来的步记录进队列，由播放器按这个节拍逐个落地。
+ * 260ms 是「来得及看清这一步是谁」的下限，再长就会让十步的流程等得焦躁。
+ */
+const STEP_BEAT_MS = 260
+
+/** 节拍里「执行中」占的比例，剩下的给「落定」的视觉反馈 */
+const STEP_RUNNING_SHARE = 0.55
+
+/** 队列暂时为空、但执行还没结束时播放器的小睡时长 */
+const PLAYBACK_IDLE_MS = 30
+
+/**
  * 试运行输入的初值，与内置示例流程对齐。
  *
  * 只在「还没有编辑过输入」时出现，作者改成自己的数据后不会再被覆盖。
@@ -158,6 +174,28 @@ export function useFlowDebug(editor: FlowEditorHandle) {
   const timings = shallowRef<FlowNodeTiming[]>([])
   const running = ref(false)
   const summary = shallowRef<FlowRunRecord | null>(null)
+
+  /** 已经落定的节点状态；由播放器逐步写入，画布的描边色与流动连线都读它 */
+  const stepStates = shallowRef<Record<string, FlowNodeTiming['outcome']>>({})
+
+  /** 正在播放的那一步；对应节点显示「执行中」 */
+  const currentNodeId = ref<string | null>(null)
+
+  /**
+   * 本次运行是否已经播完落定。
+   *
+   * 「没走到」的节点与分支只有在这一刻才说得上：执行途中每个下游都只是「还没轮到」，
+   * 提前把它们涂成未到达色，等于在跑的过程中就宣布结果。
+   */
+  const settled = ref(false)
+
+  /**
+   * 步进动画开关。
+   *
+   * 关掉后每一步即时落地，日志与状态不再等节拍。二三十步的流程按 260ms 播要等七八秒，
+   * 回看结果时这个等待没有价值，但真实耗时统计必须照旧准确——所以开关只作用于播放器。
+   */
+  const stepAnimation = ref(true)
 
   /**
    * 试运行输入变量表。
@@ -328,9 +366,57 @@ export function useFlowDebug(editor: FlowEditorHandle) {
     const startedPerf = performance.now()
     const instanceId = createInstanceId(startedAt)
     const handlers = buildHandlers()
-    const collected: FlowNodeTiming[] = []
+
+    stepStates.value = {}
+    currentNodeId.value = null
+    timings.value = []
+    settled.value = false
 
     pushLog('info', `开始执行事件链，实例ID：${instanceId}`)
+
+    /**
+     * 呈现侧队列。
+     *
+     * 执行器全速推进并把每一步按到达顺序塞进来，播放器按节拍消费。并发是有意的：
+     * 串行「跑一步等一步」会把节拍算进 `durationMs`，性能监控就不再是真实耗时了。
+     */
+    const queue: Array<{ timing: FlowNodeTiming; record: ActionStepRecord }> = []
+    let executing = true
+
+    // 用箭头常量而不是函数声明：函数声明会被当成可能在 `flow` 收窄之前调用，
+    // 闭包里读到的 `editor.flow.value` 就退回 `FlowDefinition | undefined`
+    const commit = (step: { timing: FlowNodeTiming; record: ActionStepRecord }): void => {
+      timings.value = [...timings.value, step.timing]
+      stepStates.value = { ...stepStates.value, [step.timing.nodeId]: step.timing.outcome }
+      describeStep(flow, step.record)
+    }
+
+    async function playQueue(): Promise<void> {
+      while (executing || queue.length > 0) {
+        const step = queue.shift()
+        if (!step) {
+          // 队列暂时空着但执行还没结束（例如一个 flow.delay 正在等）：小睡后再看
+          await delay(PLAYBACK_IDLE_MS)
+          continue
+        }
+
+        if (!stepAnimation.value) {
+          commit(step)
+          continue
+        }
+
+        currentNodeId.value = step.timing.nodeId
+        const runningMs = Math.round(STEP_BEAT_MS * STEP_RUNNING_SHARE)
+        await delay(runningMs)
+        commit(step)
+        currentNodeId.value = null
+        await delay(STEP_BEAT_MS - runningMs)
+      }
+
+      currentNodeId.value = null
+    }
+
+    const playback = playQueue()
 
     const result = await runFlowGraph(flow, {
       handlerOf: (type) => handlers.get(type),
@@ -338,29 +424,38 @@ export function useFlowDebug(editor: FlowEditorHandle) {
       evaluateCondition: (expr, evalScope) => expression.compile(expr.raw).evaluate(evalScope),
       resolveValue: (value, evalScope) => expression.resolveValue(value, evalScope),
       onStep: (record) => {
-        collected.push({
-          nodeId: record.actionId,
-          label: nodeLabel(flow, record),
-          durationMs: Math.round(record.durationMs),
-          outcome: record.outcome,
+        queue.push({
+          record,
+          timing: {
+            nodeId: record.actionId,
+            label: nodeLabel(flow, record),
+            durationMs: Math.round(record.durationMs),
+            outcome: record.outcome,
+          },
         })
-        describeStep(flow, record)
       },
       isDisposed: () => aborted,
     })
 
     const endedAt = new Date()
+    // 耗时在执行结束的一刻就定下来，不把动画时间算进真实耗时
+    const durationMs = Math.round(performance.now() - startedPerf)
+    executing = false
+    // 概要与结束日志要等播放器收尾，否则「流程执行成功」会排在最后几步的日志前面
+    await playback
+    // 落定之后才允许给没走到的节点与分支上色，画布按这个标志决定是否补未到达态
+    settled.value = true
+
     const record: FlowRunRecord = {
       instanceId,
       status: result.status,
       steps: result.steps,
-      durationMs: Math.round(performance.now() - startedPerf),
+      durationMs,
       startedAt: formatClock(startedAt),
       endedAt: formatClock(endedAt),
       message: result.status === 'failed' ? result.message : undefined,
     }
 
-    timings.value = collected
     summary.value = record
     records.value = [record, ...records.value].slice(0, 20)
     pushLog(
@@ -401,6 +496,10 @@ export function useFlowDebug(editor: FlowEditorHandle) {
     logs,
     records,
     timings,
+    stepStates,
+    currentNodeId,
+    settled,
+    stepAnimation,
     summary,
     running,
     scope,

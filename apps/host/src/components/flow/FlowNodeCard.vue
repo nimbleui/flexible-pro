@@ -18,8 +18,10 @@ const props = defineProps<{
   selected: boolean
   /** 拉线时指针正悬停在本节点上，表示可以作为连线的另一端 */
   connectable: boolean
-  /** 本次试运行里该节点的状态；未执行过时为 null */
-  runState: 'success' | 'failed' | 'skipped' | null
+  /** 本次试运行里该节点的状态；`unreached` 表示跑完了但没走到它，未执行过一次时为 null */
+  runState: 'success' | 'failed' | 'skipped' | 'unreached' | null
+  /** 试运行正在执行本节点 */
+  running: boolean
 }>()
 
 const size = computed(() => flowNodeSize(props.node))
@@ -55,7 +57,7 @@ const categoryClass = computed(() => `lc-flow-node--${flowNodeCategoryOf(props.n
       shapeClass,
       categoryClass,
       runState ? `lc-flow-node--${runState}` : null,
-      { 'is-selected': selected, 'is-connectable': connectable },
+      { 'is-selected': selected, 'is-connectable': connectable, 'is-running': running },
     ]"
     :style="style"
     :data-flow-node="node.id"

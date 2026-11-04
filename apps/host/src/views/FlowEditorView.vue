@@ -62,12 +62,26 @@ const updatedText = computed(() => {
   return Number.isNaN(date.getTime()) ? raw : date.toLocaleString('zh-CN', { hour12: false })
 })
 
-/** 试运行结果按节点折叠成一份状态表，画布只读它需要的这一面 */
+/**
+ * 试运行结果按节点折叠成一份状态表，画布只读它需要的这一面。
+ *
+ * 直接取 `debug.stepStates`：它由播放器逐步落地，所以画布上的点亮顺序就是执行顺序，
+ * 而不是等整条流程跑完一次性上色。
+ *
+ * 跑完（`settled`）之后把从没被访问的节点补成 `unreached`：不补的话「没走到」与
+ * 「还没跑过」是同一种长相，作者分不清分支没选中、上游失败，还是压根没运行过。
+ * 执行途中不补——那时下游只是「还没轮到」。
+ */
 const nodeRunStates = computed<Record<string, string>>(() => {
-  const map: Record<string, string> = {}
-  for (const timing of debug.timings.value) map[timing.nodeId] = timing.outcome
+  const states: Record<string, string> = { ...debug.stepStates.value }
+  const current = flow.value
+  if (!current || !debug.settled.value) return states
 
-  return map
+  for (const nodeId of Object.keys(current.nodes)) {
+    if (!states[nodeId]) states[nodeId] = 'unreached'
+  }
+
+  return states
 })
 
 watch(
@@ -347,6 +361,8 @@ onUnmounted(() => {
           :editor="editor"
           :canvas="canvas"
           :node-run-states="nodeRunStates"
+          :current-node-id="debug.currentNodeId.value"
+          :stepping="debug.running.value"
           @undo="editor.undo()"
           @redo="editor.redo()"
         />

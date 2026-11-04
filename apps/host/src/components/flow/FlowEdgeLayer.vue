@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import type { Point } from '@lc/contracts'
 import type { FlowEdge } from '@lc/schema'
 import { FLOW_BRANCH_FALSE, FLOW_BRANCH_TRUE } from '@lc/schema'
-import type { EdgeRoute } from './utils/edge-path'
+import type { EdgeRoute, FlowEdgeRunState } from './utils/edge-path'
 
 /**
  * 连线层。
@@ -23,13 +23,27 @@ const props = defineProps<{
   routes: Map<string, EdgeRoute>
   /** 当前选中的连线 id */
   selectedEdgeId: string | null
-  /** 试运行里执行过的连线 id */
-  activeEdgeIds: Set<string>
+  /** 连线在本次运行里的走向；没有走向的边保持默认色 */
+  runStates: Record<string, FlowEdgeRunState>
   /** 正在拉出的临时连线 */
   pending: { from: Point; to: Point } | null
 }>()
 
 const emit = defineEmits<{ select: [edgeId: string] }>()
+
+/**
+ * 箭头跟着线一起换色。
+ *
+ * 每条边只挂一个共享 marker 的话，失败的红色线会顶着一只默认蓝箭头，读起来自相矛盾。
+ * `context-stroke` 在各引擎上的支持时间不一致，所以按走向各留一只 marker。
+ */
+const MARKER_STATES: readonly FlowEdgeRunState[] = [
+  'idle',
+  'traversed',
+  'skipped',
+  'failed',
+  'unreached',
+]
 
 /** 分支标签：作者写过的 label 优先，否则按分支标记给默认文案 */
 function branchLabel(edge: FlowEdge): string {
@@ -47,7 +61,7 @@ interface RenderedEdge {
   labelAt: Point
   tone: 'true' | 'false' | 'plain'
   selected: boolean
-  active: boolean
+  runState: FlowEdgeRunState
 }
 
 const rendered = computed<RenderedEdge[]>(() => {
@@ -69,7 +83,7 @@ const rendered = computed<RenderedEdge[]>(() => {
             ? 'false'
             : 'plain',
       selected: props.selectedEdgeId === edge.id,
-      active: props.activeEdgeIds.has(edge.id),
+      runState: props.runStates[edge.id] ?? 'idle',
     })
   }
 
@@ -88,7 +102,9 @@ const pendingPath = computed(() => {
   <svg class="lc-flow-edges" aria-hidden="true">
     <defs>
       <marker
-        id="lc-flow-arrow"
+        v-for="state in MARKER_STATES"
+        :id="`lc-flow-arrow-${state}`"
+        :key="state"
         markerWidth="9"
         markerHeight="9"
         refX="7"
@@ -96,7 +112,10 @@ const pendingPath = computed(() => {
         orient="auto"
         markerUnits="userSpaceOnUse"
       >
-        <path d="M0 0 L9 4.5 L0 9 Z" class="lc-flow-edges__arrow" />
+        <path
+          d="M0 0 L9 4.5 L0 9 Z"
+          :class="`lc-flow-edges__arrow lc-flow-edges__arrow--${state}`"
+        />
       </marker>
     </defs>
 
@@ -110,10 +129,16 @@ const pendingPath = computed(() => {
         class="lc-flow-edges__line"
         :class="[
           `lc-flow-edges__line--${edge.tone}`,
-          { 'is-selected': edge.selected, 'is-active': edge.active },
+          {
+            'is-selected': edge.selected,
+            'is-active': edge.runState === 'traversed',
+            'is-skipped': edge.runState === 'skipped',
+            'is-failed': edge.runState === 'failed',
+            'is-unreached': edge.runState === 'unreached',
+          },
         ]"
         :d="edge.d"
-        marker-end="url(#lc-flow-arrow)"
+        :marker-end="`url(#lc-flow-arrow-${edge.runState})`"
       />
       <g
         v-if="edge.label"

@@ -20,6 +20,15 @@ export interface EdgeRoute {
   points: Point[]
 }
 
+/**
+ * 连线在一次试运行里的走向。
+ *
+ * `idle` 与 `unreached` 是两件事：前者是「本次运行还没对它作出判断」（执行途中），
+ * 后者是「跑完了但这条线没被走过」（分支没选中、或上游失败后停住了）。
+ * 合并成一个就会在运行途中把整张图涂成灰的。
+ */
+export type FlowEdgeRunState = 'idle' | 'traversed' | 'skipped' | 'failed' | 'unreached'
+
 /** 出边在源节点底边散开时的最小间距，避免两条线共用同一个锚点看不出分支 */
 const PORT_SPACING = 26
 

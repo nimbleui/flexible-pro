@@ -123,6 +123,32 @@
   animation: lc-flow-dock-pulse 1.1s ease-in-out infinite;
 }
 
+/* 步进动画开关：与「执行中」胶囊同高，避免顶栏出现第二套尺寸 */
+.lc-flow-dock__beat {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  color: var(--lc-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.lc-flow-dock__beat input {
+  width: 12px;
+  height: 12px;
+  accent-color: var(--lc-accent);
+  cursor: pointer;
+}
+
+.lc-flow-dock__beat input:focus-visible {
+  outline: 2px solid var(--lc-accent-bright);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 /* 复用外壳的图标按钮原子，只压尺寸以适配窄条；复合选择器保证不依赖样式加载顺序 */
 .lc-icon-button.lc-flow-dock__close {
   flex: none;
