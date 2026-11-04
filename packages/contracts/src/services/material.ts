@@ -1,4 +1,4 @@
-import type { EventDefinition, NodeSchema } from '@lc/schema'
+import type { EventDefinition, NodeSchema, SlotDefinition } from '@lc/schema'
 import type { JsonSchema } from '../json'
 import type { Registry } from './registry'
 
@@ -31,6 +31,27 @@ export interface MaterialContribution {
   clickCommand?: string
   /** 是否可作为容器接收子节点 */
   container?: boolean
+  /**
+   * 组件对外暴露的具名插槽声明。
+   *
+   * 与 `NodeSchema.slots`（`Record<插槽名, 子节点 id[]>`）是一对：本字段说「这个组件
+   * 有哪些内容分发点」，节点侧说「这个实例的那些点里放了谁」。类型复用 `@lc/schema`
+   * 的 `SlotDefinition`，不在这里另立一套——自定义组件蓝图
+   * （`ComponentSchema.slots`）用的就是它。
+   *
+   * 落位与 `container` 相邻而不是与 `props` 并列，是因为两者共同回答「能不能往里放、
+   * 放到哪一格」：`container` 决定命中测试是否把该节点当容器，`slots` 决定容器内部的
+   * 具名分发点。
+   *
+   * 执行点在拖入：命中容器后由 `canvas-drop` 按 `region` 判定落到哪一格，写进
+   * `parent.slots[<name>]`；命中的那一格被 `accepts` 拒绝或被 `maxChildren` 占满时，
+   * 降级到名为 `default` 的插槽，两者都不可用才回落到 `children`（见
+   * `canvas-drop/src/slot-target.ts`）。校验器仍只检查插槽引用的节点是否存在，
+   * 不检查插槽名是否已声明；渲染层也把 children 与全部插槽压成同一份默认插槽内容
+   * （`vue/src/render/tree.ts:49-51`），所以「放进 header」目前只改变数据落档位置，
+   * 组件还收不到分开的具名插槽。
+   */
+  slots?: SlotDefinition[]
   /** 允许的父物料；空表示不限制 */
   allowedParents?: string[]
   /**
