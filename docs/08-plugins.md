@@ -40,7 +40,7 @@ for (const feature of features)
 
 `@lc/preset-canvas` 的依赖只有 `contracts` 与 `kernel`，**不认识任何画布插件**——这是「新增画布能力不需要改宿主」的结构保证。
 
-## 3. 业务插件（5 个）
+## 3. 业务插件（8 个）
 
 | 包                            | manifest.name      | 贡献点      | 条目 | 关键属性                                                                                                                           |
 | ----------------------------- | ------------------ | ----------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -48,9 +48,14 @@ for (const feature of features)
 | `@lc/plugin-panel-outline`    | `panel-outline`    | `panels`    | 1    | slot `designer.overlayPanel`、title「页面大纲」、`order: 10`、`activationEvents: ['onPanel:outline']`                              |
 | `@lc/plugin-panel-materials`  | `panel-materials`  | `panels`    | 1    | slot `designer.leftPanel`、title「组件库」、`order: 20`、`onPanel:materials`                                                       |
 | `@lc/plugin-panel-properties` | `panel-properties` | `panels`    | 1    | slot `designer.rightPanel`、`order: 10`、`onPanel:properties`                                                                      |
+| `@lc/plugin-panel-style`      | `panel-style`      | `panels`    | 1    | slot `designer.stylePanel`、title「样式」、`order: 10`、`onPanel:style`                                                            |
+| `@lc/plugin-panel-node-event` | `panel-node-event` | `panels`    | 1    | slot `designer.eventPanel`、title「事件」、`order: 10`、`onPanel:nodeEvent`                                                        |
+| `@lc/plugin-panel-advanced`   | `panel-advanced`   | `panels`    | 1    | slot `designer.advancedPanel`、title「高级」、`order: 10`、`onPanel:advanced`                                                      |
 | `@lc/plugin-panel-eventflow`  | `panel-eventflow`  | `panels`    | 1    | slot `designer.bottomPanel`、`order: 10`、`onPanel:eventflow`（`plugin-panel-eventflow/src/manifest.ts:3-22`）                     |
 
-左槽现在只剩物料面板一个贡献者（大纲改投浮层槽，`order` 10 < 20 的先后关系因此不再有意义）；底槽是事件流、浮层槽是页面大纲，各一个贡献者。
+左槽现在只剩物料面板一个贡献者（大纲改投浮层槽，`order` 10 < 20 的先后关系因此不再有意义）；底槽是事件流、浮层槽是页面大纲，右侧四个页签各一个贡献者，每个槽当前都只有一个面板。
+
+一个插件包只能贡献**一个**面板组件：`collectModules` 把 manifest 里出现的每个 `module` 字符串都登记成 `插件名/模块路径`，但加载器一律指向同一个 `pkg.load`（`service-loader/src/index.ts:322-329`），`Slot.vue` 再取 `module.default`（`packages/vue/src/components/Slot.vue:100-106`）。所以样式 / 事件 / 高级三个页签是三个独立包，而不是属性面板多写三条 `panels` 贡献。
 
 ### 3.1 `materials-basic`：四个物料
 
@@ -62,6 +67,8 @@ for (const feature of features)
 | `Text`   | 文本  | 基础     | —         | `text: string`、`fontSize: number`、`align: string` | 200×40                            |
 | `Circle` | 圆形  | 基础     | —         | `fill: string`                                      | 96×96                             |
 | `Group`  | 分组  | 布局     | ✅        | `{}`（无属性）                                      | 240×160，`name: '分组'`           |
+
+表格没有插槽列：`MaterialContribution.slots`（具名插槽声明，`contracts/src/services/material.ts:10-69`）刚进契约，这四个物料都还没声明。它已经在拖入路径生效（按 `region` 分格，见 [05 §MaterialService](./05-contracts-and-schema.md)），但没有插槽声明的容器仍一律落 `children`，行为与今天完全一致。
 
 `Group` 的注释说明它的身份：「组合命令产出的节点类型；同时提供空白分组，方便手工往里放节点」——`canvas-commands` 的 `canvas.group` 会造出这个 `componentName`，所以物料必须登记它，否则 `isContainer` 判定与占位渲染都会退化。
 
@@ -90,14 +97,16 @@ export default { components }
 
 ### 3.3 属性面板
 
-`packages/plugins/plugin-panel-properties/src/PropertiesPanel.vue`（435 行）
+`packages/plugins/plugin-panel-properties/src/PropertiesPanel.vue`（472 行）
 
-- 四个服务：`document` / `selection` / `material` / `setter`（`:20-23`），四个 `onDidChange` 全部 `bump`（`:32-37`）。
-- 当前节点：`selection.primary` → `document.model.schema.nodes[id]`（`:49-53`）；**属性面板只编辑主选中**，多选只显示数量（`:44-47`）。
-- 字段生成：`materialEntry.props`（JSON Schema）→ `Object.entries(properties)` → `toPropType(definition)`（`:72-87`）→ `setter.resolve(propType)?.kind ?? 'text'`（`:107`）。
+- 五个服务：`document` / `selection` / `material` / `setter` / `expression`（`:32-36`），`onMounted` 里逐个 `onDidChange` 绑 `bump`（`:49`）。
+- 当前节点：`selection.primary` → `document.model.schema.nodes[id]`（`:66`）；**属性面板只编辑主选中**，多选只显示数量（`:61`）。
+- 字段生成：`materialEntry.props`（JSON Schema）→ `Object.entries(properties)` → `toPropType(definition)`（`:94`）→ `setter.resolve(propType)?.kind ?? 'text'`（`:129`）。
   `toPropType` 的判定顺序值得记住：`format === 'color' → 'color'`；`Array.isArray(enum) → 'enum'`；否则按 JSON `type` 映射，未识别一律 `'string'`。
-- `enum` 选项来自 schema 的 `enum` 数组（`toOptions`，`:89-97`），**不是** `SetterEntry.options`（内置 setter 未提供 options，靠属性定义补充——与契约 `setter.ts:23-24` 的注释一致）。
-- 提交：`commit(patches, label)` 统一 `document.apply(..., {record:true})`（`:118-121`）；`path(suffix)` 拼 `/nodes/<id>${suffix}`（`:123-125`）；分别有 `commitRect(field)`（`:127+`）、`commitLayout`、`commitStyle`、`commitProp`。数字输入用 `Number.isFinite` 过滤（`:130`）。
+- `enum` 选项来自 schema 的 `enum` 数组（`toOptions`，`:111`），**不是** `SetterEntry.options`（内置 setter 未提供 options，靠属性定义补充——与契约 `setter.ts:23-24` 的注释一致）。
+- 提交：`commit(patches, label)` 统一 `document.apply(..., {record:true})`（`:189`）；`path(suffix)` 拼 `/nodes/<id>${suffix}`（`:200`）；分别有 `commitProp`、`commitPropNumber`、`commitExpression`。数字输入用 `Number.isFinite` 过滤。
+- 文本属性可以是表达式：`expressionModes`（`:136`）是**面板本地状态**，不写进 schema；值里含 `{{` 时自动进入表达式态，切节点即清空。
+- 本面板现在只有「组件属性」一段。位置尺寸与样式已迁到 `designer.stylePanel`（§3.5），同一字段不留两处入口。
 
 ### 3.4 物料面板
 
@@ -112,6 +121,38 @@ event.dataTransfer.setData(toMaterialDragType(entry.name), entry.name)
 ```
 
 MIME 前缀 `application/x-lc-material:` + 物料名按码点转十六进制（`packages/contracts/src/drag.ts:8-24`），**这样任何物料名（含中文、空格、大小写）都能安全进入 `dataTransfer.types`**；消费侧 `materialNameFromDragTypes(types)` 反解（`:25`）。
+
+### 3.5 样式面板
+
+`packages/plugins/plugin-panel-style/src/StylePanel.vue`，贡献到 `designer.stylePanel`。七段：位置与尺寸、内边距、外边距、背景与边框、文本、显示、原始样式。
+
+- 换算全部在 `src/utils/style-fields.ts`，组件只做绑定：`SpacingValue` / `BorderValue` 允许「简写字符串 / 四方向对象」两种形态，而渲染层是把 `node.style` **原样 spread 成 CSSProperties**（`packages/vue/src/components/CanvasStage.vue:99`），对象形态不会产生任何样式。因此面板按四边读、**写 CSS 长手属性**（`padding-top` 等），写任一边时顺带删掉同名简写键——两条路径同时存在时浏览器按书写顺序决胜，会留下「改上边、左右也跟着变」的幽灵回归。
+- 值没变不产生 patch（`boxSideEdits` / `borderPartEdits` / `styleValueEdits` 都先比对），避免一次失焦留下一条空历史。
+- 四边编辑器 `components/BoxSidesEditor.vue` 是 padding 与 margin 共用的子组件；留空即删该方向的长手键。
+- `>4` 段的简写（`calc()` 里的空格已按括号深度切分，不算分隔符）判为无法解释，读回空四边且不动原值，让用户去原始样式段处理。
+- 原始样式段是 `StyleSchema` 索引签名的逃生门：整份 `style` 用 JSON 编辑，半截 JSON 只回错误不落文档，非键值对象（数组 / 标量）直接拦下。
+- 「位置与尺寸」段带一对锁位下拉（水平 `left | right | center | scale | stretch`、垂直 `top | bottom | center | scale | stretch`），写 `layout.constraints`：自定义组件实例改尺寸时按它重排内部节点（`packages/vue/src/render/constraints.ts`），没写就等于固定左上角。
+- 不暴露 `layout.mode` / `node.className` / `node.key`：协议里有，但渲染层与画布都没有消费者，做进面板就是假功能。
+
+### 3.6 节点事件面板
+
+`packages/plugins/plugin-panel-node-event/src/NodeEventPanel.vue`，贡献到 `designer.eventPanel`，与底部事件流面板读写同一份 `connections` / `actions`。
+
+- 分工：右栏按**选中节点**筛，只回答「哪些事件接上了链、链上有几步」；动作参数、顺序与分支仍在 `designer.bottomPanel`。这句话写在面板顶部的提示里，免得用户在这里找配置表单。
+- 事件来源：`collectEventDefinitions` 合并页面 schema 的 `components[].events` 与物料登记的 `events`，按名去重、schema 先写者胜出；没声明事件的物料提供手填绑定。
+- 一行动一个事件：`buildEventRows` 先列声明（未绑定的也要出现），再补未声明却已绑定的自定义事件；同事件的第二条连接属于校验错误，不再开第二行。
+- 写操作全在 `composables/use-node-event-bindings.ts`：绑定（同节点同事件查重后 `add` 连接）、解绑（`remove` 连接 + `orphanedActionIds` 回收只被它引用的动作，同批提交）、启停、加动作（动作本体与 `actionIds` 引用同批提交，否则历史里会出现悬空引用的中间态）、摘动作（被复用的动作只摘引用）。
+- 空配置动作标成「未填写参数」：`ui.toast` 这类必填字段不在 `validateDocument` 的表达式字段检查里，不写出来的话面板上是一条看起来正常、实际什么都不做的动作。
+- 本节点连接与动作上的校验问题显示在列表上方（`issuesForConnections` 按 `/connections/<id>`、`/actions/<id>` 前缀过滤 `document.validate()`）。
+
+### 3.7 高级面板
+
+`packages/plugins/plugin-panel-advanced/src/AdvancedPanel.vue`，贡献到 `designer.advancedPanel`，只编辑运行时真正消费的节点级字段。
+
+- 覆盖：图层显示名、`hidden` / `locked` 设计态开关、`condition` 条件渲染、`loop`（数据源 + 项名 / 下标名）、`directives` 列表。开关关闭写「删键」而不是存 `false`，schema 里只留与默认值不同的意图。
+- 表达式读写在 `utils/expression-field.ts`：输入框统一显示 `{{ ... }}`，落盘存剥壳后的内层文本（与既有文档的 `condition` 写法一致）；空文本与只剩外壳都视为清空，不存恒为真的空表达式；裸字符串原样回显而不顺手包装——包装会把它从常量变成会求值的表达式，那是语义变更。
+- 指令表整体替换而不逐条写索引路径（`utils/directives.ts`）：同一批编辑按索引改会互相覆盖，整表一次写入更稳；下标越界返回等值新数组而不抛错，因为列表可能在提交之间被撤销或画布删除改短。
+- `readonly` / `required` 两种指令在协议里有、`buildRenderTree` 未实现（只吃 show / hide / disabled），下拉里照列但标注「渲染层未生效」。
 
 ## 4. 画布插件（15 个）
 

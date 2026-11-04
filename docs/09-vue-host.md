@@ -212,22 +212,26 @@ apps/host/src/App.vue                                   外壳
   └ RouterView :key="route.path"                        :32   换文档即整页重建
 
 apps/host/src/views/DesignerView.vue                    设计器视图
-<div v-if="!ready" .lc-designer__loading>               :79   就绪门，见 12 号文档 §5
-ContextScope(editor.context)                            :81
+<div v-if="!ready" .lc-designer__loading>               :374  就绪门，见 12 号文档 §5
+ContextScope(editor.context)                            :376
 └ .lc-designer
-  ├ .lc-designer__toolbar > ToolbarStock + 开发者工具按钮 :83-93
-  ├ main.lc-app__body                                    :95-123
-  │   aside.lc-app__panel > LcSlot name="designer.leftPanel"    :96-103
-  │   <CanvasModule :app-context :canvas-context>               :105  远程画布（内部渲染 CanvasStage）
-  │   aside--right > LcSlot name="designer.rightPanel"          :107-114
-  │   LcDevtools(v-if)                                          :116-122
-  ├ StatusBar(:canvas-context)                            :125
-  └ CommandPalette                                        :129
+  ├ .lc-designer__toolbar > ToolbarStock + 开发者工具按钮 :378-477
+  ├ .lc-designer__body                                    :479-657
+  │   nav.lc-rail（7 个活动栏入口）                        :480-496
+  │   aside--left > LcSlot name="designer.leftPanel"      :499-511
+  │   section--center > <CanvasModule :app-context :canvas-context :scope>  :513-523  远程画布（内部渲染 CanvasStage）
+  │   .lc-dock > LcSlot name="designer.bottomPanel"       :530-576
+  │   aside--right > 四页签 + 四个 LcSlot                  :579-653
+  │   LcDevtools(v-if)                                    :655-661
+  ├ StatusBar(:canvas-context)                            :664
+  └ CommandPalette                                        :668
 ```
 
 宿主侧不再直接引用 `CanvasStage`：舞台由远程模块 `apps/designer/src/CanvasModule.vue:40` 渲染，`CanvasStage` / `LayerHost` 仍是 `@lc/vue` 的导出，只是消费者换成了远程包。
 
 设计器外壳（`DesignerView.vue`）有活动栏：56px 的 `.lc-rail`（`apps/host/src/styles/app.css:769`）排 7 个入口，其中「组件库 / 页面大纲 / 事件链」开关各自的界面、「数据源 / 方法管理」执行宿主命令、「版本管理 / 设置」是禁用占位。左栏 248px（`:856`）与右栏 300px（`:863`）都是常驻 `aside`，左栏不再画标题，标题、页签与搜索由面板自己提供；页面大纲改走覆盖在画布上的浮层（`components/OverlayPanel.vue`）。插槽为空时用 `#empty` 具名插槽显示「暂无面板贡献」。
+
+右栏的「页面配置 / 样式 / 事件 / 高级」四页是外壳固定的产品边界（`rightTabs`，不做动态注册），但每页内容都来自各自的插槽，外壳不内置任何一段表单；页签条支持方向键与 Home / End 循环导航（`onRightTabKeydown`）。样式 / 事件 / 高级三个槽的贡献者见 08 号文档 §3.5–3.7。
 
 ### 三个宿主组件
 

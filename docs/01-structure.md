@@ -169,20 +169,23 @@ preset-designer        preset-canvas
 
 | 层                      | src 文件 | tests 文件 |
 | ----------------------- | -------- | ---------- |
-| packages/kernel         | 10       | 4          |
-| packages/contracts      | 25       | 2          |
-| packages/schema         | 19       | 2          |
-| packages/shared         | 3        | 0          |
+| packages/kernel         | 10       | 5          |
+| packages/contracts      | 31       | 2          |
+| packages/schema         | 21       | 5          |
+| packages/shared         | 4        | 0          |
 | packages/canvas         | 12       | 6          |
-| packages/vue            | 10       | 1          |
-| packages/services       | 13       | 2          |
-| packages/plugins        | 11       | 0          |
+| packages/vue            | 16       | 2          |
+| packages/expression     | 28       | 5          |
+| packages/editor         | 2        | 0          |
+| packages/devtools       | 21       | 3          |
+| packages/services       | 22       | 7          |
+| packages/plugins        | 43       | 4          |
 | packages/canvas-plugins | 53       | 9          |
 | packages/presets        | 2        | 0          |
-| apps/host               | 15       | 0          |
+| apps/host               | 72       | 6          |
 | apps/designer           | 2        | 0          |
 
-平台核心（kernel + contracts + schema + shared + canvas + vue）共 79 个 src 文件；服务与插件共 79 个。规模最大的文件依次是 `packages/canvas/src/interaction/pipeline.ts`（704 行）、`plugin-panel-outline/src/OutlinePanel.vue`（472）、`packages/schema/src/tree.ts`（465）、`packages/kernel/src/context.ts`（441）、`plugin-panel-properties/src/PropertiesPanel.vue`（435）。服务包中最长为 `service-loader/src/index.ts`（356 行）。
+平台核心（kernel + contracts + schema + shared + canvas + vue）共 94 个 src 文件；服务、插件与预设共 120 个。规模最大的文件依次是 `packages/schema/src/flow.ts`（838 行）、`packages/canvas/src/interaction/pipeline.ts`（786）、`apps/host/src/views/FlowListView.vue`（722）、`apps/host/src/components/functions/FunctionEditorForm.vue`（703）、`apps/host/src/views/DesignerView.vue`（679）、`plugin-panel-style/src/StylePanel.vue`（641）。服务包中最长为 `service-loader/src/index.ts`。
 
 ## 5. 命名约定
 

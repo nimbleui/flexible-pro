@@ -103,27 +103,27 @@ Realm 创建后不立刻渲染：`views/DesignerView.vue:68-73` 先 `await appCt
 
 ### 2.7 首帧渲染
 
-| #   | 位置                      | 动作                                                                                                                                                          |
-| --- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `main.ts:11-14`           | `createApp(App, { editorContext: editor.context, canvasContext: canvas.context })`：Realm 上下文以 props 注入，宿主不查询全局单例                             |
-| 2   | `main.ts:15`              | `provideContext(app, context)` → `packages/vue/src/context.ts:14`，把根 Context 挂到 Vue provide                                                              |
-| 3   | `main.ts:16`              | `app.mount('#app')`；`main.ts:19-27` catch 启动异常并把错误写进 `#app`，避免出现白屏                                                                          |
-| 4   | `App.vue:23`              | `<ContextScope :context="editorContext">` 把作用域切到 EditorRealm                                                                                            |
-| 5   | `App.vue:31`              | `<ToolbarStock>`：`contribution.list('toolbar')` 过滤 `designer.toolbar`（`components/ToolbarStock.vue:32`），按钮只声明命令 id，点击时 `ctx.command.execute` |
-| 6   | `App.vue:40`              | `<LcSlot name="designer.leftPanel">` → `packages/vue/src/components/Slot.vue:61` `ctx.contribution.listSlot(name)`                                            |
-| 7   | `Slot.vue:95`             | 对每个面板 `ctx.loader.ensureActivated('onPanel:' + panelId)`（`service-loader/src/index.ts:333`；注意 `onCanvasFeature:*` 在 `:335` 被显式跳过）             |
-| 8   | `Slot.vue:98`             | `ctx.modules.load(moduleKey(plugin, module))` → `:105` `markRaw(module.default)` 缓存组件；`:106-108` 只重建到达的那一项，keyed `v-for` 因此不整槽重渲染      |
-| 9   | `Slot.vue:121-133`        | `PluginBoundary` 包裹 `<component :is>`；未到达时渲染骨架，失败时渲染错误文案                                                                                 |
-| 10  | `App.vue:47`              | `<CanvasStage :context="canvasContext">`                                                                                                                      |
-| 11  | `CanvasStage.vue:76`      | `buildRenderTree({ schema, resolveValue })`（`packages/vue/src/render/tree.ts:50`）把 `PageSchema` 摊成渲染树                                                 |
-| 12  | `CanvasStage.vue:157-169` | `syncComponents()`：对文档里出现的每个 `componentName` 调 `renderer.resolveMaterial(name)`，缓存 `markRaw` 组件；`loading` 集合做并发去重                     |
-| 13  | `CanvasStage.vue:241`     | `onMounted` 里 `canvas.attach(element)`：注册舞台上唯一一套 DOM 监听并同步写入尺寸（见 `service-canvas-core` 的 ResizeObserver 路径）                         |
-| 14  | `CanvasStage.vue:242`     | `canvas.scheduler.onFrame(refreshMatrix)`：`:153` 把 `viewport.matrix` 拼成 `matrix(a,b,c,d,e,f)` 写进内容层 transform                                        |
-| 15  | `CanvasStage.vue:255`     | `centerRootAtCurrentZoom()`（定义在 `:163`）：首帧保持默认 100% 缩放，只把文档根矩形摆到视口中心；尺寸未测得时跳过，要看全貌用「适应画布」命令                |
-| 16  | `CanvasStage.vue:258`     | `element.focus()`：键盘事件挂在舞台元素上                                                                                                                     |
-| 17  | `App.vue:51`              | 右侧 `designer.rightPanel` 插槽（属性面板，`order:10`）                                                                                                       |
-| 18  | `App.vue:59-60`           | `<StatusBar>` 读视口/选中/脏/历史；`<CommandPalette>` 订阅 `palette:toggle`（`components/CommandPalette.vue:27`）                                             |
-| 19  | `LayerHost.vue:138-139`   | `syncLayers()` 对**已注册的全部图层**调用 `ensureLayer()` → `layer.load()`（`:112-117`），每帧 `refresh`（`:157` 订阅 `scheduler.onFrame`）                   |
+| #   | 位置                       | 动作                                                                                                                                                                                        |
+| --- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `main.ts:11-14`            | `createApp(App, { editorContext: editor.context, canvasContext: canvas.context })`：Realm 上下文以 props 注入，宿主不查询全局单例                                                           |
+| 2   | `main.ts:15`               | `provideContext(app, context)` → `packages/vue/src/context.ts:14`，把根 Context 挂到 Vue provide                                                                                            |
+| 3   | `main.ts:16`               | `app.mount('#app')`；`main.ts:19-27` catch 启动异常并把错误写进 `#app`，避免出现白屏                                                                                                        |
+| 4   | `App.vue:23`               | `<ContextScope :context="editorContext">` 把作用域切到 EditorRealm                                                                                                                          |
+| 5   | `App.vue:31`               | `<ToolbarStock>`：`contribution.list('toolbar')` 过滤 `designer.toolbar`（`components/ToolbarStock.vue:32`），按钮只声明命令 id，点击时 `ctx.command.execute`                               |
+| 6   | `App.vue:40`               | `<LcSlot name="designer.leftPanel">` → `packages/vue/src/components/Slot.vue:61` `ctx.contribution.listSlot(name)`                                                                          |
+| 7   | `Slot.vue:95`              | 对每个面板 `ctx.loader.ensureActivated('onPanel:' + panelId)`（`service-loader/src/index.ts:333`；注意 `onCanvasFeature:*` 在 `:335` 被显式跳过）                                           |
+| 8   | `Slot.vue:98`              | `ctx.modules.load(moduleKey(plugin, module))` → `:105` `markRaw(module.default)` 缓存组件；`:106-108` 只重建到达的那一项，keyed `v-for` 因此不整槽重渲染                                    |
+| 9   | `Slot.vue:121-133`         | `PluginBoundary` 包裹 `<component :is>`；未到达时渲染骨架，失败时渲染错误文案                                                                                                               |
+| 10  | `App.vue:47`               | `<CanvasStage :context="canvasContext">`                                                                                                                                                    |
+| 11  | `CanvasStage.vue:76`       | `buildRenderTree({ schema, resolveValue })`（`packages/vue/src/render/tree.ts:50`）把 `PageSchema` 摊成渲染树                                                                               |
+| 12  | `CanvasStage.vue:157-169`  | `syncComponents()`：对文档里出现的每个 `componentName` 调 `renderer.resolveMaterial(name)`，缓存 `markRaw` 组件；`loading` 集合做并发去重                                                   |
+| 13  | `CanvasStage.vue:241`      | `onMounted` 里 `canvas.attach(element)`：注册舞台上唯一一套 DOM 监听并同步写入尺寸（见 `service-canvas-core` 的 ResizeObserver 路径）                                                       |
+| 14  | `CanvasStage.vue:242`      | `canvas.scheduler.onFrame(refreshMatrix)`：`:153` 把 `viewport.matrix` 拼成 `matrix(a,b,c,d,e,f)` 写进内容层 transform                                                                      |
+| 15  | `CanvasStage.vue:255`      | `centerRootAtCurrentZoom()`（定义在 `:163`）：首帧保持默认 100% 缩放，只把文档根矩形摆到视口中心；尺寸未测得时跳过，要看全貌用「适应画布」命令                                              |
+| 16  | `CanvasStage.vue:258`      | `element.focus()`：键盘事件挂在舞台元素上                                                                                                                                                   |
+| 17  | `DesignerView.vue:579-655` | 右栏四个页签各一个插槽：`designer.rightPanel`（属性）、`designer.stylePanel`（样式）、`designer.eventPanel`（事件）、`designer.advancedPanel`（高级），每个槽当前各一个贡献面板，`order:10` |
+| 18  | `App.vue:59-60`            | `<StatusBar>` 读视口/选中/脏/历史；`<CommandPalette>` 订阅 `palette:toggle`（`components/CommandPalette.vue:27`）                                                                           |
+| 19  | `LayerHost.vue:138-139`    | `syncLayers()` 对**已注册的全部图层**调用 `ensureLayer()` → `layer.load()`（`:112-117`），每帧 `refresh`（`:157` 订阅 `scheduler.onFrame`）                                                 |
 
 ## 3. 三条典型数据流
 

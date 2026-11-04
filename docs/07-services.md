@@ -160,7 +160,7 @@ ctx.provide('expression', engine, { apiVersion: '1.1' }) // :86
 - `resolve(propType)`（`:75-79`）：按类型过滤后 `sort((a,b) => (b.priority ?? 0) - (a.priority ?? 0))[0]`，即同类型优先级最高者胜出。
 - 扩展路径写在 `:25` 的注释：「内置映射覆盖全部 PropType；插件可注册更高 `priority` 的同类型设置器覆盖」。
 - **没有 `setters` 贡献点**：注册只能通过 `ctx.setter.register(...)` 命令式调用，因此第三方包无法在 manifest 里声明设置器。
-- 类型未命中时由**调用方**兜底成文本控件（`packages/plugins/plugin-panel-properties/src/PropertiesPanel.vue:108`：`setter?.resolve(propType)?.kind ?? 'text'`），服务本身不返回兜底值。
+- 类型未命中时由**调用方**兜底成文本控件（`packages/plugins/plugin-panel-properties/src/PropertiesPanel.vue:129`：`setter?.resolve(propType)?.kind ?? 'text'`），服务本身不返回兜底值。
 
 ## `keybinding` — 全局快捷键
 

@@ -176,7 +176,9 @@ const rows = computed(() => {
 
 写回只有一个入口：`document.apply(patches, { record: true, label })`，**不允许直接改 `document.model.schema`**。
 
-`activationEvents` 必须写 `onPanel:<panelId>`，否则 `Slot.vue:95` 的懒激活不会触发；`slot` 只能取 `SLOT` 里的五个值之一（`packages/contracts/src/slots.ts:7-23`）。
+`activationEvents` 必须写 `onPanel:<panelId>`，否则 `Slot.vue:95` 的懒激活不会触发；`slot` 只能取 `SLOT` 里的九个值之一（`packages/contracts/src/slots.ts:7-55`），要新槽位先按「契约常量 → 宿主插槽 → 插件声明」的顺序加，插件不许自定义宿主不认识的字符串。
+
+一个包只能贡献**一个**面板组件：`collectModules` 把每个 `module` 字符串都登记成 `插件名/模块路径`，但加载器一律指向同一个 `pkg.load`（`service-loader/src/index.ts:322-329`），`Slot.vue` 再取 `module.default`——两条 `panels` 贡献写不同 `module` 也只会拿到同一个组件。右侧四个页签因此是四个包而不是一个包四行贡献。
 
 ## 4. 加一个物料包
 
@@ -208,6 +210,8 @@ export default { components }
 ```
 
 要点：`props` 是 JSON Schema，属性面板据此生成控件（`format: 'color' → color`、`enum → select`，其余按 `type`，见 `PropertiesPanel.vue:72-87`）；`snippet` 决定拖入时生成的节点；`container: true` 才会被 `canvas-drop` 判为可投递空容器（`service-canvas-core/src/index.ts:86-92`）。
+
+容器物料还可以声明 `slots: [{ name, title, region?, accepts?, maxChildren? }]`（类型来自 `@lc/schema` 的 `SlotDefinition`，与自定义组件蓝图 `ComponentSchema.slots` 同源），说清「往里放的时候有哪几格可选」。拖入命中该容器时，`canvas-drop` 按 `region`（相对容器矩形的比例，0–1；省略表示覆盖整块）决定写到 `node.slots[<name>]` 还是 `children`，`accepts` 与 `maxChildren` 在这一步生效。渲染层按声明分组（`vue/src/render/slots.ts` 的 `splitSlotChildren`），画布与运行时预览把分组结果作为**具名插槽**传给组件，组件内部放一个 `SlotOutlet` 物料（同样的插槽名）标出接收区；没声明的插槽名与 `children` 继续平铺，不会因为「组件没格子」被吞掉。插槽内容归页面所有，所以组件实例改尺寸时这一层不参与重排。
 
 ## 5. 扩展平台契约（**有摩擦，是故意的**）
 
