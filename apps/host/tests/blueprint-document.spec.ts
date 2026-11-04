@@ -36,11 +36,12 @@ describe('蓝图文档标识', () => {
   })
 
   it('新建落库的定义带起始根容器，能通过保存校验', () => {
-    const definition = initialComponentSchema(
-      META,
-      [{ name: 'v', title: '值', type: 'string' }],
-      [],
-    )
+    const definition = initialComponentSchema({
+      meta: META,
+      props: [{ name: 'v', title: '值', type: 'string' }],
+      events: [],
+      slots: [],
+    })
 
     expect(definition.nodes[definition.nodeId]).toBeDefined()
     expect(definition.defaultProps).toBeUndefined()
@@ -48,15 +49,38 @@ describe('蓝图文档标识', () => {
   })
 
   it('事件声明随定义落库', () => {
-    const definition = initialComponentSchema(
-      META,
-      [],
-      [{ name: 'click', title: '点击', parameters: [{ name: 'id', type: 'string' }] }],
-    )
+    const definition = initialComponentSchema({
+      meta: META,
+      props: [],
+      events: [{ name: 'click', title: '点击', parameters: [{ name: 'id', type: 'string' }] }],
+      slots: [],
+    })
 
     expect(definition.events).toEqual([
       { name: 'click', title: '点击', parameters: [{ name: 'id', type: 'string' }] },
     ])
+  })
+
+  it('插槽声明随定义落库，没声明时不落字段', () => {
+    const withSlots = initialComponentSchema({
+      meta: META,
+      props: [],
+      events: [],
+      slots: [
+        { name: 'header', title: '头部', region: { x: 0, y: 0, width: 1, height: 0.25 } },
+      ],
+    })
+    const withoutSlots = initialComponentSchema({
+      meta: META,
+      props: [],
+      events: [],
+      slots: [],
+    })
+
+    expect(withSlots.slots).toEqual([
+      { name: 'header', title: '头部', region: { x: 0, y: 0, width: 1, height: 0.25 } },
+    ])
+    expect(withoutSlots.slots).toBeUndefined()
   })
 })
 
@@ -114,6 +138,35 @@ describe('定义 → 画布文档', () => {
     expect(again.nodes['bp-root']?.children).toEqual(['bp-node-1'])
   })
 
+  it('前缀候选相撞时按后缀顺延，一个节点都不会丢', () => {
+    // 上次保存留下的 bp-node-1 与刷新后重新计数产生的 node-1 都想要 bp-node-1
+    const schema = blueprintSchemaOf(
+      definition({
+        root: node({ children: ['bp-node-1', 'node-1'] }),
+        'bp-node-1': node({ id: 'bp-node-1', componentName: 'Box', children: ['node-2'] }),
+        'node-1': node({ id: 'node-1', componentName: 'Text' }),
+        'node-2': node({ id: 'node-2', componentName: 'Circle' }),
+      }),
+      'doc',
+    )
+
+    expect(Object.keys(schema.nodes).sort()).toEqual([
+      'bp-node-1',
+      'bp-node-1-2',
+      'bp-node-2',
+      'bp-root',
+    ])
+    expect(schema.nodes['bp-root']?.children).toEqual(['bp-node-1', 'bp-node-1-2'])
+    expect(schema.nodes['bp-node-1']?.children).toEqual(['bp-node-2'])
+
+    // 二次进入不再叠加后缀
+    const again = blueprintSchemaOf(
+      { meta: META, nodeId: schema.nodeId, nodes: schema.nodes },
+      'doc',
+    )
+    expect(Object.keys(again.nodes).sort()).toEqual(Object.keys(schema.nodes).sort())
+  })
+
   it('根 id 失效时按第一个节点兜底，全空才建新根', () => {
     expect(
       blueprintSchemaOf(definition({ a: node({ id: 'a' }) }, 'missing'), 'doc').nodeId,
@@ -154,9 +207,12 @@ describe('画布文档 → 定义', () => {
       metadata: { title: 'doc' },
     }
 
-    const result = definitionFromBlueprint(schema, META, [
-      { name: 'label', title: '标题', type: 'string', defaultValue: '评分' },
-    ])
+    const result = definitionFromBlueprint(schema, {
+      meta: META,
+      props: [{ name: 'label', title: '标题', type: 'string', defaultValue: '评分' }],
+      events: [],
+      slots: [],
+    })
 
     expect(result.nodeId).toBe('root')
     expect(result.nodes.label).toEqual({
@@ -187,7 +243,12 @@ describe('画布文档 → 定义', () => {
       metadata: { title: 'doc' },
     }
 
-    const result = definitionFromBlueprint(schema, META, [])
+    const result = definitionFromBlueprint(schema, {
+      meta: META,
+      props: [],
+      events: [],
+      slots: [],
+    })
 
     expect(result.props).toBeUndefined()
     expect(result.defaultProps).toBeUndefined()
@@ -202,7 +263,12 @@ describe('画布文档 → 定义', () => {
       metadata: { title: 'doc' },
     }
 
-    const result = definitionFromBlueprint(schema, META, [])
+    const result = definitionFromBlueprint(schema, {
+      meta: META,
+      props: [],
+      events: [],
+      slots: [],
+    })
     ;(schema.nodes.root as NodeSchema).componentName = 'Circle'
     expect(result.nodes.root?.componentName).toBe('Box')
   })

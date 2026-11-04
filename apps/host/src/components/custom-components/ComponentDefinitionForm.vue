@@ -9,6 +9,7 @@ import {
   SELECTABLE_PROP_TYPES,
   createEventDraft,
   createPropDraft,
+  createSlotDraft,
   validateComponentDraft,
 } from '../../custom-components/component-draft'
 import type { FilterSelectOption } from '../common/filter-select'
@@ -17,7 +18,7 @@ import FilterSelect from '../common/FilterSelect.vue'
 /**
  * 组件定义表。
  *
- * 只管三件事：组件的元信息、对外属性和对外事件。节点图交给画布，因此这里不出现
+ * 管四件事：元信息、对外属性、对外事件、插槽声明。节点图交给画布，因此这里不出现
  * 任何父子层级或坐标——同一份蓝图不该有两个编辑入口。
  */
 
@@ -66,6 +67,7 @@ const draft = reactive<CustomComponentDraft>({
   ...props.initial,
   props: props.initial.props.map((item) => ({ ...item })),
   events: props.initial.events.map((item) => ({ ...item })),
+  slots: props.initial.slots.map((item) => ({ ...item })),
 })
 
 /** 提交前只标必要字段：一进门就满屏飘红等于把校验当装饰 */
@@ -95,6 +97,7 @@ function snapshotOf(source: CustomComponentDraft): CustomComponentDraft {
     ...source,
     props: source.props.map((item) => ({ ...item })),
     events: source.events.map((item) => ({ ...item })),
+    slots: source.slots.map((item) => ({ ...item })),
   }
 }
 
@@ -118,6 +121,14 @@ function addEvent(): void {
 
 function removeEvent(index: number): void {
   draft.events.splice(index, 1)
+}
+
+function addSlot(): void {
+  draft.slots.push(createSlotDraft())
+}
+
+function removeSlot(index: number): void {
+  draft.slots.splice(index, 1)
 }
 
 defineExpose({
@@ -258,7 +269,7 @@ defineExpose({
         <span class="lc-component-def__count">{{ draft.events.length }}</span>
       </h3>
       <p class="lc-component-def__hint">
-        事件名供页面「事件流」接线使用；平台还没有动作执行器，声明本身不会自动触发。
+        事件名供页面「事件流」接线；运行时预览按这里的参数名折叠实参，复合组件自身不会 emit。
       </p>
       <p v-if="sectionError('events').length" class="lc-component-def__error" role="alert">
         {{ sectionError('events').join('；') }}
@@ -318,6 +329,129 @@ defineExpose({
       </p>
 
       <button type="button" class="lc-component-def__add" @click="addEvent">+ 添加事件</button>
+    </section>
+
+    <section class="lc-component-def__section">
+      <h3 class="lc-component-def__title">
+        插槽
+        <span class="lc-component-def__count">{{ draft.slots.length }}</span>
+      </h3>
+      <p class="lc-component-def__hint">
+        声明后组件即为容器：往实例上拖物料时，落点命中哪一格就归档到哪个插槽。要让内容真的显示出来，
+        需在蓝图里放一个「插槽出口」物料并填同样的插槽名；没有出口的插槽不会被渲染。
+      </p>
+      <p v-if="sectionError('slots').length" class="lc-component-def__error" role="alert">
+        {{ sectionError('slots').join('；') }}
+      </p>
+
+      <div v-for="(row, index) in draft.slots" :key="index" class="lc-component-def__event">
+        <div class="lc-component-def__event-line">
+          <input
+            v-model="row.name"
+            class="lc-component-def__mono"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="插槽名，如 header"
+            aria-label="插槽名"
+          />
+          <input
+            v-model="row.title"
+            type="text"
+            autocomplete="off"
+            placeholder="显示标题"
+            aria-label="插槽标题"
+          />
+          <button
+            type="button"
+            class="lc-component-def__row-button lc-component-def__row-button--danger"
+            aria-label="删除插槽"
+            @click="removeSlot(index)"
+          >
+            删除
+          </button>
+        </div>
+
+        <div class="lc-component-def__slot-line">
+          <input
+            v-model="row.acceptsText"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="允许物料，逗号分隔；留空不限"
+            aria-label="允许放入的物料"
+          />
+          <input
+            v-model="row.maxText"
+            type="text"
+            inputmode="numeric"
+            autocomplete="off"
+            placeholder="上限"
+            aria-label="最多子节点数"
+          />
+        </div>
+
+        <input
+          v-model="row.description"
+          type="text"
+          autocomplete="off"
+          placeholder="用途说明"
+          aria-label="插槽说明"
+        />
+
+        <details>
+          <summary>命中区域（容器百分比）</summary>
+          <div class="lc-component-def__region">
+            <label class="lc-component-def__region-field">
+              <span>X</span>
+              <input
+                v-model="row.x"
+                type="text"
+                inputmode="numeric"
+                spellcheck="false"
+                placeholder="0"
+              />
+            </label>
+            <label class="lc-component-def__region-field">
+              <span>Y</span>
+              <input
+                v-model="row.y"
+                type="text"
+                inputmode="numeric"
+                spellcheck="false"
+                placeholder="0"
+              />
+            </label>
+            <label class="lc-component-def__region-field">
+              <span>宽</span>
+              <input
+                v-model="row.width"
+                type="text"
+                inputmode="numeric"
+                spellcheck="false"
+                placeholder="100"
+              />
+            </label>
+            <label class="lc-component-def__region-field">
+              <span>高</span>
+              <input
+                v-model="row.height"
+                type="text"
+                inputmode="numeric"
+                spellcheck="false"
+                placeholder="100"
+              />
+            </label>
+          </div>
+          <p class="lc-component-def__hint">四项一起填才生效；留空表示这一格覆盖整个容器。</p>
+        </details>
+      </div>
+
+      <p v-if="draft.slots.length === 0" class="lc-component-def__empty">
+        还没有插槽，页面无法往这个组件里放内容。
+      </p>
+
+      <button type="button" class="lc-component-def__add" @click="addSlot">+ 添加插槽</button>
     </section>
   </div>
 </template>
@@ -480,6 +614,35 @@ defineExpose({
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: 5px;
   align-items: center;
+}
+
+.lc-component-def__slot-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px;
+  gap: 5px;
+  align-items: center;
+}
+
+.lc-component-def__region {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.lc-component-def__region-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--lc-text-muted);
+  font-size: 10px;
+}
+
+.lc-component-def__region-field input {
+  min-width: 0;
+  padding: 4px 6px;
+  font-size: 11px;
 }
 
 .lc-component-def__row-button,

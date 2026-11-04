@@ -6,6 +6,7 @@ import {
   definitionsFromDraft,
   eventsFromDraft,
   metaFromDraft,
+  slotsFromDraft,
 } from '../../custom-components/component-draft'
 import { initialComponentSchema } from '../../custom-components/blueprint-document'
 import { saveCustomComponent } from '../../custom-components/custom-components'
@@ -77,11 +78,12 @@ function confirm(): void {
   const draft = form.value.snapshot()
   try {
     const saved = saveCustomComponent({
-      definition: initialComponentSchema(
-        metaFromDraft(draft),
-        definitionsFromDraft(draft.props),
-        eventsFromDraft(draft.events),
-      ),
+      definition: initialComponentSchema({
+        meta: metaFromDraft(draft),
+        props: definitionsFromDraft(draft.props),
+        events: eventsFromDraft(draft.events),
+        slots: slotsFromDraft(draft.slots),
+      }),
     })
     emit('created', saved.id)
   } catch (cause) {
@@ -125,7 +127,7 @@ function confirm(): void {
           <ComponentDefinitionForm
             :key="formKey"
             ref="form"
-            :initial="{ ...EMPTY_COMPONENT_DRAFT, props: [], events: [] }"
+            :initial="EMPTY_COMPONENT_DRAFT"
             :taken-names="takenNames"
           />
         </div>

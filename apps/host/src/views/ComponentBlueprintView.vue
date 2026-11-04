@@ -24,6 +24,7 @@ import {
   draftFromDefinition,
   eventsFromDraft,
   metaFromDraft,
+  slotsFromDraft,
 } from '../custom-components/component-draft'
 import {
   blueprintDocumentId,
@@ -57,6 +58,7 @@ interface BlueprintSession {
 
 const BLUEPRINT_TABS = [
   { id: 'node', label: '节点属性' },
+  { id: 'style', label: '样式' },
   { id: 'definition', label: '组件定义' },
 ] as const
 
@@ -280,14 +282,25 @@ function onDefinitionChange(draft: CustomComponentDraft): void {
   defaultProps.value = defaultsOf(draft)
 }
 
-function onTabKeydown(event: KeyboardEvent): void {
+function onTabKeydown(event: KeyboardEvent, index: number): void {
   if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return
 
   event.preventDefault()
-  activeTab.value = activeTab.value === 'node' ? 'definition' : 'node'
+  const last = BLUEPRINT_TABS.length - 1
+  const next =
+    event.key === 'ArrowRight'
+      ? index === last
+        ? 0
+        : index + 1
+      : index === 0
+        ? last
+        : index - 1
+  const target = BLUEPRINT_TABS[next]
+  if (!target) return
+
+  activeTab.value = target.id
   const tablist = (event.currentTarget as HTMLElement | null)?.closest('[role="tablist"]')
-  const index = activeTab.value === 'node' ? 0 : 1
-  tablist?.querySelectorAll<HTMLElement>('[role="tab"]')[index]?.focus()
+  tablist?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus()
 }
 
 function goBack(): void {
@@ -315,12 +328,12 @@ function save(): void {
   try {
     saveCustomComponent({
       id: componentId,
-      definition: definitionFromBlueprint(
-        document.model.schema,
-        metaFromDraft(draft),
-        definitionsFromDraft(draft.props),
-        eventsFromDraft(draft.events),
-      ),
+      definition: definitionFromBlueprint(document.model.schema, {
+        meta: metaFromDraft(draft),
+        props: definitionsFromDraft(draft.props),
+        events: eventsFromDraft(draft.events),
+        slots: slotsFromDraft(draft.slots),
+      }),
       // 启停只在列表页改，这里沿用记录里的状态，避免两个页面抢同一个开关
       enabled: stored?.enabled ?? true,
     })
@@ -465,7 +478,7 @@ function save(): void {
         <aside class="lc-designer__panel lc-designer__panel--right" aria-label="蓝图设置">
           <div class="lc-designer__tabs" role="tablist" aria-label="蓝图设置页签">
             <button
-              v-for="tab in BLUEPRINT_TABS"
+              v-for="(tab, index) in BLUEPRINT_TABS"
               :id="`lc-blueprint-tab-${tab.id}`"
               :key="tab.id"
               type="button"
@@ -475,7 +488,7 @@ function save(): void {
               :aria-controls="`lc-blueprint-tabpanel-${tab.id}`"
               :tabindex="activeTab === tab.id ? 0 : -1"
               @click="activeTab = tab.id"
-              @keydown="onTabKeydown($event)"
+              @keydown="onTabKeydown($event, index)"
             >
               {{ tab.label }}
             </button>
@@ -491,6 +504,21 @@ function save(): void {
             <LcSlot name="designer.rightPanel" :context="{ documentId }">
               <template #empty>
                 <div class="lc-app__empty">暂无属性面板</div>
+              </template>
+            </LcSlot>
+          </div>
+
+          <!-- 锁位约束（决定实例改尺寸时谁拉伸、谁贴边、谁不动）在样式面板里编辑 -->
+          <div
+            v-show="activeTab === 'style'"
+            id="lc-blueprint-tabpanel-style"
+            class="lc-designer__tabpanel"
+            role="tabpanel"
+            aria-labelledby="lc-blueprint-tab-style"
+          >
+            <LcSlot name="designer.stylePanel" :context="{ documentId }">
+              <template #empty>
+                <div class="lc-app__empty">暂无样式面板</div>
               </template>
             </LcSlot>
           </div>

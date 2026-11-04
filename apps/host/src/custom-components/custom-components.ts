@@ -5,13 +5,17 @@ import { moduleKey } from '@lc/contracts'
 import type {
   ComponentSchema,
   EventDefinition,
+  LayoutConstraints,
   LayoutSchema,
   NodeSchema,
   PropDefinition,
   PropValue,
   Rect,
+  SlotDefinition,
+  SlotRegion,
   StyleSchema,
 } from '@lc/schema'
+import { HORIZONTAL_CONSTRAINTS, VERTICAL_CONSTRAINTS } from '@lc/vue'
 import {
   jsonSchemaFromProps,
   isRecord,
@@ -143,11 +147,13 @@ function readLayout(value: unknown): LayoutSchema | undefined {
   const rotate = readFinite(value.rotate)
   const zIndex = readFinite(value.zIndex)
   const mode = value.mode === 'flow' || value.mode === 'absolute' ? value.mode : undefined
+  const constraints = readConstraints(value.constraints)
   if (
     rect === undefined &&
     rotate === undefined &&
     zIndex === undefined &&
-    mode === undefined
+    mode === undefined &&
+    constraints === undefined
   ) {
     return undefined
   }
@@ -157,6 +163,26 @@ function readLayout(value: unknown): LayoutSchema | undefined {
     ...(rect === undefined ? {} : { rect }),
     ...(rotate === undefined ? {} : { rotate }),
     ...(zIndex === undefined ? {} : { zIndex }),
+    ...(constraints === undefined ? {} : { constraints }),
+  }
+}
+
+/**
+ * 收窄锁位约束。
+ *
+ * 只认渲染层会读的五个取值：属性面板的下拉本身也只给这几个值，出现别的字符串说明
+ * 数据被手改过，丢掉比"按未知约束渲染"更可预期。
+ */
+function readConstraints(value: unknown): LayoutConstraints | undefined {
+  if (!isRecord(value)) return undefined
+
+  const horizontal = HORIZONTAL_CONSTRAINTS.find((item) => item === value.horizontal)
+  const vertical = VERTICAL_CONSTRAINTS.find((item) => item === value.vertical)
+  if (horizontal === undefined && vertical === undefined) return undefined
+
+  return {
+    ...(horizontal === undefined ? {} : { horizontal }),
+    ...(vertical === undefined ? {} : { vertical }),
   }
 }
 
@@ -244,6 +270,59 @@ function readEventDefinition(value: unknown): EventDefinition | undefined {
   }
 }
 
+/**
+ * 收窄插槽声明。
+ *
+ * 区域四个值必须成套：`canvas-drop` 按比例命中分格，缺一角就会算出谁都没要的格子，
+ * 因此宁可整条丢掉区域、退成「覆盖全屏」，也不留一份半截的 region。
+ */
+function readSlotDefinition(value: unknown): SlotDefinition | undefined {
+  if (!isRecord(value) || typeof value.name !== 'string' || value.name === '') return undefined
+
+  const title = typeof value.title === 'string' && value.title !== '' ? value.title : value.name
+  const description =
+    typeof value.description === 'string' && value.description !== ''
+      ? value.description
+      : undefined
+  const accepts =
+    isStringArray(value.accepts) && value.accepts.length > 0 ? value.accepts : undefined
+  const maxChildren =
+    typeof value.maxChildren === 'number' &&
+    Number.isInteger(value.maxChildren) &&
+    value.maxChildren > 0
+      ? value.maxChildren
+      : undefined
+  const region = readRegion(value.region)
+
+  return {
+    name: value.name,
+    title,
+    ...(description === undefined ? {} : { description }),
+    ...(accepts === undefined ? {} : { accepts }),
+    ...(maxChildren === undefined ? {} : { maxChildren }),
+    ...(region === undefined ? {} : { region }),
+  }
+}
+
+function readRegion(value: unknown): SlotRegion | undefined {
+  if (!isRecord(value)) return undefined
+
+  const ratio = (item: unknown): number | undefined =>
+    typeof item === 'number' && Number.isFinite(item) && item >= 0 && item <= 1
+      ? item
+      : undefined
+  const x = ratio(value.x)
+  const y = ratio(value.y)
+  const width = ratio(value.width)
+  const height = ratio(value.height)
+  if (x === undefined || y === undefined || width === undefined || height === undefined) {
+    return undefined
+  }
+  if (width <= 0 || height <= 0) return undefined
+
+  return { x, y, width, height }
+}
+
 /** 收窄组件定义；meta 与节点表是最低要求，缺一即整条丢弃 */
 function readDefinition(value: unknown): ComponentSchema | undefined {
   if (!isRecord(value) || !isRecord(value.meta)) return undefined
@@ -273,6 +352,12 @@ function readDefinition(value: unknown): ComponentSchema | undefined {
         .filter((item): item is EventDefinition => item !== undefined)
     : []
   const defaultProps = readPropMap(value.defaultProps)
+  const slots = Array.isArray(value.slots)
+    ? value.slots
+        .filter(isRecord)
+        .map(readSlotDefinition)
+        .filter((item): item is SlotDefinition => item !== undefined)
+    : []
 
   return {
     meta: {
@@ -287,6 +372,7 @@ function readDefinition(value: unknown): ComponentSchema | undefined {
     nodes,
     ...(props.length === 0 ? {} : { props }),
     ...(events.length === 0 ? {} : { events }),
+    ...(slots.length === 0 ? {} : { slots }),
     ...(defaultProps === undefined ? {} : { defaultProps }),
   }
 }
@@ -434,6 +520,7 @@ function materialEntryOf(component: CustomComponent): MaterialEntry {
   const { definition } = component
   const name = definition.meta.name
   const bounds = contentBounds(definition.nodes)
+  const slots = definition.slots ?? []
 
   return {
     name,
@@ -446,7 +533,10 @@ function materialEntryOf(component: CustomComponent): MaterialEntry {
     module: name,
     plugin: CUSTOM_PLUGIN,
     moduleKey: moduleKey(CUSTOM_PLUGIN, name),
-    container: false,
+    // 只有声明了插槽才把组件标成容器：命中测试认 `container` 才会往里投递，
+    // 没有分格声明时让内容落进 `children` 会漂在蓝图之外，反而更像故障。
+    container: slots.length > 0,
+    ...(slots.length === 0 ? {} : { slots }),
     priority: CUSTOM_PRIORITY,
     snippet: {
       id: `${name}-snippet`,

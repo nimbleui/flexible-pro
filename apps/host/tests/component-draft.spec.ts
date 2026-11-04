@@ -4,14 +4,17 @@ import type {
   CustomComponentDraft,
   EventDraft,
   PropDraft,
+  SlotDraft,
 } from '../src/custom-components/component-draft'
 import {
   definitionsFromDraft,
   draftFromDefinition,
   draftFromDefinitions,
+  draftFromSlotDefinitions,
   eventsFromDraft,
   jsonSchemaFromProps,
   metaFromDraft,
+  slotsFromDraft,
   parsePropDefault,
   validateComponentDraft,
 } from '../src/custom-components/component-draft'
@@ -37,6 +40,7 @@ function draftOf(overrides: Partial<CustomComponentDraft> = {}): CustomComponent
     description: '',
     props: [],
     events: [],
+    slots: [],
     ...overrides,
   }
 }
@@ -216,6 +220,7 @@ describe('元信息合成', () => {
         { name: 'label', title: '标题', type: 'string', defaultText: '评分', optionsText: '' },
       ],
       events: [],
+      slots: [],
     })
   })
 
@@ -275,5 +280,106 @@ describe('事件行 → 事件声明', () => {
       messages({ events: [{ name: 'onConfirm', title: '', description: '', paramsText: '' }] }),
     ).toContain('事件 onConfirm 需要填写显示标题')
     expect(validateComponentDraft(draftOf(), [])).toEqual([])
+  })
+})
+
+function slotRow(overrides: Partial<SlotDraft> = {}): SlotDraft {
+  return {
+    name: 'header',
+    title: '头部',
+    description: '',
+    acceptsText: '',
+    maxText: '',
+    x: '',
+    y: '',
+    width: '',
+    height: '',
+    ...overrides,
+  }
+}
+
+describe('插槽行 → 插槽声明', () => {
+  it('百分比换算成比例，accepts 逗号或空格分隔并去重', () => {
+    const rows: readonly SlotDraft[] = [
+      slotRow({
+        acceptsText: 'Text, Box，Text',
+        maxText: '1',
+        x: '0',
+        y: '0',
+        width: '100',
+        height: '25',
+      }),
+      slotRow({ name: 'body', title: '', x: '', y: '', width: '', height: '' }),
+    ]
+
+    expect(slotsFromDraft(rows)).toEqual([
+      {
+        name: 'header',
+        title: '头部',
+        accepts: ['Text', 'Box'],
+        maxChildren: 1,
+        region: { x: 0, y: 0, width: 1, height: 0.25 },
+      },
+      { name: 'body', title: 'body' },
+    ])
+  })
+
+  it('区域缺项或超出 0-100 时不落 region，上限非正整数视为不限', () => {
+    expect(
+      slotsFromDraft([slotRow({ x: '0', y: '10', width: '100' })])[0]?.region,
+    ).toBeUndefined()
+    expect(
+      slotsFromDraft([slotRow({ x: '-1', y: '0', width: '100', height: '50' })])[0]?.region,
+    ).toBeUndefined()
+    expect(slotsFromDraft([slotRow({ maxText: '0' })])[0]?.maxChildren).toBeUndefined()
+    expect(slotsFromDraft([slotRow({ maxText: '2.5' })])[0]?.maxChildren).toBeUndefined()
+  })
+
+  it('声明还原成行时区域回到百分比文本', () => {
+    const definition = slotsFromDraft([
+      slotRow({
+        maxText: '3',
+        acceptsText: 'Text',
+        x: '10',
+        y: '25',
+        width: '80',
+        height: '50',
+      }),
+    ])
+
+    expect(draftFromSlotDefinitions(definition)[0]).toEqual({
+      name: 'header',
+      title: '头部',
+      description: '',
+      acceptsText: 'Text',
+      maxText: '3',
+      x: '10',
+      y: '25',
+      width: '80',
+      height: '50',
+    })
+  })
+
+  it('插槽名要标识符且唯一，区域要么四项齐全要么全空', () => {
+    expect(messages({ slots: [slotRow({ name: '' })] })).toContain('插槽名不能为空')
+    expect(messages({ slots: [slotRow({ name: 'my slot' })] })).toContain(
+      '插槽名 my slot 不是合法标识符',
+    )
+    expect(messages({ slots: [slotRow(), slotRow({ title: '另一标题' })] })).toContain(
+      '插槽名重复：header',
+    )
+    expect(messages({ slots: [slotRow({ title: '' })] })).toContain(
+      '插槽 header 需要填写显示标题',
+    )
+    expect(messages({ slots: [slotRow({ x: '10' })] })).toContain(
+      '插槽 header 的区域需要 X、Y、宽、高四项一起填',
+    )
+    expect(
+      messages({ slots: [slotRow({ x: '120', y: '0', width: '100', height: '50' })] }),
+    ).toContain('插槽 header 的区域取值要在 0-100 之间，且宽高要大于 0')
+    expect(
+      messages({ slots: [slotRow({ x: '0', y: '0', width: '100', height: '0' })] }),
+    ).toContain('插槽 header 的区域取值要在 0-100 之间，且宽高要大于 0')
+    expect(validateComponentDraft(draftOf({ slots: [slotRow()] }), [])).toEqual([])
   })
 })

@@ -1,6 +1,7 @@
 import type { Component, InjectionKey } from 'vue'
 import { defineComponent, h, inject, provide } from 'vue'
 import type { ComponentSchema } from '@lc/schema'
+import type { SlotContent } from '@lc/vue'
 import { SchemaPreview } from '@lc/vue'
 
 /**
@@ -9,6 +10,10 @@ import { SchemaPreview } from '@lc/vue'
  * 画布对物料只做一件事：把求值后的节点属性当 props 传进来。自定义组件没有自己的
  * 代码，它的「实现」就是把自己的蓝图交给 `SchemaPreview` 再渲染一遍，因此属性统一
  * 落在表达式作用域的 `props` 命名空间下，蓝图里用 `{{ props.xxx }}` 引用。
+ *
+ * 页面填进具名插槽的内容走 Vue 的 slots 通道进来，再交给 `SchemaPreview` 的
+ * `content`：组件因此真的拥有「内容归谁、显不显示」的决定权，而不是像以前那样
+ * 由画布把内容平铺成自己的兄弟节点。
  */
 
 /**
@@ -36,7 +41,7 @@ export function createCompositeComponent(definition: ComponentSchema): Component
     name: `LcCustom-${definition.meta.name}`,
     inheritAttrs: false,
 
-    setup(_props, { attrs }) {
+    setup(_props, { attrs, slots }) {
       const depth = inject(COMPOSITE_DEPTH, 0)
 
       if (depth >= MAX_NESTING_DEPTH) {
@@ -52,8 +57,26 @@ export function createCompositeComponent(definition: ComponentSchema): Component
 
       const nodeId = definition.nodeId
       const nodes = definition.nodes
+      const declared = definition.slots ?? []
 
-      return () => h(SchemaPreview, { nodeId, nodes, scope: { props: { ...attrs } } })
+      return () => {
+        // 只转声明过且真有内容的插槽：Vue 的 slots 对象带内部标记（`_`），
+        // 整体透传会被当成一个名叫 `_` 的插槽
+        const content: SlotContent = {}
+        for (const slot of declared) {
+          const factory = slots[slot.name]
+          if (factory) content[slot.name] = factory
+        }
+
+        return h(SchemaPreview, {
+          nodeId,
+          nodes,
+          scope: { props: { ...attrs } },
+          content: Object.keys(content).length === 0 ? undefined : content,
+          // 画布给的就是实例的真实尺寸：改尺寸要按约束重排，不能整张图缩放
+          fit: false,
+        })
+      }
     },
   })
 }

@@ -6,14 +6,16 @@ import type {
   PropDefinition,
   PropType,
   PropValue,
+  SlotDefinition,
+  SlotRegion,
 } from '@lc/schema'
 
 /**
  * 自定义组件定义表的编辑草稿。
  *
- * 只承载需要人填的三块：元信息、对外属性、对外事件。节点图不在这里——蓝图由画布
- * 装载的文档服务持有，保存时按文档快照原样写回定义。如果草稿里再存一份节点表，
- * 就会出现「表单里的父子」和「画布上的层级」两套真相。
+ * 只承载需要人填的四块：元信息、对外属性、对外事件、插槽声明。节点图不在这里——
+ * 蓝图由画布装载的文档服务持有，保存时按文档快照原样写回定义。如果草稿里再存一份
+ * 节点表，就会出现「表单里的父子」和「画布上的层级」两套真相。
  */
 
 /** 属性定义行 */
@@ -42,6 +44,28 @@ export interface EventDraft {
   paramsText: string
 }
 
+/** 插槽声明行 */
+export interface SlotDraft {
+  /** 插槽名，实例节点按它归档内容（`node.slots[<name>]`） */
+  name: string
+  /** 显示标题 */
+  title: string
+  /** 用途说明 */
+  description: string
+  /** 允许放入的物料名，逗号分隔；留空表示不限 */
+  acceptsText: string
+  /** 最多容纳的子节点数文本；留空或 0 表示不限 */
+  maxText: string
+  /** 命中区域左上角 X（相对容器宽度的百分比文本）；四项不全则整槽覆盖全屏 */
+  x: string
+  /** 命中区域左上角 Y（相对容器高度的百分比文本） */
+  y: string
+  /** 命中区域宽度（百分比文本） */
+  width: string
+  /** 命中区域高度（百分比文本） */
+  height: string
+}
+
 /** 自定义组件定义草稿 */
 export interface CustomComponentDraft {
   /** 目标条目 id；缺省表示新建 */
@@ -62,10 +86,13 @@ export interface CustomComponentDraft {
   props: PropDraft[]
   /** 对外事件行 */
   events: EventDraft[]
+  /** 插槽声明行 */
+  slots: SlotDraft[]
 }
 
 /** 校验错误定位到的字段；表单按字段分组展示 */
-export type DraftIssueField = 'name' | 'title' | 'group' | 'version' | 'props' | 'events'
+export type DraftIssueField =
+  'name' | 'title' | 'group' | 'version' | 'props' | 'events' | 'slots'
 
 /** 一条草稿校验错误 */
 export interface DraftIssue {
@@ -111,6 +138,19 @@ export const EMPTY_EVENT_DRAFT: Readonly<EventDraft> = Object.freeze({
   paramsText: '',
 })
 
+/** 新建插槽行的空值；区域留空表示整槽覆盖容器 */
+export const EMPTY_SLOT_DRAFT: Readonly<SlotDraft> = Object.freeze({
+  name: '',
+  title: '',
+  description: '',
+  acceptsText: '',
+  maxText: '',
+  x: '',
+  y: '',
+  width: '',
+  height: '',
+})
+
 /** 新建组件的空草稿；分组给默认值，省掉一次必填输入 */
 export const EMPTY_COMPONENT_DRAFT: Readonly<CustomComponentDraft> = Object.freeze({
   name: '',
@@ -121,6 +161,7 @@ export const EMPTY_COMPONENT_DRAFT: Readonly<CustomComponentDraft> = Object.free
   description: '',
   props: [],
   events: [],
+  slots: [],
 })
 
 /** 新建属性行 */
@@ -131,6 +172,11 @@ export function createPropDraft(): PropDraft {
 /** 新建事件行 */
 export function createEventDraft(): EventDraft {
   return { ...EMPTY_EVENT_DRAFT }
+}
+
+/** 新建插槽行；默认插槽名先填好，多数组件只需再补区域 */
+export function createSlotDraft(): SlotDraft {
+  return { ...EMPTY_SLOT_DRAFT, name: 'default', title: '默认插槽' }
 }
 
 /** 外部输入（localStorage、默认值文本）收窄用的最小结构判断 */
@@ -351,6 +397,88 @@ export function draftFromEventDefinitions(
 }
 
 /**
+ * 插槽行 → 插槽声明。
+ *
+ * 区域按 `SlotRegion` 的比例语义存：表单里填百分比（贴边区域在容器被拉大时仍然
+ * 贴边），落库换成 0-1。四个值没填齐就整条丢弃区域，等于「覆盖整个容器」，
+ * 这也是 `SlotDefinition.region` 省略时的官方语义。
+ */
+export function slotsFromDraft(slots: readonly SlotDraft[]): SlotDefinition[] {
+  const definitions: SlotDefinition[] = []
+
+  for (const draft of slots) {
+    const name = draft.name.trim()
+    if (name === '') continue
+
+    const accepts = splitNames(draft.acceptsText)
+    const max = toMaxChildren(draft.maxText)
+    const region = regionFromDraft(draft)
+    const description = normalizeOptional(draft.description)
+
+    definitions.push({
+      name,
+      title: draft.title.trim() || name,
+      ...(description === undefined ? {} : { description }),
+      ...(accepts.length === 0 ? {} : { accepts }),
+      ...(max === undefined ? {} : { maxChildren: max }),
+      ...(region === undefined ? {} : { region }),
+    })
+  }
+
+  return definitions
+}
+
+function splitNames(text: string): string[] {
+  const seen = new Set<string>()
+  for (const part of text.split(/[,，\s]+/)) {
+    const name = part.trim()
+    if (name !== '') seen.add(name)
+  }
+  return [...seen]
+}
+
+/** 只有正整数才算限制；留空、0 与非法值都按「不限制」 */
+function toMaxChildren(text: string): number | undefined {
+  const value = Number(text.trim())
+  return Number.isInteger(value) && value > 0 ? value : undefined
+}
+
+function regionFromDraft(draft: SlotDraft): SlotRegion | undefined {
+  const values = [draft.x, draft.y, draft.width, draft.height]
+  if (values.every((value) => value.trim() === '')) return undefined
+
+  const [x, y, width, height] = values.map((value) => Number(value.trim()))
+  if (!values.every((value) => value.trim() !== '')) return undefined
+  if (!isRatio(x) || !isRatio(y) || !isRatio(width) || !isRatio(height)) return undefined
+  if (width <= 0 || height <= 0) return undefined
+
+  return { x: x / 100, y: y / 100, width: width / 100, height: height / 100 }
+}
+
+function isRatio(value: number): boolean {
+  return Number.isFinite(value) && value >= 0 && value <= 100
+}
+
+/** 插槽声明 → 插槽行；区域从比例还原成百分比文本 */
+export function draftFromSlotDefinitions(definitions: readonly SlotDefinition[]): SlotDraft[] {
+  return definitions.map((definition) => ({
+    name: definition.name,
+    title: definition.title,
+    description: definition.description ?? '',
+    acceptsText: (definition.accepts ?? []).join(', '),
+    maxText: definition.maxChildren === undefined ? '' : String(definition.maxChildren),
+    x: percentText(definition.region?.x ?? 0, definition.region !== undefined),
+    y: percentText(definition.region?.y ?? 0, definition.region !== undefined),
+    width: percentText(definition.region?.width ?? 100, definition.region !== undefined),
+    height: percentText(definition.region?.height ?? 100, definition.region !== undefined),
+  }))
+}
+
+function percentText(value: number, hasRegion: boolean): string {
+  return hasRegion ? String(Math.round(value * 100)) : ''
+}
+
+/**
  * 属性定义 → 物料 props（属性面板消费的 JsonSchema）。
  *
  * 字段口径对齐 `PropertiesPanel` 的 `toPropType`：颜色写 `format: 'color'`，
@@ -444,6 +572,47 @@ export function validateComponentDraft(
 
   issues.push(...validateProps(draft.props))
   issues.push(...validateEvents(draft.events))
+  issues.push(...validateSlots(draft.slots))
+
+  return issues
+}
+
+function validateSlots(slots: readonly SlotDraft[]): DraftIssue[] {
+  const issues: DraftIssue[] = []
+  const names = new Set<string>()
+
+  for (const draft of slots) {
+    const name = draft.name.trim()
+    if (name === '') {
+      issues.push({ field: 'slots', message: '插槽名不能为空' })
+      continue
+    }
+
+    // 插槽名会直接当 `node.slots` 的键使用，也必须是可以写进表达式的标识符
+    if (!IDENTIFIER_PATTERN.test(name)) {
+      issues.push({ field: 'slots', message: `插槽名 ${name} 不是合法标识符` })
+    } else if (names.has(name)) {
+      issues.push({ field: 'slots', message: `插槽名重复：${name}` })
+    } else {
+      names.add(name)
+    }
+
+    if (draft.title.trim() === '') {
+      issues.push({ field: 'slots', message: `插槽 ${name} 需要填写显示标题` })
+    }
+
+    const filled = [draft.x, draft.y, draft.width, draft.height].filter(
+      (v) => v.trim() !== '',
+    ).length
+    if (filled !== 0 && filled !== 4) {
+      issues.push({ field: 'slots', message: `插槽 ${name} 的区域需要 X、Y、宽、高四项一起填` })
+    } else if (filled === 4 && regionFromDraft(draft) === undefined) {
+      issues.push({
+        field: 'slots',
+        message: `插槽 ${name} 的区域取值要在 0-100 之间，且宽高要大于 0`,
+      })
+    }
+  }
 
   return issues
 }
@@ -550,5 +719,6 @@ export function draftFromDefinition(
     description: meta.description ?? '',
     props: draftFromDefinitions(definition.props ?? []),
     events: draftFromEventDefinitions(definition.events ?? []),
+    slots: draftFromSlotDefinitions(definition.slots ?? []),
   }
 }

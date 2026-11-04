@@ -6,6 +6,7 @@ import type {
   PropDefinition,
   PropValue,
   Rect,
+  SlotDefinition,
 } from '@lc/schema'
 import { SCHEMA_VERSION } from '@lc/schema'
 
@@ -23,6 +24,23 @@ const BLUEPRINT_DOCUMENT_PREFIX = 'component-blueprint:'
 
 /** 新建蓝图的根节点 id；`canvas-drop` 未命中容器时回落到它，保证任何落点都能插入 */
 const BLUEPRINT_ROOT_ID = 'root'
+
+/**
+ * 定义表产出的组件字段。
+ *
+ * 用一个对象而不是四个并列位置参数：这四块总是整套出现，调用方漏传其一
+ * 会得到一份缺声明的定义，而对象写法让缺项在类型上就说不通。
+ */
+export interface ComponentFields {
+  /** 组件元信息 */
+  meta: ComponentSchema['meta']
+  /** 对外属性 */
+  props: readonly PropDefinition[]
+  /** 对外事件 */
+  events: readonly EventDefinition[]
+  /** 插槽声明 */
+  slots: readonly SlotDefinition[]
+}
 
 /** 新建蓝图的根容器尺寸：够放一层内容，又不会在画布上占满整屏 */
 const BLUEPRINT_ROOT_SIZE: Readonly<Rect> = { x: 0, y: 0, width: 360, height: 240 }
@@ -68,13 +86,25 @@ export function blueprintSchemaOf(
   const source = definition ? clone(definition.nodes) : {}
   const declared = definition?.nodeId ?? ''
   const rawRootId = source[declared] ? declared : (Object.keys(source)[0] ?? '')
-  const hasRoot = rawRootId !== ''
+
+  if (rawRootId === '') {
+    return {
+      version: SCHEMA_VERSION,
+      // 一个节点都没有时回到起始蓝图：画布的命中与包围盒都需要一个根
+      nodeId: BLUEPRINT_ROOT_ID,
+      nodes: createBlueprintNodes(),
+      components: [],
+      metadata: { title },
+    }
+  }
+
+  const ids = renameMap(Object.values(source))
 
   return {
     version: SCHEMA_VERSION,
-    // 根 id 失效或一个节点都没有时回到起始蓝图：画布的命中与包围盒都需要一个根
-    nodeId: hasRoot ? namespaceId(rawRootId) : BLUEPRINT_ROOT_ID,
-    nodes: hasRoot ? namespaceNodes(source) : createBlueprintNodes(),
+    // 根 id 走同一张重命名表：与节点 id 各自推导会指向两个不同的根
+    nodeId: ids.get(rawRootId) ?? rawRootId,
+    nodes: renameNodes(source, ids),
     components: [],
     metadata: { title },
   }
@@ -90,24 +120,58 @@ export function blueprintSchemaOf(
  */
 const ID_PREFIX = 'bp-'
 
-function namespaceId(id: string): string {
+function preferredId(id: string): string {
   return id.startsWith(ID_PREFIX) ? id : `${ID_PREFIX}${id}`
 }
 
-/** 改 id 的同时改父引用：`children` 与 `slots` 里存的都必须是同一个新 id */
-function namespaceNodes(nodes: Record<string, NodeSchema>): Record<string, NodeSchema> {
+/**
+ * 旧 id → 新 id。
+ *
+ * 前缀本身不保证唯一：同一份蓝图里可能同时有 `bp-node-1`（上次已加过前缀）和
+ * `node-1`（刷新后重新计数拖入的新节点），两者的前缀候选相同。直接写入会静默
+ * 少一个节点，所以第二个及之后的同名候选按 `-2`、`-3` 顺延，并跳过别人的候选
+ * 与已经发出去的 id。
+ */
+function renameMap(nodes: readonly NodeSchema[]): Map<string, string> {
+  const wanted = new Set(nodes.map((node) => preferredId(node.id)))
+  const result = new Map<string, string>()
+  const taken = new Set<string>()
+
+  for (const node of nodes) {
+    const base = preferredId(node.id)
+    let id = base
+    let suffix = 2
+    while (taken.has(id) || (id !== base && wanted.has(id))) id = `${base}-${suffix++}`
+    taken.add(id)
+    result.set(node.id, id)
+  }
+
+  return result
+}
+
+/**
+ * 改 id 的同时改父引用：`children` 与 `slots` 里存的都必须是同一个新 id。
+ *
+ * 引用指向表里没有的 id 时保持原样：那是本来就失效的悬空引用，改名救不回来，
+ * 硬加前缀只会让它更难在诊断面板里对上号。
+ */
+function renameNodes(
+  nodes: Record<string, NodeSchema>,
+  ids: ReadonlyMap<string, string>,
+): Record<string, NodeSchema> {
+  const idOf = (id: string): string => ids.get(id) ?? id
   const result: Record<string, NodeSchema> = {}
 
   for (const node of Object.values(nodes)) {
     const renamed: NodeSchema = {
       ...node,
-      id: namespaceId(node.id),
-      ...(node.children === undefined ? {} : { children: node.children.map(namespaceId) }),
+      id: idOf(node.id),
+      ...(node.children === undefined ? {} : { children: node.children.map(idOf) }),
       ...(node.slots === undefined
         ? {}
         : {
             slots: Object.fromEntries(
-              Object.entries(node.slots).map(([name, ids]) => [name, ids.map(namespaceId)]),
+              Object.entries(node.slots).map(([name, refs]) => [name, refs.map(idOf)]),
             ),
           }),
     }
@@ -121,14 +185,13 @@ function namespaceNodes(nodes: Record<string, NodeSchema>): Record<string, NodeS
  * 画布文档 + 定义表 → 组件定义。
  *
  * 节点图以文档为准原样回写（含画布写入的 style / hidden / locked / 旋转 / 层级），
- * 元信息与对外属性以定义表为准：两块各有唯一写入方，不做字段级合并。
+ * 定义表字段以表单为准：两侧各有唯一写入方，不做字段级合并。
  */
 export function definitionFromBlueprint(
   schema: PageSchema,
-  meta: ComponentSchema['meta'],
-  props: readonly PropDefinition[],
-  events: readonly EventDefinition[] = [],
+  fields: ComponentFields,
 ): ComponentSchema {
+  const { meta, props, events, slots } = fields
   const nodes = clone(schema.nodes)
   const defaults = defaultPropsOf(props)
 
@@ -138,6 +201,7 @@ export function definitionFromBlueprint(
     nodes,
     ...(props.length === 0 ? {} : { props: [...props] }),
     ...(events.length === 0 ? {} : { events: [...events] }),
+    ...(slots.length === 0 ? {} : { slots: [...slots] }),
     ...(Object.keys(defaults).length === 0 ? {} : { defaultProps: defaults }),
   }
 }
@@ -145,26 +209,20 @@ export function definitionFromBlueprint(
 /**
  * 新建组件的首版定义。
  *
- * 创建弹框只收定义表（元信息、属性、事件），蓝图此刻还是空的起始容器；
+ * 创建弹框只收定义表（元信息、属性、事件、插槽），蓝图此刻还是起始容器；
  * 用户确认后立即拿到 id 并进画布补结构，所以这里必须给出一个合法根节点，
  * 否则 `saveCustomComponent` 会以「缺少根节点」拒绝写入。
  */
-export function initialComponentSchema(
-  meta: ComponentSchema['meta'],
-  props: readonly PropDefinition[],
-  events: readonly EventDefinition[],
-): ComponentSchema {
+export function initialComponentSchema(fields: ComponentFields): ComponentSchema {
   return definitionFromBlueprint(
     {
       version: SCHEMA_VERSION,
       nodeId: BLUEPRINT_ROOT_ID,
       nodes: createBlueprintNodes(),
       components: [],
-      metadata: { title: meta.title },
+      metadata: { title: fields.meta.title },
     },
-    meta,
-    props,
-    events,
+    fields,
   )
 }
 
