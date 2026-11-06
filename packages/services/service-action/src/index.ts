@@ -7,9 +7,10 @@ import type {
 import { defineEditorPlugin } from '@lc/contracts'
 import type { ActionEventPayload } from '@lc/contracts'
 import type { Disposable } from '@lc/kernel'
-import type { ExpressionScope } from '@lc/schema'
+import type { EventConnection, ExpressionScope, ExpressionString } from '@lc/schema'
 import { buildExpressionScope } from '@lc/schema'
 import { runActionChain } from './runner'
+import { runFlowGraph } from './flow-runner'
 import { FLOW_HANDLERS } from './flow-handlers'
 import { createBusinessHandlers } from './handlers'
 
@@ -84,18 +85,16 @@ export default defineEditorPlugin({
       for (const listener of [...listeners]) listener(record)
     }
 
-    /** 连接表里匹配某个事件键、且已启用的连接 id */
-    function matchingConnections(sourceNodeId: string, eventName: string): string[] {
+    /** 连接表里匹配某个事件键、且已启用的连接 */
+    function matchingConnections(sourceNodeId: string, eventName: string): EventConnection[] {
       const connections = document.model.schema.connections ?? {}
 
-      return Object.values(connections)
-        .filter(
-          (connection) =>
-            connection.enabled &&
-            connection.sourceNodeId === sourceNodeId &&
-            connection.eventName === eventName,
-        )
-        .map((connection) => connection.id)
+      return Object.values(connections).filter(
+        (connection) =>
+          connection.enabled &&
+          connection.sourceNodeId === sourceNodeId &&
+          connection.eventName === eventName,
+      )
     }
 
     async function run(
@@ -114,24 +113,69 @@ export default defineEditorPlugin({
 
       return runActionChain(connection.actionIds, {
         actionOf: (actionId) => document.model.schema.actions?.[actionId],
-        handlerOf: (type) => handlers.get(type),
-        createScope: () => createScope(event),
-        evaluateCondition: (expression, scope) =>
-          ctx.expression.compile(expression.raw).evaluate(scope),
-        resolveValue: (value, scope) => ctx.expression.resolveValue(value, scope),
-        onStep: notify,
-        isDisposed: () => disposed,
+        ...runnerDeps(event),
       })
     }
 
+    /**
+     * 执行一条连接绑定的流程图。
+     *
+     * 没绑、宿主没装图仓库、或绑的图当前不是已发布状态时返回 `undefined`——「这个事件没绑图」
+     * 与「这个事件跑图失败了」是两件事，前者不该在结果数组里留一条失败记录。
+     */
+    async function runBoundFlow(
+      connection: EventConnection,
+      event?: ActionEventPayload,
+    ): Promise<ActionRunResult | undefined> {
+      if (!connection.flowId) return undefined
+
+      const flow = ctx.flow?.getPublished(connection.flowId)
+      if (!flow) return undefined
+
+      return runFlowGraph(flow, runnerDeps(event))
+    }
+
+    /**
+     * 一次执行所需的全部依赖。
+     *
+     * 链与图共用这一份：两者的作用域装配、条件求值、配置解析、步记录上报必须是同一套
+     * 口径，否则「同一段表达式在链里对、在图里错」这种差异无从排查。
+     */
+    function runnerDeps(event?: ActionEventPayload) {
+      return {
+        handlerOf: (type: string) => handlers.get(type),
+        createScope: () => createScope(event),
+        evaluateCondition: (expression: ExpressionString, scope: ExpressionScope) =>
+          ctx.expression.compile(expression.raw).evaluate(scope),
+        resolveValue: (value: unknown, scope: ExpressionScope) =>
+          ctx.expression.resolveValue(value, scope),
+        onStep: notify,
+        isDisposed: () => disposed,
+      }
+    }
+
     const service: ActionService = {
+      /**
+       * 触发一个事件键下的全部执行体。
+       *
+       * 每条连接先跑自己的动作链、再跑自己绑定的流程图，两条都跑、不互相覆盖：链写在页面
+       * 文档的 `actionIds` 里、图是 `flowId` 指向的另一份文档，作者可以同时用它们。
+       * 顺序固定，与事件流面板里「链在上、图在下」的展示一致。
+       *
+       * 宿主没装 FlowService、或连接没绑图时只跑链，行为与引入流程图之前完全一致。
+       */
       async trigger(sourceNodeId, eventName, event) {
-        // 校验层已保证同一 `sourceNodeId:eventName` 只被一条启用的连接占用，
+        // 校验层已保证同一事件键只被一条启用的连接占用，
         // 但仍返回数组：不把这条约束写死进类型，将来放宽时调用方不用改
-        const ids = matchingConnections(sourceNodeId, eventName)
+        const connections = matchingConnections(sourceNodeId, eventName)
 
         const results: ActionRunResult[] = []
-        for (const id of ids) results.push(await run(id, event))
+        for (const connection of connections) {
+          results.push(await run(connection.id, event))
+
+          const flowResult = await runBoundFlow(connection, event)
+          if (flowResult) results.push(flowResult)
+        }
 
         return results
       },

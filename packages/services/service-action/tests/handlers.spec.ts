@@ -45,6 +45,8 @@ function makeDataSource(result: { data?: unknown; error?: string | null } = {}) 
     async fetch(id) {
       fetched.push(id)
     },
+    // 动作执行器不推请求默认值，替身只需保住契约形状
+    setRequestDefaults: () => {},
     onDidChange: () => ({ dispose: () => {} }),
   }
 

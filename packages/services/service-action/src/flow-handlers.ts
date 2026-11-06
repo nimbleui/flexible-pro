@@ -1,6 +1,12 @@
 import type { ActionHandler } from '@lc/contracts'
 import { ACTION_CONTINUE, ACTION_STOP } from '@lc/contracts'
-import { FLOW_CONDITION, FLOW_END, FLOW_PARALLEL, FLOW_SEQUENCE } from '@lc/schema'
+import {
+  FLOW_CONDITION,
+  FLOW_END,
+  FLOW_PARALLEL,
+  FLOW_SEQUENCE,
+  FLOW_TRIGGER,
+} from '@lc/schema'
 
 /**
  * 控制流动作处理器。
@@ -79,8 +85,25 @@ export const flowParallelHandler: ActionHandler = {
   },
 }
 
+/**
+ * `flow.trigger`：图的入口节点。
+ *
+ * 与 `flow.parallel` 同理由存在：它什么都不做，但必须有一条步记录，且必须**注册**——
+ * 执行器对未注册类型按失败处理并停住整张图，少了这一个，任何已发布的图都会在第一个
+ * 节点上失败，页面事件看起来「配了却没跑」。试运行路径自己注册过它，所以这个坑只在
+ * 真实触发时暴露。
+ */
+export const flowTriggerHandler: ActionHandler = {
+  type: FLOW_TRIGGER,
+
+  async execute() {
+    return ACTION_CONTINUE
+  },
+}
+
 /** 执行器内置的处理器清单；注册时整体装入 */
 export const FLOW_HANDLERS: readonly ActionHandler[] = [
+  flowTriggerHandler,
   flowConditionHandler,
   flowSequenceHandler,
   flowParallelHandler,

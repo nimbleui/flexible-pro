@@ -138,7 +138,10 @@ export interface ActionService {
    * 按「来源节点 + 事件名」触发所有匹配且启用的事件连接。
    *
    * 校验层已保证同一 `sourceNodeId:eventName` 不会被两条连接重复绑定，
-   * 因此正常情况下至多执行一条链；返回数组是为了不把这条约束写死在类型里。
+   * 因此正常情况下至多一条连接；返回数组是为了不把这条约束写死在类型里。
+   *
+   * 每条连接产出**至多两条**结果：先是它的动作链，然后是它绑定的流程图（`connection.flowId`
+   * 指向的已发布图）。两者都执行、不互相覆盖，顺序固定为链在前。没绑图时只有链那一条。
    *
    * @param sourceNodeId 事件来源节点 id；页面级事件传 `'page'`
    * @param eventName 事件名
@@ -151,9 +154,11 @@ export interface ActionService {
   ): Promise<ActionRunResult[]>
 
   /**
-   * 执行指定连接，无视 `enabled`。
+   * 执行指定连接的**动作链**，无视 `enabled`。
    *
    * 供调试面板「试运行」使用：停用的连接也需要能被单独验证。
+   * 这里刻意不跑连接绑定的流程图——试运行要回答的是「这条链单独跑会停在第几步」，
+   * 把图混进来会让失败归因说不清；图的单独验证归流程编辑器的试运行。
    */
   run(connectionId: string, event?: ActionEventPayload): Promise<ActionRunResult>
 
