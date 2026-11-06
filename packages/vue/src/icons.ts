@@ -39,6 +39,10 @@ const ICON_PATHS: Readonly<Record<string, readonly string[] | undefined>> = {
   chevronDown: ['M3.6 6 8 10.4 12.4 6'],
   chevronRight: ['M6 3.6 10.4 8 6 12.4'],
 
+  /* 底部停靠区页签 */
+  code: ['M5.8 4.4 2.4 8l3.4 3.6', 'M10.2 4.4 13.6 8l-3.4 3.6'],
+  pulse: ['M1.6 8h2.7l1.5-3.9 2.2 7.8 1.8-4.7 1.1 2.4h3.5'],
+
   /* 工作区入口 */
   library: ['M8 1.9 13.9 5.1v5.8L8 14.1 2.1 10.9V5.1Z', 'M2.1 5.1 8 8.3l5.9-3.2', 'M8 8.3v5.8'],
   database: [

@@ -2,7 +2,6 @@
 import { defineAsyncComponent } from 'vue'
 import { BUILTIN_ACTIONS, PAGE_EVENTS, PAGE_EVENT_SOURCE } from '@lc/schema'
 import { useEventFlowPanel } from './composables/use-event-flow-panel'
-import { TABS } from './constants/panel-tabs'
 import {
   actionCardStyle,
   actionParamSummary,
@@ -10,6 +9,7 @@ import {
   actionTone,
 } from './constants/action-tone'
 import { eventIconStyle, eventTone, pageEventLabel } from './constants/event-tone'
+import { REF_SOURCE_LABELS } from './constants/action-tone'
 
 defineProps<{
   /** 宿主传入的只读上下文；面板自己从注入的 Context 取服务 */
@@ -21,16 +21,16 @@ const ConditionEditor = defineAsyncComponent(() => import('@lc/expression-editor
 
 // 模板只需要展示与交互入口，数据来源与写入规则都在 composables 里
 const {
-  activeTab,
-  activeTabLabel,
-  actionOptions,
   addAction,
   chainItems,
   commitActionName,
   commitConditionDraft,
+  commitConfigJson,
   commitEventName,
   commitJson,
   conditionDraft,
+  configError,
+  configJsonText,
   connectionLabel,
   connectionList,
   createConnection,
@@ -46,6 +46,7 @@ const {
   expressionFunctions,
   expressionSymbols,
   fieldChecked,
+  fieldMultiValue,
   fieldNumber,
   fieldSelectValue,
   fieldText,
@@ -56,8 +57,11 @@ const {
   jsonText,
   moveAction,
   onConnectionEnabled,
+  onConfigJsonInput,
   onFieldChange,
+  flowSummaryFor,
   onJsonInput,
+  refOptions,
   removeAction,
   selectAction,
   selectConnection,
@@ -76,28 +80,7 @@ const {
 
 <template>
   <div class="lc-eventflow">
-    <nav class="lc-eventflow__tabs" role="tablist" aria-label="底部面板">
-      <button
-        v-for="tab in TABS"
-        :key="tab.id"
-        class="lc-eventflow__tab"
-        :class="{ 'is-active': activeTab === tab.id }"
-        type="button"
-        role="tab"
-        :aria-selected="activeTab === tab.id"
-        @click="activeTab = tab.id"
-      >
-        <span class="lc-eventflow__tab-icon" :data-glyph="tab.glyph" aria-hidden="true"></span>
-        {{ tab.label }}
-      </button>
-    </nav>
-
     <div v-if="!document" class="lc-eventflow__placeholder">文档服务未就绪</div>
-
-    <div v-else-if="activeTab !== 'eventflow'" class="lc-eventflow__placeholder">
-      <span>{{ activeTabLabel }} · 尚未接入</span>
-      <span class="lc-eventflow__placeholder-hint">该页签将在后续版本提供</span>
-    </div>
 
     <div v-else class="lc-eventflow__body">
       <!-- 左：事件列表 -->
@@ -190,6 +173,12 @@ const {
                   aria-hidden="true"
                 ></span>
                 <span class="lc-eventflow__event-label">{{ connectionLabel(connection) }}</span>
+                <span
+                  v-if="flowSummaryFor(connection)"
+                  class="lc-eventflow__event-graph"
+                  :title="`${flowSummaryFor(connection)}：触发时链与图都执行，绑定在右栏「事件」页签里改`"
+                  >流程</span
+                >
                 <span
                   class="lc-eventflow__event-count"
                   :title="`${connection.actionIds.length} 个动作`"
@@ -479,16 +468,24 @@ const {
                       @change="commitJson(field)"
                     />
 
+                    <!--
+                      引用型字段：候选由 listRefOptions 从当前文档算出。
+                      非必填时留一个空选项，因为「不填」在这里是合法配置
+                      （state.reset 留空即重置全部变量、分支目标留空即该侧不执行）。
+                    -->
                     <select
-                      v-else-if="field.kind === 'action'"
+                      v-else-if="field.kind === 'ref' && !field.multiple"
                       :value="fieldSelectValue(field)"
                       @change="onFieldChange(field, $event)"
                     >
-                      <option value="">不执行</option>
+                      <option v-if="!field.required" value="">
+                        {{ field.ref === 'action' ? '不执行' : '未设置' }}
+                      </option>
                       <option
-                        v-for="option in actionOptions"
+                        v-for="option in refOptions(field)"
                         :key="option.value"
                         :value="option.value"
+                        :title="option.description"
                       >
                         {{ option.label }}
                       </option>
@@ -496,7 +493,44 @@ const {
                         v-if="isUnlistedSelectValue(field)"
                         :value="fieldSelectValue(field)"
                       >
-                        {{ fieldSelectValue(field) }}（动作已删除）
+                        {{ fieldSelectValue(field) }}（引用已失效）
+                      </option>
+                      <option
+                        v-if="refOptions(field).length === 0 && !isUnlistedSelectValue(field)"
+                        value=""
+                        disabled
+                      >
+                        暂无可选{{ REF_SOURCE_LABELS[field.ref ?? 'action'] }}
+                      </option>
+                    </select>
+
+                    <!--
+                      多选引用：size=4 让它看起来是个列表而不是一个下拉，
+                      序列成员常有 3 条以上，收成下拉会让作者以为只能选一个。
+                    -->
+                    <!--
+                      多选引用：size=4 让它看起来是个列表而不是一个下拉，
+                      序列成员常有 3 条以上，收成下拉会让作者以为只能选一个。
+                      选中态逐项写 `:selected` 而不是给 select 绑 `:value`——
+                      多选的值是数组，DOM 上只有 option 自己的 selected 才反映得出。
+                    -->
+                    <select
+                      v-else-if="field.kind === 'ref'"
+                      multiple
+                      size="4"
+                      @change="onFieldChange(field, $event)"
+                    >
+                      <option
+                        v-for="option in refOptions(field)"
+                        :key="option.value"
+                        :value="option.value"
+                        :selected="fieldMultiValue(field).includes(option.value)"
+                        :title="option.description"
+                      >
+                        {{ option.label }}
+                      </option>
+                      <option v-if="refOptions(field).length === 0" value="" disabled>
+                        本页还没有动作，先在动作链里添加
                       </option>
                     </select>
 
@@ -527,9 +561,24 @@ const {
                 </template>
               </template>
 
-              <p v-else class="lc-eventflow__hint">
-                自定义动作类型「{{ selectedAction.type }}」，没有可渲染的内置字段
-              </p>
+              <template v-else>
+                <p class="lc-eventflow__hint">
+                  动作类型「{{ selectedAction.type }}」没有内置字段表，可直接编辑 config
+                </p>
+                <label class="lc-eventflow__field">
+                  <span class="lc-eventflow__field-label">配置 JSON</span>
+                  <textarea
+                    rows="4"
+                    spellcheck="false"
+                    :value="configJsonText()"
+                    @input="onConfigJsonInput($event)"
+                    @change="commitConfigJson"
+                  />
+                </label>
+                <p v-if="configError" class="lc-eventflow__error" role="alert">
+                  {{ configError }}
+                </p>
+              </template>
 
               <div class="lc-eventflow__field">
                 <span class="lc-eventflow__field-label">执行条件</span>
@@ -573,7 +622,6 @@ const {
   块顺序即层叠顺序，新增样式请追加到末尾，不要插进中间。
 -->
 <style scoped src="./styles/base.css"></style>
-<style scoped src="./styles/tabs.css"></style>
 <style scoped src="./styles/layout.css"></style>
 <style scoped src="./styles/events.css"></style>
 <style scoped src="./styles/switch.css"></style>

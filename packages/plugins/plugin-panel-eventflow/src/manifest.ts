@@ -16,6 +16,7 @@ export const manifest: PluginManifest = {
         slot: 'designer.bottomPanel',
         module: './src/index.ts',
         order: 10,
+        icon: 'eventchain',
       },
     ],
   },

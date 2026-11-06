@@ -1,6 +1,4 @@
-import { computed, ref, watch } from 'vue'
-import { TABS } from '../constants/panel-tabs'
-import type { PanelTab } from '../constants/panel-tabs'
+import { ref, watch } from 'vue'
 import { useActionChain } from './use-action-chain'
 import { useActionFieldEditor } from './use-action-field-editor'
 import { useConditionDraft } from './use-condition-draft'
@@ -21,7 +19,6 @@ export type SettingsSection = 'trigger' | 'action'
 export function useEventFlowPanel() {
   const store = useEventFlowStore()
 
-  const activeTab = ref<PanelTab>('eventflow')
   const expandedSection = ref<SettingsSection | undefined>(undefined)
   const selectedActionId = ref<string | undefined>(undefined)
   const isActionPickerOpen = ref(false)
@@ -34,10 +31,6 @@ export function useEventFlowPanel() {
   })
   const { cancelConditionTimer, ...condition } = useConditionDraft(store, chain.selectedAction)
   const fields = useActionFieldEditor(store, chain.selectedAction, selectedActionId)
-
-  const activeTabLabel = computed<string>(
-    () => TABS.find((tab) => tab.id === activeTab.value)?.label ?? '',
-  )
 
   // 切换连接时丢弃上一处选中与草稿：动作 id 只在所属连接内有意义，
   // 带过去会让右栏展示另一条事件的动作。
@@ -68,8 +61,6 @@ export function useEventFlowPanel() {
     ...chain,
     ...condition,
     ...fields,
-    activeTab,
-    activeTabLabel,
     expandedSection,
     selectedActionId,
     isActionPickerOpen,

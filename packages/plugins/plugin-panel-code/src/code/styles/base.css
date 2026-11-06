@@ -1,0 +1,100 @@
+.lc-code {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--lc-border, #262b36);
+  border-radius: 10px;
+  background: var(--lc-surface, #12151d);
+  color: var(--lc-text, #e6ecf7);
+  font-size: 12px;
+}
+
+.lc-code__bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--lc-border, #262b36);
+}
+
+.lc-code__scope {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--lc-border, #333a48);
+  border-radius: 7px;
+  background: var(--lc-surface-sunken, #0c0f16);
+}
+
+.lc-code__scope-item {
+  padding: 2px 8px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--lc-text-secondary, #8c96a8);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.lc-code__scope-item[aria-checked='true'] {
+  background: var(--lc-accent-soft, rgba(47, 140, 255, 0.14));
+  color: var(--lc-accent-bright, #37b6ff);
+}
+
+.lc-code__meta {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--lc-text-muted, #5f7ea6);
+  font-size: 11px;
+}
+
+.lc-code__badge {
+  padding: 1px 7px;
+  border: 1px solid var(--lc-warning, #f5a623);
+  border-radius: 999px;
+  color: var(--lc-warning, #f5a623);
+}
+
+.lc-code__hint {
+  color: var(--lc-text-muted, #5f7ea6);
+  font-size: 11px;
+}
+
+.lc-code__actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+
+.lc-code__button {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--lc-border, #333a48);
+  border-radius: 6px;
+  background: var(--lc-surface-sunken, #0c0f16);
+  color: var(--lc-text, #e6ecf7);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.lc-code__button:hover {
+  border-color: var(--lc-accent, #4cc9f0);
+  color: var(--lc-accent, #4cc9f0);
+}
+
+.lc-code__button--primary {
+  border-color: var(--lc-accent, #2f8cff);
+  background: var(--lc-accent-soft, rgba(47, 140, 255, 0.14));
+  color: var(--lc-accent-bright, #37b6ff);
+}

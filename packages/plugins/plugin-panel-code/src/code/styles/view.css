@@ -1,0 +1,71 @@
+/* 滚动只发生在 .lc-code__view 一层：行号与代码同属一个滚动容器，
+ * 分成两个 overflow 会让行号永远停在顶部，读第 200 行时对不上号。 */
+.lc-code__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.lc-code__view {
+  display: flex;
+  align-items: flex-start;
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  font-family: monospace;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.lc-code__gutter {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  flex: none;
+  min-width: 34px;
+  margin: 0;
+  padding: 8px 6px 8px 10px;
+  border-right: 1px solid var(--lc-border, #262b36);
+  background: var(--lc-surface-sunken, #0c0f16);
+  color: var(--lc-text-muted, #5f7ea6);
+  list-style: none;
+  text-align: right;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* flex: none + white-space: pre 让代码按内容宽度撑开，横向滚动条才会出现 */
+.lc-code__text {
+  flex: none;
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--lc-text, #e6ecf7);
+  tab-size: 2;
+  white-space: pre;
+}
+
+.lc-code__warnings {
+  flex: none;
+  width: 240px;
+  padding: 8px 10px;
+  overflow-y: auto;
+  border-left: 1px solid var(--lc-border, #262b36);
+  background: var(--lc-surface-sunken, #0c0f16);
+}
+
+.lc-code__warnings-title {
+  margin: 0 0 6px;
+  color: var(--lc-warning, #f5a623);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.lc-code__warnings ul {
+  margin: 0;
+  padding-left: 16px;
+  color: var(--lc-text-secondary, #8c96a8);
+  font-size: 11px;
+  line-height: 1.6;
+}
