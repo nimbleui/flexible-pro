@@ -1,4 +1,5 @@
 import type { ActionDeclaration, EventConnection } from './actions'
+import type { PageApiBinding } from './api'
 import type { ComponentSchema } from './component'
 import type { DataSourceSchemaDef } from './datasource'
 import type { FunctionSchema, ValueTypeSchema } from './functions'
@@ -117,6 +118,14 @@ export interface PageSchema<T extends ComponentPropsMap = DefaultComponentPropsM
    * 用于声明页面级别的数据获取和状态管理。
    */
   datasources?: DataSourceSchemaDef[]
+  /**
+   * 项目接口绑定列表（可选）
+   *
+   * 只存绑定名与接口 id，不存接口内容：装载进文档时由 `applyApiBindings` 展开进
+   * `datasources`，写回存储时由 `stripApiBindings` 剥离，所以这里出现的 id 一律视为
+   * 绑定所有，页面不能再用同名条目自带一份 URL。
+   */
+  apis?: PageApiBinding[]
   /**
    * 页面变量声明（可选）
    * 默认值参与运行时装配，类型结构参与表达式补全。

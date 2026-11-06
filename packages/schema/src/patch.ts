@@ -167,6 +167,30 @@ export function connectionPath(connectionId: string, suffix = ''): string {
 }
 
 /** PageSchema 的 patch 应用入口；保留泛型以便未来文档结构扩展。 */
+/**
+ * 整数组字段的补丁。
+ *
+ * 缺省时用 `add`、清空时用 `remove`、其余用 `replace`：`remove` 而不是写空数组，是为了
+ * 不让存储里积出 `variables: []`、`apis: []` 这类既无语义又会干扰 diff 的键。
+ * 页面数据弹框与接口绑定共用这一处判断，两边对「空数组要不要留键」的理解才不会分叉。
+ *
+ * @param key 文档顶层字段名，如 `datasources`
+ * @param current 该字段当前的值；`undefined` 表示属性还不存在
+ * @param next 要写入的完整数组
+ * @returns 可直接交给文档服务的单条补丁
+ */
+export function arrayFieldPatch(
+  key: string,
+  current: readonly unknown[] | undefined,
+  next: readonly unknown[],
+): SchemaPatch {
+  return next.length === 0
+    ? { op: 'remove', path: `/${key}` }
+    : current === undefined
+      ? { op: 'add', path: `/${key}`, value: next }
+      : { op: 'replace', path: `/${key}`, value: next }
+}
+
 export function applySchemaPatches(schema: PageSchema, patches: SchemaPatches): PageSchema {
   return applyPatches(schema, patches)
 }
