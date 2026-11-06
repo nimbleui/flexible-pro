@@ -3,6 +3,8 @@ import { provideContext } from '@lc/vue'
 import App from './App.vue'
 import { router } from './router'
 import { bootstrapHost } from './bootstrap'
+// 组件库样式先于外壳样式：物料的外观默认值要能被外壳的 tokens 与 app.css 覆盖。
+import '@agile-plus/components/style.css'
 import './styles/tokens.css'
 import './styles/app.css'
 

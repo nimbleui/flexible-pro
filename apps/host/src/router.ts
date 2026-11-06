@@ -1,4 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import type { RouteRecordRaw } from 'vue-router'
+import ProjectListView from './views/ProjectListView.vue'
+import ProjectShellView from './views/ProjectShellView.vue'
+import ProjectReleaseView from './views/ProjectReleaseView.vue'
+import ProjectRunView from './views/ProjectRunView.vue'
 import PageListView from './views/PageListView.vue'
 import DesignerView from './views/DesignerView.vue'
 import PreviewView from './views/PreviewView.vue'
@@ -8,35 +13,94 @@ import ComponentListView from './views/ComponentListView.vue'
 import ComponentBlueprintView from './views/ComponentBlueprintView.vue'
 import FlowListView from './views/FlowListView.vue'
 import FlowEditorView from './views/FlowEditorView.vue'
+import ApiListView from './views/ApiListView.vue'
+import ApiEditorView from './views/ApiEditorView.vue'
+import { legacyPath, projectPath } from './projects/project-path'
 
 /**
  * 主应用路由。
  *
- * `/design/:documentId` 一条路由对应一个文档 Realm；事件流是设计器底部的停靠面板，
- * 不再单独占一条路由。App.vue 用 path 作 key，切换文档即重建视图，
- * 远程模块随之重新装载，视图层不必监听参数变化。
+ * 五类资产都挂在 `/projects/:projectId` 下面：项目是资产的归属容器，URL 上那一段就是
+ * 作用域声明。同一份编辑器代码换项目看到的是另一批记录，而不是同一批记录套一层筛子。
+ * 项目根路径落到页面列表，所以卡片「进入」只需拼到项目段。
  *
- * 组件蓝图复用同一条画布链路：`/components/:componentId/edit` 进 ComponentBlueprintView。
- * 新建不在此列——它先走列表页的定义弹框，落库拿到 id 后才进画布，
- * 避免「画布画完了才发现还没起名」和第二条创建入口。
+ * `design/:documentId` 一条路由对应一个文档 Realm；事件流是设计器底部的停靠面板，
+ * 不单独占一条路由。App.vue 用 path 作 key，切换文档即重建视图，远程模块随之重新装载，
+ * 视图层不必监听参数变化。
  *
- * 流程编排同样遵循这条约定：`/flows/new` 只是手改地址栏的兜底，编辑器会立刻把 URL
- * 换成真实 id，所以刷新不会重复建图。
+ * 组件蓝图与流程编辑器复用同一条「列表 → 编辑器」链路：新建不直接进画布，先走列表页的
+ * 定义弹框，落库拿到 id 后才跳编辑器，避免出现第二条创建入口；`flows/new` 只是手改
+ * 地址栏的兜底，编辑器会立刻把 URL 换成真实 id，刷新不会重复建图。
  */
+const projectChildren: RouteRecordRaw[] = [
+  { path: '', redirect: (to) => projectPath(String(to.params.projectId), 'pages') },
+  { path: 'pages', component: PageListView },
+  { path: 'design/:documentId', component: DesignerView },
+  { path: 'preview/:documentId', component: PreviewView },
+  { path: 'functions', component: FunctionListView },
+  { path: 'functions/new', component: FunctionEditView },
+  { path: 'functions/:functionId/edit', component: FunctionEditView },
+  { path: 'components', component: ComponentListView },
+  { path: 'components/:componentId/edit', component: ComponentBlueprintView },
+  // 接口：字段比函数多，新建直接进编辑器，第一条就在「列表页弹框」里填不下
+  { path: 'apis', component: ApiListView },
+  { path: 'apis/new', component: ApiEditorView },
+  { path: 'apis/:apiId/edit', component: ApiEditorView },
+  { path: 'flows', component: FlowListView },
+  { path: 'flows/new', component: FlowEditorView },
+  { path: 'flows/:flowId/edit', component: FlowEditorView },
+  // 发布页与运行页：一个是闸门与版本表，一个渲染线上快照，草稿改动要发布后才进得来
+  { path: 'releases', component: ProjectReleaseView },
+  { path: 'run/:documentId', component: ProjectRunView },
+]
+
+/**
+ * 旧路径回落到默认项目。
+ *
+ * 项目化前有两类链接在外面飘：浏览器书签，以及写进文档动作里的跳转目标
+ * （示例文档的 `navigate` 动作就写着 `/preview/event-doc`）。文档内容已经落盘，
+ * 改不动它们，所以旧形状继续存在而不是 404。带参数的路径先按分量编码再拼，
+ * query 与 hash 原样带上——掉参数的「定位到某节点再预览」链接会静默失效。
+ *
+ * @param oldPath 旧的路由形状
+ * @param sub 默认项目里的相对段；含 `{param}` 时替换成该路由参数的编码值
+ */
+function legacyRoute(oldPath: string, sub: string): RouteRecordRaw {
+  const param = /:(\w+)/.exec(oldPath)?.[1]
+
+  if (!param) return { path: oldPath, redirect: () => ({ path: legacyPath(sub) }) }
+
+  return {
+    path: oldPath,
+    redirect: (to) => {
+      const raw = to.params[param]
+      const value = Array.isArray(raw) ? (raw[0] ?? '') : String(raw ?? '')
+
+      return {
+        path: legacyPath(sub.replace('{param}', encodeURIComponent(value))),
+        query: to.query,
+        hash: to.hash,
+      }
+    },
+  }
+}
+
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/pages' },
-    { path: '/pages', component: PageListView },
-    { path: '/design/:documentId', component: DesignerView },
-    { path: '/preview/:documentId', component: PreviewView },
-    { path: '/functions', component: FunctionListView },
-    { path: '/functions/new', component: FunctionEditView },
-    { path: '/functions/:functionId/edit', component: FunctionEditView },
-    { path: '/components', component: ComponentListView },
-    { path: '/components/:componentId/edit', component: ComponentBlueprintView },
-    { path: '/flows', component: FlowListView },
-    { path: '/flows/new', component: FlowEditorView },
-    { path: '/flows/:flowId/edit', component: FlowEditorView },
+    { path: '/', redirect: '/projects' },
+    { path: '/projects', component: ProjectListView },
+    { path: '/projects/:projectId', component: ProjectShellView, children: projectChildren },
+    legacyRoute('/pages', 'pages'),
+    legacyRoute('/design/:documentId', 'design/{param}'),
+    legacyRoute('/preview/:documentId', 'preview/{param}'),
+    legacyRoute('/functions', 'functions'),
+    legacyRoute('/functions/new', 'functions/new'),
+    legacyRoute('/functions/:functionId/edit', 'functions/{param}/edit'),
+    legacyRoute('/components', 'components'),
+    legacyRoute('/components/:componentId/edit', 'components/{param}/edit'),
+    legacyRoute('/flows', 'flows'),
+    legacyRoute('/flows/new', 'flows/new'),
+    legacyRoute('/flows/:flowId/edit', 'flows/{param}/edit'),
   ],
 })

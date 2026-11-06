@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import type {
   CanvasRealm,
   CanvasService,
@@ -19,12 +19,30 @@ import CommandPalette from '../components/CommandPalette.vue'
 import OverlayPanel from '../components/OverlayPanel.vue'
 import PageFunctionDialog from '../components/functions/PageFunctionDialog.vue'
 import PageDataDialog from '../components/page-data'
-import { findPage } from '../pages'
+import { loadSchemaWithApis } from '../apis/api-load'
+import { requestDefaultsOf } from '../apis/api-config'
+import { getPage, savePageSchema } from '../pages/page-store'
+import { visibleInProject } from '../projects/project-model'
+import { projectPath } from '../projects/project-path'
+import { toastService } from '../toast'
 
 const appCtx = useAppContext()
 const route = useRoute()
+const router = useRouter()
+const projectId = String(route.params.projectId)
 const documentId = String(route.params.documentId)
-const page = findPage(documentId)
+const page = visibleInProject(getPage(documentId), projectId)
+/** 标题只存在页面记录里：Realm 契约不回带它，工具栏与提示文案都用这一个值 */
+const pageTitle = page?.title ?? documentId
+
+/**
+ * 预览走同应用内的项目内路径，不用 `window.open`：两个视图共用同一个文档
+ * Realm，设计到一半、还没点保存时也能立刻看到真实渲染；整页导航会重建应用并丢掉这份
+ * 内存态，预览就只剩页面记录里已保存的内容。
+ */
+function openPreview(): void {
+  void router.push(projectPath(projectId, `preview/${encodeURIComponent(documentId)}`))
+}
 
 /**
  * 注入画布的宿主路由作用域。
@@ -54,8 +72,10 @@ const editor: EditorRealm =
   appCtx.workspace.getEditor(documentId) ??
   appCtx.workspace.createEditorRealm({
     documentId,
-    title: page?.title ?? documentId,
-    schema: page?.createSchema(),
+    title: pageTitle,
+    // 项目接口在进 Realm 前展开；保存时由 page-store 剥回去，落盘的文档只留绑定
+    schema: loadSchemaWithApis(page?.schema, projectId),
+    requestDefaults: requestDefaultsOf(projectId),
   })
 
 // 一篇文档可以有多个画布视图，所以画布 Realm 随视图创建、随视图释放
@@ -75,6 +95,21 @@ const disposables: Array<{
   dispose(): void
 }> = []
 let unmounted = false
+
+/** 文档服务句柄：保存要把画布内存里的 schema 写回页面记录 */
+const documentService = shallowRef<DocumentService | null>(null)
+
+/** 画布当前版本与最后一次写回记录的版本；相等即没有未保存的改动 */
+const docVersion = shallowRef(0)
+const savedVersion = shallowRef(0)
+
+/**
+ * 是否有未保存改动。
+ *
+ * 判据用版本而不是 `model.dirty`：后者由文档服务在正式提交时置位，但本视图没有
+ * 「写回后清脏」的入口，保存完它仍然是 true。版本两边对齐才能立刻回到已保存态。
+ */
+const isDirty = computed(() => docVersion.value !== savedVersion.value)
 
 /** 页面函数弹框；由物料面板点击「自定义函数」触发 */
 const pageFunctionDialogOpen = ref(false)
@@ -172,12 +207,28 @@ onMounted(async () => {
   commandService.value = canvas.context.get<CommandService>('command') ?? null
   historyService.value = editor.context.get<HistoryService>('history') ?? null
 
-  watchPageFunctions(
-    editor.context.require<DocumentService>('document'),
-    editor.context.require<ExpressionEngine>('expression'),
+  const document = editor.context.require<DocumentService>('document')
+  documentService.value = document
+  // 热更新复用了已有 Realm 时起始版本可能不是 0：两边对齐才不会一进来就显示未保存
+  savedVersion.value = document.model.version
+  docVersion.value = savedVersion.value
+
+  disposables.push(
+    document.onDidChange((model) => {
+      docVersion.value = model.version
+    }),
   )
+
+  watchPageFunctions(document, editor.context.require<ExpressionEngine>('expression'))
   registerDialogCommands()
   subscribeRefreshSignals(canvasService.value)
+
+  // 底部页签条跟着贡献走：安装 / 卸载面板插件不必刷新页面就能增减页签
+  disposables.push(
+    appCtx.contribution.onDidChange(() => {
+      contributionVersion.value += 1
+    }),
+  )
 
   ready.value = true
 })
@@ -219,6 +270,27 @@ function runCommand(id: string): void {
   void commandService.value?.execute(id)
 }
 
+/**
+ * 把画布内存里的文档写回页面记录。
+ *
+ * 只替换文档：标题与归属各有唯一写入方（页面列表的重命名、后续的项目移动）。
+ * 页面在别处被删掉时 store 抛「页面不存在」，这里原样透成提示——静默丢弃改动
+ * 会让人以为已经存上了。
+ */
+function save(): void {
+  const document = documentService.value
+  if (!document) return
+
+  try {
+    savePageSchema(documentId, document.model.schema, projectId)
+    savedVersion.value = document.model.version
+    docVersion.value = savedVersion.value
+    toastService.show(`页面「${pageTitle}」已保存`, 'success')
+  } catch (cause) {
+    toastService.show(cause instanceof Error ? cause.message : String(cause), 'error')
+  }
+}
+
 /** 浮动面板的标题；rail 项与浮层头部共用同一个字符串，不在两处各写一遍 */
 const OVERLAY_TITLE = '页面大纲'
 
@@ -240,7 +312,7 @@ interface DesignerRailItem {
   action?: { kind: 'toggle'; target: RailTarget } | { kind: 'command'; commandId: string }
 }
 
-// rail 是工作区入口集合：组件库常驻左栏，页面大纲浮在画布上，事件链开关底部停靠区
+// rail 是工作区入口集合：组件库常驻左栏，页面大纲浮在画布上，底部面板开关停靠区
 const railItems: readonly DesignerRailItem[] = [
   {
     id: 'components',
@@ -267,9 +339,9 @@ const railItems: readonly DesignerRailItem[] = [
     action: { kind: 'command', commandId: 'pageFunction.openDialog' },
   },
   {
-    id: 'eventflow',
-    label: '事件链',
-    icon: 'eventchain',
+    id: 'dock',
+    label: '底部面板',
+    icon: 'list',
     action: { kind: 'toggle', target: 'dock' },
   },
   { id: 'versions', label: '版本管理', icon: 'version' },
@@ -342,8 +414,13 @@ const rightTabs: readonly RightTab[] = [
 
 const activeRightTab = ref<RightTab['id']>('config')
 
-/** 页签键盘导航：方向键在四个页签间循环，Home / End 跳到首尾 */
-function onRightTabKeydown(event: KeyboardEvent, index: number): void {
+/** 页签键盘导航：方向键在页签间循环，Home / End 跳到首尾 */
+function onTabKeydown(
+  event: KeyboardEvent,
+  index: number,
+  count: number,
+  select: (next: number) => void,
+): void {
   if (
     event.key !== 'ArrowRight' &&
     event.key !== 'ArrowLeft' &&
@@ -355,16 +432,59 @@ function onRightTabKeydown(event: KeyboardEvent, index: number): void {
 
   event.preventDefault()
 
-  const last = rightTabs.length - 1
+  const last = count - 1
   let next = index
   if (event.key === 'ArrowRight') next = index === last ? 0 : index + 1
   else if (event.key === 'ArrowLeft') next = index === 0 ? last : index - 1
   else if (event.key === 'Home') next = 0
   else next = last
 
-  activeRightTab.value = rightTabs[next].id
+  select(next)
   const tablist = (event.currentTarget as HTMLElement | null)?.closest('[role="tablist"]')
   tablist?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus()
+}
+
+function onRightTabKeydown(event: KeyboardEvent, index: number): void {
+  onTabKeydown(event, index, rightTabs.length, (next) => {
+    activeRightTab.value = rightTabs[next].id
+  })
+}
+
+/**
+ * 底部停靠区页签；直接来自 `designer.bottomPanel` 的贡献列表。
+ *
+ * 页签条原先由事件流插件自己画，多一个面板就得改它的源码；改由外壳按贡献生成后，
+ * 装几个面板就有几个页签，卸载即消失。id 用面板 id，与 `LcSlot` 的 `active` 同一口径。
+ */
+const contributionVersion = ref(0)
+
+const bottomTabs = computed<readonly { id: string; label: string; icon?: string }[]>(() => {
+  contributionVersion.value
+  return appCtx.contribution
+    .listSlot('designer.bottomPanel')
+    .map((item) => ({ id: item.value.id, label: item.value.title, icon: item.value.icon }))
+})
+
+const activeBottomTab = ref('eventflow')
+
+/** 面板被卸载时回落到第一个页签：active 指向不存在的面板会让整块停靠区空白 */
+const activeBottomPanel = computed<string | undefined>(() =>
+  bottomTabs.value.some((tab) => tab.id === activeBottomTab.value)
+    ? activeBottomTab.value
+    : bottomTabs.value[0]?.id,
+)
+
+/** 停靠区折叠时点页签顺手展开：页签决定「看哪个面板」，折叠按钮决定「看不看这块区域」 */
+function selectBottomTab(id: string): void {
+  activeBottomTab.value = id
+  dockExpanded.value = true
+}
+
+function onBottomTabKeydown(event: KeyboardEvent, index: number): void {
+  onTabKeydown(event, index, bottomTabs.value.length, (next) => {
+    const tab = bottomTabs.value[next]
+    if (tab) selectBottomTab(tab.id)
+  })
 }
 
 const devtoolsOpen = shallowRef(false)
@@ -446,10 +566,21 @@ const devtoolsOpen = shallowRef(false)
         </div>
 
         <div class="lc-designer__actions">
-          <button type="button" class="lc-designer__action" disabled title="预览尚未接入">
+          <button
+            type="button"
+            class="lc-designer__action"
+            title="预览当前文档（与设计器共用内存中的文档，无需先保存）"
+            @click="openPreview"
+          >
             预览
           </button>
-          <button type="button" class="lc-designer__action" disabled title="保存尚未接入">
+          <button
+            type="button"
+            class="lc-designer__action"
+            :disabled="!isDirty || !documentService"
+            :title="isDirty ? '把画布当前文档写回页面记录' : '文档没有未保存的改动'"
+            @click="save"
+          >
             保存
           </button>
           <button
@@ -530,20 +661,44 @@ const devtoolsOpen = shallowRef(false)
           <section
             class="lc-dock"
             :class="{ 'lc-dock--collapsed': !dockExpanded }"
-            aria-label="事件流"
+            aria-label="底部面板"
           >
             <!--
-              外壳只保留折叠按钮：标题与页签由底部面板插件自己提供，
-              外壳再画一遍标题会在同一块区域出现两行「事件流」。
+              页签条由外壳按 designer.bottomPanel 的贡献生成：面板插件只声明自己，
+              不必再互相借用某一家的页签条，卸载后页签也随之消失。
             -->
             <header class="lc-dock__header">
+              <nav
+                v-if="bottomTabs.length"
+                class="lc-dock__tabs"
+                role="tablist"
+                aria-label="底部面板页签"
+              >
+                <button
+                  v-for="(tab, index) in bottomTabs"
+                  :id="`lc-dock-tab-${tab.id}`"
+                  :key="tab.id"
+                  type="button"
+                  role="tab"
+                  class="lc-dock__tab"
+                  :aria-selected="activeBottomPanel === tab.id"
+                  aria-controls="lc-dock-panel"
+                  :tabindex="activeBottomPanel === tab.id ? 0 : -1"
+                  @click="selectBottomTab(tab.id)"
+                  @keydown="onBottomTabKeydown($event, index)"
+                >
+                  <LcIcon v-if="tab.icon" :name="tab.icon" :size="12" />
+                  {{ tab.label }}
+                </button>
+              </nav>
+
               <button
                 type="button"
                 class="lc-dock__toggle"
                 :aria-expanded="dockExpanded"
                 aria-controls="lc-dock-panel"
-                :aria-label="dockExpanded ? '折叠事件流' : '展开事件流'"
-                :title="dockExpanded ? '折叠事件流' : '展开事件流'"
+                :aria-label="dockExpanded ? '折叠底部面板' : '展开底部面板'"
+                :title="dockExpanded ? '折叠底部面板' : '展开底部面板'"
                 @click="dockExpanded = !dockExpanded"
               >
                 <span
@@ -554,20 +709,26 @@ const devtoolsOpen = shallowRef(false)
               </button>
             </header>
 
-            <!-- 事件流内容完全由插件通过 designer.bottomPanel 提供，外壳不内置实现 -->
+            <!-- 停靠区内容完全由插件通过 designer.bottomPanel 提供，外壳只切换当前页签 -->
             <div
               v-show="dockExpanded"
               id="lc-dock-panel"
               class="lc-dock__body"
-              role="region"
-              aria-label="事件流"
+              role="tabpanel"
+              :aria-labelledby="
+                activeBottomPanel ? `lc-dock-tab-${activeBottomPanel}` : undefined
+              "
             >
-              <LcSlot name="designer.bottomPanel" :context="{ documentId }">
+              <LcSlot
+                name="designer.bottomPanel"
+                :active="activeBottomPanel"
+                :context="{ documentId }"
+              >
                 <template #empty>
                   <div class="lc-dock__empty">
-                    <span class="lc-dock__empty-title">事件流面板尚未接入</span>
+                    <span class="lc-dock__empty-title">底部面板尚未接入</span>
                     <span
-                      >安装事件流插件后，面板会通过 designer.bottomPanel 插槽挂载在这里。</span
+                      >安装面板插件后，其内容会通过 designer.bottomPanel 插槽挂载在这里。</span
                     >
                   </div>
                 </template>

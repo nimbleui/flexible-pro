@@ -15,37 +15,24 @@ interface TopbarNavItem {
 const route = useRoute()
 const appCtx = useAppContext()
 
+/**
+ * 顶栏只留平台级入口。
+ *
+ * 四类资产的入口搬进了项目外壳（`ProjectShellView` 的页签）：「这个项目的页面有哪些」
+ * 是项目内的问题，挂在平台层就只剩「不分项目的全集」这一种解释，而项目化之后
+ * 已经没有这种全集了。旧路径 `/pages`、`/flows` 等在 `router.ts` 里回落默认项目。
+ *
+ * 点亮判断用前缀而不是精确匹配：`/projects/<id>/design/<doc>` 这类下钻路径
+ * 仍属于「项目管理」，精确匹配会让编辑态一条导航都不高亮。
+ */
 const navItems: readonly TopbarNavItem[] = [
-  { label: '项目管理', hint: '项目管理尚未接入' },
-  { label: '页面管理', to: '/pages' },
-  { label: '流程编排管理', to: '/flows' },
-  { label: '函数管理', to: '/functions' },
-  { label: '组件管理', to: '/components' },
+  { label: '项目管理', to: '/projects' },
   { label: '插件市场', hint: '插件市场尚未接入' },
   { label: 'AI 助手', hint: 'AI 助手尚未接入' },
 ]
 
-/**
- * 顶层归属：进入子路由后顶栏仍要点亮对应入口。
- *
- * `/design/` 属于页面管理、`/flows/` 属于流程编排，两者都是「列表 → 编辑器」的下钻，
- * 精确匹配会让编辑态下一条导航都不高亮。用前缀表推导而不是给每项加 `match` 字段：
- * 归属关系是路由结构决定的，写两处就会和 `router.ts` 漂移。
- */
-const NAV_OWNER_PREFIXES: ReadonlyArray<{ to: string; prefixes: readonly string[] }> = [
-  { to: '/pages', prefixes: ['/pages', '/design/', '/preview/'] },
-  { to: '/flows', prefixes: ['/flows'] },
-  { to: '/functions', prefixes: ['/functions'] },
-  { to: '/components', prefixes: ['/components'] },
-]
-
 function isNavActive(to: string | undefined): boolean {
-  if (!to) return false
-
-  const owner = NAV_OWNER_PREFIXES.find((entry) => entry.to === to)
-  if (!owner) return route.path === to
-
-  return owner.prefixes.some((prefix) => route.path.startsWith(prefix))
+  return to !== undefined && route.path.startsWith(to)
 }
 
 function togglePalette(): void {

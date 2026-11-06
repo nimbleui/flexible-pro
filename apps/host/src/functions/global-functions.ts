@@ -24,6 +24,13 @@ export interface GlobalFunction {
   body: string
   /** 说明 */
   description?: string
+  /**
+   * 归属项目 id（可选）。
+   *
+   * 缺省即默认项目：项目化改造之前存的函数没有这个字段，由 `resolveProjectId`
+   * 统一解释，本模块不为存量数据写迁移。
+   */
+  projectId?: string
   /** 最后修改时间（ISO 字符串） */
   updatedAt: string
 }
@@ -44,6 +51,8 @@ export interface GlobalFunctionInput {
   body: string
   /** 说明；空白串按未填写处理 */
   description?: string
+  /** 归属项目 id；只在新建时生效，更新一律保留原记录上的归属 */
+  projectId: string
 }
 
 const STORAGE_KEY = 'lc.global-functions.v1'
@@ -70,6 +79,7 @@ function isGlobalFunction(value: unknown): value is GlobalFunction {
     typeof value.updatedAt === 'string' &&
     (value.title === undefined || typeof value.title === 'string') &&
     (value.description === undefined || typeof value.description === 'string') &&
+    (value.projectId === undefined || typeof value.projectId === 'string') &&
     (value.params === undefined || isStringArray(value.params)) &&
     (value.paramTypes === undefined || isRecord(value.paramTypes))
   )
@@ -157,6 +167,8 @@ function toGlobalFunctionEntry(
         : undefined,
     body,
     description: normalizeOptional(input.description),
+    // 更新时保留原归属：改函数名或函数体不该把它挪到别的项目里去
+    projectId: existing?.projectId ?? input.projectId,
     updatedAt: new Date().toISOString(),
   }
 }

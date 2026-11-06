@@ -1,94 +1,38 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, shallowRef } from 'vue'
 import { useRoute } from 'vue-router'
-import type { DocumentService, EditorRealm } from '@lc/contracts'
-import type { ExpressionEngine, FunctionRegistration, FunctionSchema } from '@lc/schema'
-import { PageRuntime, useAppContext } from '@lc/vue'
-import { findPage } from '../pages'
+import { PageRuntime } from '@lc/vue'
+import { loadSchemaWithApis } from '../apis/api-load'
+import { requestDefaultsOf } from '../apis/api-config'
+import { getPage } from '../pages/page-store'
+import { usePageRuntime } from '../pages/use-page-runtime'
+import { visibleInProject } from '../projects/project-model'
+import { projectPath } from '../projects/project-path'
 
 /**
- * 页面预览视图。
+ * 页面预览视图（草稿预览）。
  *
- * 与 `DesignerView` 共用同一个文档 Realm（workspace 对重复 documentId 复用而不是重开），
- * 差别在渲染器：这里装的是 `PageRuntime`——读状态服务的运行时值、把组件事件接给动作
- * 执行器；设计器那边的画布只读声明的默认值且不接线，所以编辑操作不会真的跑业务。
+ * 与 `DesignerView` 共用同一个文档 Realm（`preferExisting`），所以设计到一半、还没点
+ * 保存时也能立刻看到真实渲染；差别只在渲染器：这里装的是 `PageRuntime`——读状态服务的
+ * 运行时值、把组件事件接给动作执行器，而设计器的画布只读声明的默认值且不接线，
+ * 所以编辑操作不会真的跑业务。
  *
- * 因为共用 Realm，同一篇文档在设计器里改出来的动作链，切到预览立刻可见，
- * 不需要先保存或重新打开。
+ * 想看「线上跑的那一份」用运行页（`ProjectRunView`）：它读发布快照，且不复用这里的 Realm。
  */
 
-const appCtx = useAppContext()
 const route = useRoute()
+const projectId = String(route.params.projectId)
 const documentId = String(route.params.documentId)
-const page = findPage(documentId)
+const page = visibleInProject(getPage(documentId), projectId)
 /** Realm 契约上不回带标题，标题只在宿主的页面表里 */
 const pageTitle = page?.title ?? documentId
 
-/** 宿主路由作用域；`$route` / `$params` / `$query` 由页面表达式读取 */
-const routeScope = computed<Record<string, unknown>>(() => {
-  const params = { ...route.params }
-  const query = { ...route.query }
-  return {
-    $params: params,
-    $query: query,
-    $route: {
-      path: route.path,
-      fullPath: route.fullPath,
-      name: typeof route.name === 'string' ? route.name : null,
-      hash: route.hash,
-      params,
-      query,
-    },
-  }
-})
-
-const editor: EditorRealm =
-  appCtx.workspace.getEditor(documentId) ??
-  appCtx.workspace.createEditorRealm({
-    documentId,
-    title: page?.title ?? documentId,
-    schema: page?.createSchema(),
-    // 预览态文档只读：链里的动作写的是状态服务，不是文档
-    mode: 'preview',
-  })
-
-/**
- * 服务就绪门。
- *
- * `plugin()` 只做登记，Realm 内的插件要等运行时微任务批里才 apply；`PageRuntime`
- * 在 setup 阶段就 `require` 动作服务，所以先等一次空闲再渲染。
- */
-const ready = shallowRef(false)
-let unmounted = false
-
-/** 页面函数注册；离开预览时注销，避免与后续打开的文档共享一份函数表 */
-let pageFunctionRegistration: FunctionRegistration = { dispose: () => {} }
-
-/**
- * 注册本文档的页面函数。
- *
- * 预览必须自带这一步：表达式里的 `progress(todos)` 之类只有注册进引擎才能求值，
- * 而注册表挂在应用级引擎上，不会随 Realm 切换自动换一套。
- */
-function registerPageFunctions(): void {
-  const schema = editor.context.require<DocumentService>('document').model.schema
-  const expression = editor.context.require<ExpressionEngine>('expression')
-  pageFunctionRegistration.dispose()
-  pageFunctionRegistration = expression.functions.registerAll(schema.functions ?? [], 'page')
-}
-
-onMounted(async () => {
-  await appCtx.runtime.whenIdle()
-  // 等待期间用户可能已经离开：此时不能再访问服务
-  if (unmounted) return
-
-  registerPageFunctions()
-  ready.value = true
-})
-
-onUnmounted(() => {
-  unmounted = true
-  pageFunctionRegistration.dispose()
+const { editor, ready, routeScope } = usePageRuntime({
+  realmKey: documentId,
+  title: pageTitle,
+  // 与设计器同一条展开路径：预览要看的正是「绑定生效后的这张页面」
+  schema: loadSchemaWithApis(page?.schema, projectId),
+  requestDefaults: requestDefaultsOf(projectId),
+  preferExisting: true,
 })
 </script>
 
@@ -97,7 +41,9 @@ onUnmounted(() => {
 
   <div v-else class="lc-preview-page">
     <header class="lc-preview-page__bar">
-      <RouterLink class="lc-preview-page__back" to="/pages">返回页面列表</RouterLink>
+      <RouterLink class="lc-preview-page__back" :to="projectPath(projectId, 'pages')"
+        >返回页面列表</RouterLink
+      >
       <span class="lc-preview-page__title">{{ pageTitle }}</span>
       <span class="lc-preview-page__badge">预览</span>
     </header>

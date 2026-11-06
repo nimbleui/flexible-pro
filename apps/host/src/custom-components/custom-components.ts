@@ -16,6 +16,7 @@ import type {
   StyleSchema,
 } from '@lc/schema'
 import { HORIZONTAL_CONSTRAINTS, VERTICAL_CONSTRAINTS } from '@lc/vue'
+import { DEFAULT_PROJECT_ID } from '../projects/project-model'
 import {
   jsonSchemaFromProps,
   isRecord,
@@ -60,6 +61,13 @@ export interface CustomComponent {
   definition: ComponentSchema
   /** 是否注册进画布物料面板；关闭后定义保留但不再出现在拖拽列表里 */
   enabled: boolean
+  /**
+   * 归属项目 id（可选）。
+   *
+   * 缺省即默认项目，与全局函数、流程同一套解释；物料本身按组件名全局唯一，
+   * 归属只用于项目侧的计数与后续过滤。
+   */
+  projectId?: string
   /** 最后修改时间（ISO 字符串） */
   updatedAt: string
 }
@@ -72,6 +80,12 @@ export interface CustomComponentInput {
   definition: ComponentSchema
   /** 缺省沿用已有条目的值，新建时为 true */
   enabled?: boolean
+  /**
+   * 归属项目 id；只在新建时生效，更新一律保留原记录上的归属。
+   *
+   * @default DEFAULT_PROJECT_ID
+   */
+  projectId?: string
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -389,6 +403,10 @@ function readCustomComponent(value: unknown): CustomComponent | undefined {
     id: value.id,
     definition,
     enabled: value.enabled !== false,
+    // 空白串按「没有归属」处理：写成空 id 会让项目侧的计数把它算成独立项目
+    ...(typeof value.projectId === 'string' && value.projectId !== ''
+      ? { projectId: value.projectId }
+      : {}),
     updatedAt: value.updatedAt,
   }
 }
@@ -479,6 +497,8 @@ export function saveCustomComponent(input: CustomComponentInput): CustomComponen
     id: existing?.id ?? createComponentId(),
     definition: { ...input.definition, meta: { ...input.definition.meta, name } },
     enabled: input.enabled ?? existing?.enabled ?? true,
+    // 更新时保留原归属：改蓝图不该把组件挪到别的项目里去
+    projectId: existing?.projectId ?? input.projectId ?? DEFAULT_PROJECT_ID,
     updatedAt: new Date().toISOString(),
   }
 

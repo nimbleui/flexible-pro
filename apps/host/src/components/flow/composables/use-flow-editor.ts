@@ -15,6 +15,7 @@ import {
   publishFlow,
   saveFlow,
 } from '../../../workflows/flow-store'
+import { visibleInProject } from '../../../projects/project-model'
 
 /**
  * 流程编辑器的文档工作副本。
@@ -53,8 +54,14 @@ function cloneFlow(flow: FlowDefinition): FlowDefinition {
   return structuredClone(flow)
 }
 
-export function useFlowEditor(flowId: string) {
-  const stored = getFlow(flowId)
+/**
+ * 建流程编辑器的工作副本。
+ *
+ * `projectId` 参与取图：A 项目的图挂到 B 项目的 URL 上时按「图不存在」处理，
+ * 不让 B 的编辑器改到 A 的内容；视图已有的 `missing` 提示正好覆盖这一种。
+ */
+export function useFlowEditor(flowId: string, projectId: string) {
+  const stored = visibleInProject(getFlow(flowId), projectId)
 
   /** 工作副本；整对象替换，因此用 shallowRef 避免 Vue 深入代理每个节点 */
   const working = shallowRef<FlowDefinition | undefined>(stored ? cloneFlow(stored) : undefined)

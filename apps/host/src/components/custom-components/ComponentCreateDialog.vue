@@ -26,6 +26,8 @@ const props = defineProps<{
   open: boolean
   /** 已被占用的物料名；新建时全部算占用 */
   takenNames: readonly string[]
+  /** 新建组件归属哪个项目；由列表页从路由参数传进来，弹框自己不认识路由 */
+  projectId: string
 }>()
 
 const emit = defineEmits<{
@@ -84,6 +86,7 @@ function confirm(): void {
         events: eventsFromDraft(draft.events),
         slots: slotsFromDraft(draft.slots),
       }),
+      projectId: props.projectId,
     })
     emit('created', saved.id)
   } catch (cause) {

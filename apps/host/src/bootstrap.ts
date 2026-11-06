@@ -7,9 +7,14 @@ import presetDesigner from '@lc/preset-designer'
 import { installCustomComponents } from './custom-components/custom-components'
 import { installGlobalFunctions } from './functions/global-functions'
 import { navigationService } from './navigation'
+import { httpService } from './apis/api-request'
 import { toastService } from './toast'
+import { flowService } from './workflows/flow-service'
+import { manifest as agilePlusMaterialsManifest } from '@agile-plus/materials/manifest'
 import { manifest as materialsBasicManifest } from '@lc/plugin-materials-basic/manifest'
 import { manifest as advancedPanelManifest } from '@lc/plugin-panel-advanced/manifest'
+import { manifest as codePanelManifest } from '@lc/plugin-panel-code/manifest'
+import { manifest as dataPanelManifest } from '@lc/plugin-panel-data/manifest'
 import { manifest as eventFlowPanelManifest } from '@lc/plugin-panel-eventflow/manifest'
 import { manifest as materialsPanelManifest } from '@lc/plugin-panel-materials/manifest'
 import { manifest as nodeEventPanelManifest } from '@lc/plugin-panel-node-event/manifest'
@@ -49,17 +54,38 @@ const GRANTS: Record<string, readonly string[]> = {
   'service-state': ['pageState'],
   'service-action': ['action'],
   'service-canvas-core': ['canvas'],
+  // `http` 在保留名单里，宿主自己提供也要按规矩授权：这条与 `toast`、`navigation` 不同
+  'host-http': ['http'],
 }
 
-/** 构建期内置的宿主侧插件包清单；画布能力包由远程模块登记 */
+/**
+ * 构建期内置的宿主侧插件包清单；画布能力包由远程模块登记。
+ *
+ * `@agile-plus/materials` 是外部组件库的物料包：清单从 `/manifest` 子路径静态引入
+ * （纯数据、零依赖，物料面板因此不必等组件下载），组件实现由 `load` 懒加载。
+ *
+ * `importSource` 只给物料包写：它是「这个插件的组件从哪个 ESM 包 import」的装配层事实，
+ * 插件自己的清单里没有、也不该有。出码面板按它生成 import 语句，没登记的物料走降级分支。
+ */
 const BUILTIN_PACKAGES = [
-  { manifest: materialsBasicManifest, load: () => import('@lc/plugin-materials-basic') },
+  {
+    manifest: agilePlusMaterialsManifest,
+    load: () => import('@agile-plus/materials'),
+    importSource: '@agile-plus/materials',
+  },
+  {
+    manifest: materialsBasicManifest,
+    load: () => import('@lc/plugin-materials-basic'),
+    importSource: '@lc/plugin-materials-basic',
+  },
   { manifest: materialsPanelManifest, load: () => import('@lc/plugin-panel-materials') },
   { manifest: outlinePanelManifest, load: () => import('@lc/plugin-panel-outline') },
   { manifest: propertiesPanelManifest, load: () => import('@lc/plugin-panel-properties') },
   { manifest: stylePanelManifest, load: () => import('@lc/plugin-panel-style') },
   { manifest: nodeEventPanelManifest, load: () => import('@lc/plugin-panel-node-event') },
   { manifest: advancedPanelManifest, load: () => import('@lc/plugin-panel-advanced') },
+  { manifest: codePanelManifest, load: () => import('@lc/plugin-panel-code') },
+  { manifest: dataPanelManifest, load: () => import('@lc/plugin-panel-data') },
   { manifest: eventFlowPanelManifest, load: () => import('@lc/plugin-panel-eventflow') },
 ] as const
 
@@ -103,6 +129,30 @@ function installHostShellUi(context: Context): void {
       apply(ctx) {
         ctx.effect(() => ctx.provide('toast', toastService))
         ctx.effect(() => ctx.provide('navigation', navigationService))
+        // 流程图仓库：页面事件要能对上一张已发布的图，靠的就是这一个入口
+        ctx.effect(() => ctx.provide('flow', flowService))
+      },
+    }),
+  )
+}
+
+/**
+ * 挂载宿主提供的 `http` 服务（凭据缓存与 401 重试的唯一落点）。
+ *
+ * 与 `toast`、`navigation` 的区别是这个名字在 `RESERVED_SERVICES` 里，所以要走 GRANTS
+ * 授权——平台保留的服务名不允许任意插件抢占。实现为什么留在宿主而不是 `@lc/service-datasource`：
+ * 只有宿主知道项目登记表与请求环境，「用哪条接口换 token、换到的 token 塞进哪个头」都是
+ * 项目级配置；而取数服务需要的是「把这条配置发出去」，不关心 token 从哪来。
+ *
+ * 服务是**可选**依赖：没有它的运行环境（纯逻辑测试、别的宿主）里取数直接走 `fetchRest`，
+ * 行为与引入凭据流程之前完全一致。
+ */
+function installHttpService(context: Context): void {
+  context.plugin(
+    definePlugin({
+      name: 'host-http',
+      apply(ctx) {
+        ctx.effect(() => ctx.provide('http', httpService, { apiVersion: '1.0' }))
       },
     }),
   )
@@ -156,6 +206,7 @@ export async function bootstrapHost(): Promise<HostBootstrap> {
 
   context.plugin(presetDesigner)
   installHostShellUi(context)
+  installHttpService(context)
   await context.runtime.whenIdle()
 
   // 全局函数是应用级能力：启动时注册一次，管理页修改后由订阅重新注册

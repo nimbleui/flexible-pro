@@ -1,9 +1,27 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import type { GlobalFunction } from '../functions/global-functions'
 import { functionBodyText } from '../functions/function-draft'
 import { globalFunctions, removeGlobalFunction } from '../functions/global-functions'
+import { resolveProjectId } from '../projects/project-model'
+import { projectPath } from '../projects/project-path'
+
+const route = useRoute()
+const projectId = String(route.params.projectId)
 
 const pendingDelete = ref<string | null>(null)
+
+/**
+ * 当前项目名下的函数。
+ *
+ * 只影响管理页的可见性：表达式引擎的注册是应用级的（`bootstrap.ts` 启动时一次装完），
+ * 运行时按名字查找并不知道项目边界。真正的按项目注册要等运行时装载时拿到页面归属，
+ * 不在这一层假装修好。
+ */
+const visible = computed<readonly GlobalFunction[]>(() =>
+  globalFunctions.value.filter((fn) => resolveProjectId(fn.projectId) === projectId),
+)
 
 function formatTime(iso: string): string {
   const date = new Date(iso)
@@ -26,17 +44,21 @@ function confirmDelete(id: string): void {
           全局函数在应用启动时注册到表达式引擎，所有页面都能按名字调用；页面自己的函数请在画布左侧组件库中维护「自定义函数」。
         </p>
       </div>
-      <RouterLink class="lc-functions__primary" to="/functions/new">+ 新建函数</RouterLink>
+      <RouterLink class="lc-functions__primary" :to="projectPath(projectId, 'functions/new')"
+        >+ 新建函数</RouterLink
+      >
     </header>
 
-    <div v-if="globalFunctions.length === 0" class="lc-functions__empty">
-      <span class="lc-functions__empty-title">还没有全局函数</span>
+    <div v-if="visible.length === 0" class="lc-functions__empty">
+      <span class="lc-functions__empty-title">这个项目还没有全局函数</span>
       <span>把跨页面复用的计算逻辑抽成函数，表达式里就能直接调用。</span>
-      <RouterLink class="lc-functions__link" to="/functions/new">创建第一个全局函数</RouterLink>
+      <RouterLink class="lc-functions__link" :to="projectPath(projectId, 'functions/new')"
+        >创建第一个全局函数</RouterLink
+      >
     </div>
 
     <ul v-else class="lc-functions__list">
-      <li v-for="fn in globalFunctions" :key="fn.id" class="lc-functions__item">
+      <li v-for="fn in visible" :key="fn.id" class="lc-functions__item">
         <div class="lc-functions__item-main">
           <div class="lc-functions__item-head">
             <code class="lc-functions__name"
@@ -66,7 +88,10 @@ function confirmDelete(id: string): void {
               </button>
             </template>
             <template v-else>
-              <RouterLink class="lc-functions__button" :to="`/functions/${fn.id}/edit`">
+              <RouterLink
+                class="lc-functions__button"
+                :to="projectPath(projectId, `functions/${fn.id}/edit`)"
+              >
                 编辑
               </RouterLink>
               <button

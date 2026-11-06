@@ -1023,22 +1023,65 @@
 }
 
 .lc-dock--collapsed {
-  height: 40px;
+  height: 32px;
 }
 
-/* 只承载折叠按钮的窄条：标题与页签由底部面板插件负责，外壳不再重复渲染 */
+/* 页签条 + 折叠按钮：页签来自 designer.bottomPanel 的贡献，外壳不认识任何具体面板 */
 .lc-dock__header {
   display: flex;
   flex: none;
   align-items: center;
-  justify-content: flex-end;
-  height: 28px;
+  justify-content: space-between;
+  gap: 8px;
+  height: 32px;
   padding: 0 8px;
   border-bottom: 1px solid var(--lc-border);
 }
 
+.lc-dock__tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: stretch;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.lc-dock__tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.lc-dock__tab {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--lc-text-secondary);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    border-color 0.16s ease;
+}
+
+.lc-dock__tab:hover {
+  color: var(--lc-text);
+}
+
+.lc-dock__tab[aria-selected='true'] {
+  border-bottom-color: var(--lc-accent-bright);
+  color: var(--lc-accent-bright);
+}
+
+/* 折叠态只剩页签条：保留渐变底，不再额外抬高，避免展开/折叠时页签跳动 */
 .lc-dock--collapsed .lc-dock__header {
-  height: 40px;
   border-bottom-color: transparent;
   background: linear-gradient(90deg, rgba(47, 140, 255, 0.12), transparent 60%);
 }
@@ -1077,11 +1120,20 @@
   transform: rotate(-135deg);
 }
 
+/*
+ * 停靠区给面板一条确定高度。
+ *
+ * 用 grid 的 minmax(0, 1fr) 而不是 flex: 1：前者只约束行轨，不需要挑选手插槽
+ * 内部的类名。之前 body 是 block，面板的 `height: 100%` 解成 auto，29 条绑定
+ * 就把 260px 的停靠区撑成一块长页面，面板自己的内部滚动也就无从谈起。
+ */
 .lc-dock__body {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
   flex: 1;
   min-height: 0;
   padding: 12px;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .lc-dock__empty {

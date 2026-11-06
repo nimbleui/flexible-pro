@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import type { FlowDefinition, FlowTriggerConfig } from '@lc/schema'
-import { flowBindingOf } from '@lc/schema'
+import { useRoute, useRouter } from 'vue-router'
+import type { FlowDefinition, FlowTriggerKind } from '@lc/schema'
+import { FLOW_NODE_CATALOG, FLOW_TRIGGER } from '@lc/schema'
 import { createFlow, flows, publishFlow, removeFlow } from '../workflows/flow-store'
+import { resolveProjectId } from '../projects/project-model'
+import { projectPath } from '../projects/project-path'
 import { toastService } from '../toast'
 
+const route = useRoute()
 const router = useRouter()
+const projectId = String(route.params.projectId)
 
 const pendingDelete = ref<string | null>(null)
 
@@ -15,20 +19,57 @@ const createOpen = ref(false)
 const nameInput = ref<HTMLInputElement | null>(null)
 const draft = reactive({ name: '', description: '', withSeed: false })
 
-/** 列表行视图模型：绑定读取与节点计数收敛在这里，模板只负责展示 */
+/** 列表行视图模型：触发类型读取与节点计数收敛在这里，模板只负责展示 */
 interface FlowRow {
   readonly flow: FlowDefinition
-  /** 触发绑定；没有可用触发节点时为 undefined */
-  readonly binding: FlowTriggerConfig | undefined
+  /** 触发类型文案；图里没有触发节点时说明缺起点 */
+  readonly triggerLabel: string
+  /** 有没有可用的触发节点；没有的行要标灰，因为它不可能被执行 */
+  readonly hasTrigger: boolean
   readonly nodeCount: number
 }
 
+/** 触发类型 → 中文名；与节点库同源，避免目录改名字典不动 */
+const TRIGGER_KIND_LABELS = new Map<string, string>(
+  FLOW_NODE_CATALOG.filter((entry) => entry.triggerKind).map((entry) => [
+    entry.triggerKind as FlowTriggerKind,
+    entry.title,
+  ]),
+)
+
+/**
+ * 这张图声明自己被哪一类来源唤起。
+ *
+ * 这里**不再显示**「哪个页面的哪个按钮」——绑定现在写在页面的 `connection.flowId` 上，
+ * 一张图可以被任意多个事件引用，图侧没有唯一答案可展示。要查具体被谁绑，去页面的事件面板。
+ */
+function triggerOf(flow: FlowDefinition): { label: string; hasTrigger: boolean } {
+  for (const node of Object.values(flow.nodes)) {
+    if (node.type !== FLOW_TRIGGER) continue
+
+    const kind = node.config.kind
+    const label = typeof kind === 'string' ? TRIGGER_KIND_LABELS.get(kind) : undefined
+
+    return { label: label ?? '未声明触发类型', hasTrigger: true }
+  }
+
+  return { label: '缺少触发节点', hasTrigger: false }
+}
+
+/** 当前项目名下的图；跨项目的图不进列表，页面也选不到它 */
 const rows = computed<readonly FlowRow[]>(() =>
-  flows.value.map((flow) => ({
-    flow,
-    binding: flowBindingOf(flow),
-    nodeCount: Object.keys(flow.nodes).length,
-  })),
+  flows.value
+    .filter((flow) => resolveProjectId(flow.projectId) === projectId)
+    .map((flow) => {
+      const trigger = triggerOf(flow)
+
+      return {
+        flow,
+        triggerLabel: trigger.label,
+        hasTrigger: trigger.hasTrigger,
+        nodeCount: Object.keys(flow.nodes).length,
+      }
+    }),
 )
 
 const canCreate = computed(() => draft.name.trim() !== '')
@@ -37,10 +78,6 @@ function formatTime(iso: string): string {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return iso
   return date.toLocaleString('zh-CN', { hour12: false })
-}
-
-function triggerLabelOf(binding: FlowTriggerConfig | undefined): string {
-  return binding ? `${binding.sourceNodeId} · ${binding.eventName}` : '未绑定触发'
 }
 
 function messageOf(cause: unknown): string {
@@ -68,9 +105,10 @@ function submitCreate(): void {
       name: draft.name,
       description: draft.description,
       withSeed: draft.withSeed,
+      projectId,
     })
     closeCreate()
-    void router.push(`/flows/${created.id}/edit`)
+    void router.push(projectPath(projectId, `flows/${created.id}/edit`))
   } catch (cause) {
     // 必填名称已由禁用拦住，这里兜住 store 后续新增的校验规则
     toastService.show(messageOf(cause), 'error')
@@ -111,6 +149,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <h1 class="lc-flows__title">流程编排</h1>
         <p class="lc-flows__hint">
           流程是一张按触发点被页面事件调用的执行图；只有发布后的图才参与事件匹配，草稿只在编辑器里可见。
+          这里只列当前项目的图，事件键的占用也只在本项目内互相拦截。
         </p>
       </div>
       <button type="button" class="lc-flows__primary" @click="openCreate">+ 新建流程</button>
@@ -144,8 +183,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             </span>
             <span
               class="lc-flows__trigger"
-              :class="{ 'lc-flows__trigger--none': !row.binding }"
-              >{{ triggerLabelOf(row.binding) }}</span
+              :class="{ 'lc-flows__trigger--none': !row.hasTrigger }"
+              >{{ row.triggerLabel }}</span
             >
           </div>
 
@@ -172,7 +211,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               </button>
             </template>
             <template v-else>
-              <RouterLink class="lc-flows__button" :to="`/flows/${row.flow.id}/edit`">
+              <RouterLink
+                class="lc-flows__button"
+                :to="projectPath(projectId, `flows/${row.flow.id}/edit`)"
+              >
                 编辑
               </RouterLink>
               <button

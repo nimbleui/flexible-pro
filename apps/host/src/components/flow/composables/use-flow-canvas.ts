@@ -184,7 +184,7 @@ export function useFlowCanvas(editor: FlowEditorHandle) {
     })
   }
 
-  /** 以当前缩放把图居中，不改 zoom：首帧用 fit 会把节点压成不可读的小块 */
+  /** 以当前缩放把图居中，不改 zoom：图比视口小时用 fit 会把节点放大到铺满，卡片细节糊成一团 */
   function centerGraph(): void {
     const bounds = graphBounds.value
     const { width, height, zoom } = { ...viewport.size, zoom: viewport.state.zoom }
@@ -194,6 +194,28 @@ export function useFlowCanvas(editor: FlowEditorHandle) {
       x: bounds.x + bounds.width / 2 - width / 2 / zoom,
       y: bounds.y + bounds.height / 2 - height / 2 / zoom,
     })
+  }
+
+  /**
+   * 首帧取景：100% 装得下就居中，装不下就整体缩进视口。
+   *
+   * 只居中会在长图上把入口节点推出画面——舞台是 `overflow: hidden`，画布也没有滚动条，
+   * 于是第一个节点既看不见也点不到，唯一出路是用户自己发现「适应画布」按钮。
+   * 内置示例审批链正是这一类（图 906px 高对 614px 舞台，开始节点落在舞台上方 146px 处）。
+   *
+   * 反过来只 fit 也不行：三两个节点的图会被放大到铺满整屏，所以尺寸够用时保留 100%。
+   */
+  function frameGraph(): void {
+    const bounds = graphBounds.value
+    const { width, height } = viewport.size
+    if (!bounds || width === 0 || height === 0) return
+
+    if (bounds.width <= width && bounds.height <= height) {
+      centerGraph()
+      return
+    }
+
+    fitToScreen()
   }
 
   function zoomBy(factor: number): void {
@@ -372,13 +394,13 @@ export function useFlowCanvas(editor: FlowEditorHandle) {
     const element = stageRef.value
     if (!element) return
 
-    // attach 之前先测一次尺寸，否则首帧的 centerGraph 会拿到 0×0 而什么都不摆
+    // attach 之前先测一次尺寸，否则首帧的取景会拿到 0×0 而什么都不摆
     const measure = () => {
       const rect = element.getBoundingClientRect()
       viewport.setSize({ width: rect.width, height: rect.height })
     }
     measure()
-    centerGraph()
+    frameGraph()
 
     const observer = new ResizeObserver(measure)
     observer.observe(element)

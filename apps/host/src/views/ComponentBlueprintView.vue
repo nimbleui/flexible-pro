@@ -13,6 +13,7 @@ import type {
 import { ContextScope, LcSlot, useAppContext, useRegistryList } from '@lc/vue'
 import type { ComponentSchema } from '@lc/schema'
 import { CanvasModule } from '../canvasRemote'
+import { requestDefaultsOf } from '../apis/api-config'
 import ComponentDefinitionForm from '../components/custom-components/ComponentDefinitionForm.vue'
 import StatusBar from '../components/StatusBar.vue'
 import OverlayPanel from '../components/OverlayPanel.vue'
@@ -36,6 +37,8 @@ import {
   customComponents,
   saveCustomComponent,
 } from '../custom-components/custom-components'
+import { visibleInProject } from '../projects/project-model'
+import { projectPath } from '../projects/project-path'
 
 /**
  * 组件蓝图编辑器。
@@ -68,8 +71,13 @@ const appCtx = useAppContext()
 const route = useRoute()
 const router = useRouter()
 
+const projectId = String(route.params.projectId)
 const componentId = typeof route.params.componentId === 'string' ? route.params.componentId : ''
-const stored = customComponents.value.find((item) => item.id === componentId)
+/** 归属不符按「组件不存在」处理：不能从 B 项目的 URL 改到 A 项目的蓝图 */
+const stored = visibleInProject(
+  customComponents.value.find((item) => item.id === componentId),
+  projectId,
+)
 /** 带上了 id 却找不到条目：多半是删掉后从历史链接回来 */
 const isMissing = stored === undefined
 
@@ -104,6 +112,8 @@ function createSession(
       documentId,
       title: `${title} · 蓝图`,
       schema: blueprintSchemaOf(definition, documentId),
+      // 蓝图里的 REST 数据源与页面同源：域名与 token 由项目环境给，不抄进组件定义
+      requestDefaults: requestDefaultsOf(projectId),
     })
     return { editor, canvas: editor.createCanvasRealm() }
   } catch (error) {
@@ -304,7 +314,7 @@ function onTabKeydown(event: KeyboardEvent, index: number): void {
 }
 
 function goBack(): void {
-  void router.push('/components')
+  void router.push(projectPath(projectId, 'components'))
 }
 
 /**
@@ -360,7 +370,9 @@ function save(): void {
     <div class="lc-designer">
       <div class="lc-designer__toolbar" role="toolbar" aria-label="蓝图工具条">
         <nav class="lc-designer__crumbs" aria-label="当前位置">
-          <RouterLink class="lc-designer__crumb" to="/components">组件管理</RouterLink>
+          <RouterLink class="lc-designer__crumb" :to="projectPath(projectId, 'components')"
+            >组件管理</RouterLink
+          >
           <span class="lc-designer__crumb-sep" aria-hidden="true">/</span>
           <span class="lc-designer__crumb lc-designer__crumb--current">
             {{ initialDraft.title }}

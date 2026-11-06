@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { findFlowCatalogEntry } from '@lc/schema'
 import { toastService } from '../toast'
 import { createFlow } from '../workflows/flow-store'
+import { projectPath } from '../projects/project-path'
 import FlowCanvas from '../components/flow/FlowCanvas.vue'
 import FlowDebugDock from '../components/flow/FlowDebugDock.vue'
 import FlowInspector from '../components/flow/FlowInspector.vue'
@@ -23,23 +24,25 @@ import '../components/flow/styles/layout.css'
  */
 const route = useRoute()
 const router = useRouter()
+const projectId = String(route.params.projectId)
 
 /**
- * `/flows/new` 兜底创建。
+ * `flows/new` 兜底创建。
  *
  * 正常入口是列表页的新建弹框（先拿到名字和 id 再进画布），这里只兜住手动改地址栏：
  * 建一张默认名的图并把 URL 换成真实 id，否则刷新一次就多一张孤儿图。
+ * 新建的图归当前项目，与列表页那条路径的口径一致。
  */
 function resolveFlowId(): string {
   const param = String(route.params.flowId ?? '')
   if (param !== 'new') return param
 
-  const created = createFlow({ name: '未命名流程' })
+  const created = createFlow({ name: '未命名流程', projectId })
   return created.id
 }
 
 const currentFlowId = resolveFlowId()
-const editor = useFlowEditor(currentFlowId)
+const editor = useFlowEditor(currentFlowId, projectId)
 const canvas = useFlowCanvas(editor)
 const debug = useFlowDebug(editor)
 
@@ -93,7 +96,7 @@ watch(
 )
 
 if (String(route.params.flowId ?? '') === 'new') {
-  router.replace(`/flows/${currentFlowId}/edit`)
+  router.replace(projectPath(projectId, `flows/${currentFlowId}/edit`))
 }
 
 function notifyError(error: unknown): void {
@@ -259,13 +262,15 @@ onUnmounted(() => {
         class="lc-icon-button"
         aria-label="返回流程列表"
         title="返回"
-        @click="router.push('/flows')"
+        @click="router.push(projectPath(projectId, 'flows'))"
       >
         <span class="lc-flow-editor__back" aria-hidden="true" />
       </button>
 
       <nav class="lc-flow-editor__crumbs" aria-label="面包屑">
-        <RouterLink class="lc-flow-editor__crumb" to="/flows">流程编排</RouterLink>
+        <RouterLink class="lc-flow-editor__crumb" :to="projectPath(projectId, 'flows')"
+          >流程编排</RouterLink
+        >
         <span class="lc-flow-editor__crumb-sep" aria-hidden="true">/</span>
         <span class="lc-flow-editor__crumb lc-flow-editor__crumb--current">编辑流程</span>
       </nav>
@@ -388,8 +393,10 @@ onUnmounted(() => {
   </main>
 
   <main v-else class="lc-flow-editor lc-flow-editor--missing">
-    <p>流程不存在，可能已被删除。</p>
-    <RouterLink class="lc-flow-button lc-flow-button--primary" to="/flows"
+    <p>流程不存在，可能已被删除，或不属于当前项目。</p>
+    <RouterLink
+      class="lc-flow-button lc-flow-button--primary"
+      :to="projectPath(projectId, 'flows')"
       >回到流程列表</RouterLink
     >
   </main>

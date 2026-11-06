@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@agile-plus/components": "0.1.2",
+    "@agile-plus/materials": "0.1.2",
     "@lc/canvas": "workspace:*",
     "@lc/contracts": "workspace:*",
     "@lc/devtools": "workspace:*",
@@ -18,6 +20,8 @@
     "@lc/kernel": "workspace:*",
     "@lc/plugin-materials-basic": "workspace:*",
     "@lc/plugin-panel-advanced": "workspace:*",
+    "@lc/plugin-panel-code": "workspace:*",
+    "@lc/plugin-panel-data": "workspace:*",
     "@lc/plugin-panel-eventflow": "workspace:*",
     "@lc/plugin-panel-materials": "workspace:*",
     "@lc/plugin-panel-node-event": "workspace:*",

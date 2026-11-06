@@ -8,20 +8,32 @@ import { functionTypeOptions } from '../components/common/type-options'
 import type { FunctionDraft } from '../functions/function-draft'
 import { EMPTY_FUNCTION_DRAFT, draftFromSchema } from '../functions/function-draft'
 import { globalFunctions, saveGlobalFunction } from '../functions/global-functions'
+import { projectPath } from '../projects/project-path'
+import { visibleInProject } from '../projects/project-model'
 
 const ctx = useAppContext()
 const engine = ctx.require<ExpressionEngine>('expression')
 const route = useRoute()
 const router = useRouter()
+const projectId = String(route.params.projectId)
 
 const functionId = computed(() =>
   typeof route.params.functionId === 'string' ? route.params.functionId : undefined,
 )
 
+/**
+ * 正在编辑的函数。
+ *
+ * 归属不符就当不存在：函数名在表达式引擎里是全局唯一的，但编辑入口仍按项目分开，
+ * 否则能从 B 项目的 URL 改到 A 项目的函数体，而 B 的列表里看不见它。
+ */
 const existing = computed(() =>
   functionId.value === undefined
     ? undefined
-    : globalFunctions.value.find((item) => item.id === functionId.value),
+    : visibleInProject(
+        globalFunctions.value.find((item) => item.id === functionId.value),
+        projectId,
+      ),
 )
 
 /** 带上 id 却找不到条目：多半是删掉后从历史链接回来 */
@@ -60,8 +72,9 @@ function submit(schema: FunctionSchema): void {
       paramTypes: schema.paramTypes,
       body,
       description: schema.description,
+      projectId,
     })
-    void router.push('/functions')
+    void router.push(projectPath(projectId, 'functions'))
   } catch (error) {
     saveError.value = error instanceof Error ? error.message : String(error)
   }
@@ -71,19 +84,24 @@ function submit(schema: FunctionSchema): void {
 <template>
   <main class="lc-function-edit">
     <header class="lc-function-edit__head">
-      <RouterLink class="lc-function-edit__back" to="/functions">← 返回函数列表</RouterLink>
+      <RouterLink class="lc-function-edit__back" :to="projectPath(projectId, 'functions')"
+        >← 返回函数列表</RouterLink
+      >
       <h1 class="lc-function-edit__title">
         {{ functionId === undefined ? '新建全局函数' : '编辑全局函数' }}
       </h1>
       <p class="lc-function-edit__hint">
-        保存后立即注册到表达式引擎，所有页面都可调用；页面级函数请在画布中通过「自定义函数」维护。
+        保存后立即注册到表达式引擎，所有页面都可调用；注册是应用级的，项目过滤只管好这一页的可见范围。
+        页面级函数请在画布中通过「自定义函数」维护。
       </p>
     </header>
 
     <div v-if="isMissing" class="lc-function-edit__missing">
       <span class="lc-function-edit__missing-title">函数不存在</span>
-      <span>它可能已被删除，或链接中的 id 不正确。</span>
-      <RouterLink class="lc-function-edit__back" to="/functions">返回列表</RouterLink>
+      <span>它可能已被删除，链接中的 id 不正确，或者归在别的项目里。</span>
+      <RouterLink class="lc-function-edit__back" :to="projectPath(projectId, 'functions')"
+        >返回列表</RouterLink
+      >
     </div>
 
     <section v-else class="lc-function-edit__panel">
@@ -98,7 +116,7 @@ function submit(schema: FunctionSchema): void {
         :type-options="typeOptions"
         :submit-label="functionId === undefined ? '创建函数' : '保存修改'"
         @submit="submit"
-        @cancel="router.push('/functions')"
+        @cancel="router.push(projectPath(projectId, 'functions'))"
       />
     </section>
   </main>

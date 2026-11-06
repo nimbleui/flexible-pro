@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import type { MaterialService } from '@lc/contracts'
 import { SchemaPreview, useAppContext, useRegistryList } from '@lc/vue'
 import ComponentCreateDialog from '../components/custom-components/ComponentCreateDialog.vue'
@@ -13,9 +13,13 @@ import {
   removeCustomComponent,
   setCustomComponentEnabled,
 } from '../custom-components/custom-components'
+import { resolveProjectId } from '../projects/project-model'
+import { projectPath } from '../projects/project-path'
 
 const ctx = useAppContext()
+const route = useRoute()
 const router = useRouter()
+const projectId = String(route.params.projectId)
 const materials = useRegistryList(() => ctx.get<MaterialService>('material'))
 
 const keyword = ref('')
@@ -25,7 +29,12 @@ const previewId = ref<string | null>(null)
 /** 新建弹框；确认后才进画布，所以这里不预占 id */
 const createOpen = ref(false)
 
-/** 新建时的占用名清单：内置物料与已有组件都不允许重名 */
+/**
+ * 新建时的占用名清单：内置物料与已有组件都不允许重名。
+ *
+ * 这里是全量而不是当前项目的组件：物料名注册进的是应用级的物料表，
+ * 两个项目各建一个同名组件会在注册时撞车，所以名字仍然全局唯一。
+ */
 const takenNames = computed<readonly string[]>(() => {
   const contributions = materials.value
     .filter((entry) => entry.plugin !== CUSTOM_PLUGIN)
@@ -41,14 +50,19 @@ function openCreate(): void {
 /** 定义已落库，带着 id 进画布继续搭蓝图 */
 function onCreated(componentId: string): void {
   createOpen.value = false
-  void router.push(`/components/${componentId}/edit`)
+  void router.push(projectPath(projectId, `components/${componentId}/edit`))
 }
+
+/** 当前项目名下的组件；组件名全局唯一，但列表与启停按项目分开看 */
+const projectComponents = computed<readonly CustomComponent[]>(() =>
+  customComponents.value.filter((item) => resolveProjectId(item.projectId) === projectId),
+)
 
 const visible = computed<readonly CustomComponent[]>(() => {
   const query = keyword.value.trim().toLowerCase()
-  if (query === '') return customComponents.value
+  if (query === '') return projectComponents.value
 
-  return customComponents.value.filter((component) => {
+  return projectComponents.value.filter((component) => {
     const { name, title, group, description } = component.definition.meta
     return [name, title, group, description ?? ''].some((field) =>
       field.toLowerCase().includes(query),
@@ -108,12 +122,12 @@ function toggleEnabled(component: CustomComponent): void {
         />
       </label>
       <span class="lc-components__summary">
-        共 {{ customComponents.length }} 个组件，当前显示 {{ visible.length }} 个
+        本项目共 {{ projectComponents.length }} 个组件，当前显示 {{ visible.length }} 个
       </span>
     </div>
 
-    <div v-if="customComponents.length === 0" class="lc-components__empty">
-      <span class="lc-components__empty-title">还没有自定义组件</span>
+    <div v-if="projectComponents.length === 0" class="lc-components__empty">
+      <span class="lc-components__empty-title">这个项目还没有自定义组件</span>
       <span>把反复出现的卡片、徽标、表头抽成组件，之后所有页面都能直接拖。</span>
       <button type="button" class="lc-components__link" @click="openCreate">
         创建第一个组件
@@ -172,7 +186,7 @@ function toggleEnabled(component: CustomComponent): void {
 
               <RouterLink
                 class="lc-components__button"
-                :to="`/components/${component.id}/edit`"
+                :to="projectPath(projectId, `components/${component.id}/edit`)"
               >
                 编辑
               </RouterLink>
@@ -230,6 +244,7 @@ function toggleEnabled(component: CustomComponent): void {
     <ComponentCreateDialog
       :open="createOpen"
       :taken-names="takenNames"
+      :project-id="projectId"
       @close="createOpen = false"
       @created="onCreated"
     />
