@@ -101,6 +101,12 @@ importers:
 
   apps/host:
     dependencies:
+      '@agile-plus/components':
+        specifier: 0.1.2
+        version: 0.1.2(vue@3.5.44(typescript@5.9.3))
+      '@agile-plus/materials':
+        specifier: 0.1.2
+        version: 0.1.2(vue@3.5.44(typescript@5.9.3))
       '@lc/canvas':
         specifier: workspace:*
         version: link:../../packages/canvas
@@ -125,6 +131,12 @@ importers:
       '@lc/plugin-panel-advanced':
         specifier: workspace:*
         version: link:../../packages/plugins/plugin-panel-advanced
+      '@lc/plugin-panel-code':
+        specifier: workspace:*
+        version: link:../../packages/plugins/plugin-panel-code
+      '@lc/plugin-panel-data':
+        specifier: workspace:*
+        version: link:../../packages/plugins/plugin-panel-data
       '@lc/plugin-panel-eventflow':
         specifier: workspace:*
         version: link:../../packages/plugins/plugin-panel-eventflow
@@ -494,6 +506,42 @@ importers:
       '@lc/contracts':
         specifier: workspace:*
         version: link:../../contracts
+      '@lc/schema':
+        specifier: workspace:*
+        version: link:../../schema
+      '@lc/vue':
+        specifier: workspace:*
+        version: link:../../vue
+      vue:
+        specifier: ^3.5.0
+        version: 3.5.44(typescript@5.9.3)
+
+  packages/plugins/plugin-panel-code:
+    dependencies:
+      '@lc/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
+      '@lc/expression':
+        specifier: workspace:*
+        version: link:../../expression
+      '@lc/schema':
+        specifier: workspace:*
+        version: link:../../schema
+      '@lc/vue':
+        specifier: workspace:*
+        version: link:../../vue
+      vue:
+        specifier: ^3.5.0
+        version: 3.5.44(typescript@5.9.3)
+
+  packages/plugins/plugin-panel-data:
+    dependencies:
+      '@lc/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
+      '@lc/expression':
+        specifier: workspace:*
+        version: link:../../expression
       '@lc/schema':
         specifier: workspace:*
         version: link:../../schema
@@ -879,6 +927,44 @@ importers:
         version: link:../expression
 
 packages:
+  '@agile-plus/components@0.1.2':
+    resolution:
+      {
+        integrity: sha512-hxRm0gROAiCHPs7neEtU0f+051/aIC6RKw8FyaR0tG9qDadWNbw657hf3Q2Sxm4UfXTTwbZDDAxbJst2PQIQ0g==,
+      }
+    peerDependencies:
+      vue: ^3.5.0
+
+  '@agile-plus/headless@0.1.2':
+    resolution:
+      {
+        integrity: sha512-t8PU8ZtKtTuVxhm7MQV1qiIFQVONVRulyCkMADVt3XmvXNzcT6UmDN+IAXiawlNoG/Rx0ioTrdMHtYAEcR12og==,
+      }
+    peerDependencies:
+      vue: ^3.5.0
+
+  '@agile-plus/materials@0.1.2':
+    resolution:
+      {
+        integrity: sha512-L7VymTXkLCEGGt9pcE4K6MyFiD/ETfGVfDcxgTy/HN6fPBORVO+rePFQ9l5EjnjE7OQcLTsiIwp/lu56H5eigA==,
+      }
+    peerDependencies:
+      vue: ^3.5.0
+
+  '@agile-plus/primitives@0.1.2':
+    resolution:
+      {
+        integrity: sha512-caqYhth7Bs08CDWgZ2Sd5lNcDgRRAzUUqx1MvMcqdyQP5uBlbmGu4dfKQjUNn9Vhy18o1c7cDCVCj1sK0PifgA==,
+      }
+
+  '@agile-plus/ui@0.1.2':
+    resolution:
+      {
+        integrity: sha512-LcrSJWucXgWEWw7K8uz0QFHlbix61EIRUKuWfIsmPt10HuvcpH1zplUOApITsU7TWZWdV295LxTOoq/YihhgEA==,
+      }
+    peerDependencies:
+      vue: ^3.5.0
+
   '@babel/helper-string-parser@7.29.11':
     resolution:
       {
@@ -2145,6 +2231,30 @@ packages:
         optional: true
 
 snapshots:
+  '@agile-plus/components@0.1.2(vue@3.5.44(typescript@5.9.3))':
+    dependencies:
+      '@agile-plus/ui': 0.1.2(vue@3.5.44(typescript@5.9.3))
+      vue: 3.5.44(typescript@5.9.3)
+
+  '@agile-plus/headless@0.1.2(vue@3.5.44(typescript@5.9.3))':
+    dependencies:
+      '@agile-plus/primitives': 0.1.2
+      vue: 3.5.44(typescript@5.9.3)
+
+  '@agile-plus/materials@0.1.2(vue@3.5.44(typescript@5.9.3))':
+    dependencies:
+      '@agile-plus/components': 0.1.2(vue@3.5.44(typescript@5.9.3))
+      '@agile-plus/ui': 0.1.2(vue@3.5.44(typescript@5.9.3))
+      vue: 3.5.44(typescript@5.9.3)
+
+  '@agile-plus/primitives@0.1.2': {}
+
+  '@agile-plus/ui@0.1.2(vue@3.5.44(typescript@5.9.3))':
+    dependencies:
+      '@agile-plus/headless': 0.1.2(vue@3.5.44(typescript@5.9.3))
+      '@agile-plus/primitives': 0.1.2
+      vue: 3.5.44(typescript@5.9.3)
+
   '@babel/helper-string-parser@7.29.11': {}
 
   '@babel/helper-validator-identifier@7.29.7': {}
