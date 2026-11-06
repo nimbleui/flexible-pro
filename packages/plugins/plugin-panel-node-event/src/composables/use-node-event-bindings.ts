@@ -1,7 +1,17 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import type { DocumentService, MaterialService, SelectionService } from '@lc/contracts'
+import type {
+  DocumentService,
+  FlowService,
+  MaterialService,
+  SelectionService,
+} from '@lc/contracts'
 import type { ActionDeclaration, EventConnection, NodeSchema, SchemaPatch } from '@lc/schema'
-import { actionPath, connectionPath } from '@lc/schema'
+import {
+  actionPath,
+  connectionPath,
+  flowBindingSummary,
+  listFlowBindingOptions,
+} from '@lc/schema'
 import { createId } from '@lc/shared'
 import { useAppContext } from '@lc/vue'
 import type { ChainStep, EventRow } from '../utils/event-bindings'
@@ -14,10 +24,18 @@ import {
   orphanedActionIds,
 } from '../utils/event-bindings'
 
-/** 面板一行：事件绑定状态加上它的动作链摘要 */
+/** 面板一行：事件绑定状态、动作链摘要，以及这条事件绑的流程图 */
 export interface NodeEventRow extends EventRow {
   /** 已绑定时的动作链摘要；未绑定为空数组 */
   steps: ChainStep[]
+  /**
+   * 绑定的流程图说明文案；没绑为空串。
+   *
+   * 草稿与已删除的图都会在这里说清楚——运行时对这两者都不执行，界面上不写就等于骗人。
+   */
+  flowSummary: string
+  /** 这条绑定现在能不能真的执行；草稿与已删除的图都是 false */
+  flowEffective: boolean
 }
 
 /**
@@ -32,6 +50,8 @@ export function useNodeEventBindings() {
   const document = ctx.get<DocumentService>('document')
   const selection = ctx.get<SelectionService>('selection')
   const material = ctx.get<MaterialService>('material')
+  // 宿主没装图仓库时下拉只剩「不绑定」，面板照常工作——绑定流程图是可缺省的能力，不是本页签的前提
+  const flow = ctx.get<FlowService>('flow')
 
   const version = ref(0)
   /** 挂载期注册的订阅；卸载时逐个释放，面板重挂不会叠加监听 */
@@ -48,6 +68,8 @@ export function useNodeEventBindings() {
     if (selection) disposables.push(selection.onDidChange(bump))
     if (document) disposables.push(document.onDidChange(bump))
     if (material) disposables.push(material.onDidChange(bump))
+    // 图发布或下线不会动页面文档，不订阅就刷不出「你绑的那张图刚发布了」这条最要紧的变化
+    if (flow) disposables.push(flow.onDidChange(bump))
   })
 
   onUnmounted(() => {
@@ -66,6 +88,12 @@ export function useNodeEventBindings() {
     return id ? document?.model.schema.nodes[id] : undefined
   })
 
+  /** 当前项目里的全部图（含草稿），供绑定下拉与状态文案共用 */
+  const flows = computed(() => {
+    version.value
+    return flow?.list() ?? []
+  })
+
   const rows = computed<NodeEventRow[]>(() => {
     version.value
     const current = node.value
@@ -79,13 +107,32 @@ export function useNodeEventBindings() {
     )
     const connections = connectionsOfNode(schema.connections ?? {}, current.id)
 
-    return buildEventRows(definitions, connections).map((row) => ({
-      ...row,
-      steps: row.connection
-        ? describeChain(schema.actions ?? {}, row.connection.actionIds)
-        : [],
-    }))
+    return buildEventRows(definitions, connections).map((row) => {
+      const flowId = row.connection?.flowId
+
+      return {
+        ...row,
+        steps: row.connection
+          ? describeChain(schema.actions ?? {}, row.connection.actionIds)
+          : [],
+        flowSummary: flowId ? flowBindingSummary(flows.value, flowId) : '',
+        // 没绑时不算「不生效」，否则每行都会顶一条警告；只有真绑了才判断它能不能跑
+        flowEffective: flowId
+          ? (flows.value.find((item) => item.id === flowId)?.status ?? '') === 'published'
+          : true,
+      }
+    })
   })
+
+  /**
+   * 某一行事件的绑定候选。
+   *
+   * 按行算而不是给整页一份：每条事件当前绑的图不同，而「当前值即使已删除也要出现在
+   * 候选里」这条规则必须逐条生效，否则悬空引用会被显示成「未选择」。
+   */
+  function flowOptionsOf(row: NodeEventRow) {
+    return listFlowBindingOptions(flows.value, row.connection?.flowId)
+  }
 
   /** 本节点连接与动作上的校验问题 */
   const issues = computed(() => {
@@ -168,6 +215,54 @@ export function useNodeEventBindings() {
   }
 
   /**
+   * 把这条事件绑到一张流程图上；传空串表示解绑。
+   *
+   * **事件还没绑定时也能直接选图**：连接是「这个事件的执行记录」，而不是「动作链」的别名，
+   * 只跑图、链上一空的动作都不违例。要求先点一次「绑定」才能选流程，等于把同一件事拆成
+   * 两个顺序敏感的入口，用户只会看到「这里没有绑流程的地方」。
+   *
+   * 允许绑草稿：先画图、再在页面上接线、最后发布是正常工序，拦下来只会让人以为这里不能选流程。
+   * 不生效的事实由行上的状态文案说清，校验也会报 warning。
+   *
+   * 解绑走 `remove` 而不是写空串：`flowId: ''` 序列化进文档后是一条永远匹配不到图的
+   * 悬空引用，还会被校验报成「不存在」。
+   */
+  function setFlow(row: NodeEventRow, flowId: string): void {
+    const current = node.value
+    if (!document || !current) return
+
+    const next = flowId === '' ? undefined : flowId
+    const connection = row.connection
+
+    if (connection) {
+      if (connection.flowId === next) return
+
+      commit(
+        next === undefined
+          ? [{ op: 'remove', path: connectionPath(connection.id, 'flowId') }]
+          : [{ op: 'replace', path: connectionPath(connection.id, 'flowId'), value: next }],
+        next === undefined ? '解绑流程图' : '绑定流程图',
+      )
+      return
+    }
+
+    // 未绑定 + 选了「不绑定」：什么都不写，不产出一条两边都空的连接
+    if (!next) return
+
+    const connections = document.model.schema.connections ?? {}
+    const created: EventConnection = {
+      id: nextId('conn', Object.keys(connections)),
+      sourceNodeId: current.id,
+      eventName: row.eventName,
+      actionIds: [],
+      flowId: next,
+      enabled: true,
+    }
+
+    commit([{ op: 'add', path: connectionPath(created.id), value: created }], '绑定流程图')
+  }
+
+  /**
    * 给连接追加一个动作。
    *
    * 动作本体与引用分属两张表，必须同一批提交：否则历史里会出现「连接已引用、动作
@@ -224,9 +319,12 @@ export function useNodeEventBindings() {
     selectionCount,
     rows,
     issues,
+    flows,
+    flowOptionsOf,
     bind,
     unbind,
     setEnabled,
+    setFlow,
     addAction,
     removeAction,
   }

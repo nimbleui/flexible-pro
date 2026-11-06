@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import type { EventConnection } from '@lc/schema'
 import { BUILTIN_ACTIONS } from '@lc/schema'
+import type { NodeEventRow } from './composables/use-node-event-bindings'
 import { useNodeEventBindings } from './composables/use-node-event-bindings'
 
 defineProps<{
@@ -14,9 +15,11 @@ const {
   selectionCount,
   rows,
   issues,
+  flowOptionsOf,
   bind,
   unbind,
   setEnabled,
+  setFlow,
   addAction,
   removeAction,
 } = useNodeEventBindings()
@@ -32,6 +35,14 @@ function bindCustom(): void {
 function onBindChange(connection: EventConnection, event: Event): void {
   const target = event.target
   if (target instanceof HTMLInputElement) setEnabled(connection, target.checked)
+}
+
+/** 选择流程图；空串表示解绑，未绑定的事件选中某张图时会顺带建立连接 */
+function onFlowChange(row: NodeEventRow, event: Event): void {
+  const target = event.target
+  if (!(target instanceof HTMLSelectElement)) return
+
+  setFlow(row, target.value)
 }
 
 function onAddAction(connection: EventConnection, event: Event): void {
@@ -161,6 +172,36 @@ function onAddAction(connection: EventConnection, event: Event): void {
             </div>
           </div>
         </template>
+
+        <!--
+          事件跑哪张流程图。这一行**不依赖事件是否已绑定动作链**：连接是这个事件的执行记录，
+          只挂图、链上留空同样合法；把它藏在「绑定事件」之后，用户看到的就是「这里没有绑流程的地方」。
+          链与图是同一事件上的两条执行体，先链后图、互不覆盖；这里只写 id，图的内容归流程编辑器。
+        -->
+        <div class="lc-node-event__flow">
+          <label class="lc-node-event__flow-label" :for="`lc-node-event-flow-${row.eventName}`"
+            >执行流程图</label
+          >
+          <select
+            :id="`lc-node-event-flow-${row.eventName}`"
+            class="lc-node-event__select"
+            :value="row.connection?.flowId ?? ''"
+            @change="onFlowChange(row, $event)"
+          >
+            <option value="">不绑定</option>
+            <option
+              v-for="option in flowOptionsOf(row)"
+              :key="option.value"
+              :value="option.value"
+              :title="option.description"
+            >
+              {{ option.label }}{{ option.effective ? '' : ' · 暂不生效' }}
+            </option>
+          </select>
+        </div>
+        <p v-if="row.flowSummary && !row.flowEffective" class="lc-node-event__flow-note">
+          {{ row.flowSummary }}：这条事件暂时只会执行动作链
+        </p>
       </section>
 
       <section class="lc-node-event__custom">
@@ -387,6 +428,29 @@ function onAddAction(connection: EventConnection, event: Event): void {
 
 .lc-node-event__select {
   flex: 1;
+}
+
+/* 绑定流程图一行：与动作链并列的第二条执行体，所以放在链的摘要之后而不是混进工具条 */
+.lc-node-event__flow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--lc-border-subtle);
+}
+
+.lc-node-event__flow-label {
+  flex: none;
+  color: var(--lc-text-muted);
+  font-size: 11px;
+}
+
+/* 只在绑定不生效时出现：绑了草稿或图被删了，用户需要知道这条事件其实跑不到图 */
+.lc-node-event__flow-note {
+  margin: 4px 0 0;
+  color: var(--lc-warning, #f5a524);
+  font-size: 11px;
 }
 
 .lc-node-event__switch {

@@ -1,6 +1,6 @@
 import { computed, ref, watch } from 'vue'
 import type { EventConnection, ValidationIssue } from '@lc/schema'
-import { PAGE_EVENT_SOURCE, actionPath, connectionPath } from '@lc/schema'
+import { PAGE_EVENT_SOURCE, actionPath, connectionPath, flowBindingSummary } from '@lc/schema'
 import { pageEventLabel } from '../constants/event-tone'
 import { inputValue } from '../utils/action-field'
 import type { EventFlowStore } from './use-event-flow-store'
@@ -167,6 +167,21 @@ export function useEventConnections(store: EventFlowStore) {
       : `${name} · ${connection.eventName} 时触发`
   })
 
+  /**
+   * 这条连接绑定的流程图说明；没绑时为空串。
+   *
+   * 绑定写在页面自己的 `connection.flowId` 上，右栏「事件」页签是它的编辑入口，本面板只读展示：
+   * 动作链与流程图是同一事件上的两条执行体、都会跑（见 `ActionService.trigger`），
+   * 不写出来作者看到的就只有「我只配了链，为什么多跑了一段」。
+   *
+   * 读的是宿主图仓库的响应式状态，发布 / 下线会连带这里重算；`version` 也读一次，
+   * 是为了让「换文档」这种仓库不变的情形同样刷新。
+   */
+  function flowSummaryFor(connection: EventConnection): string {
+    version.value
+    return flowBindingSummary(store.flow?.list() ?? [], connection.flowId)
+  }
+
   /** 校验诊断：只展示与当前连接及其动作相关的问题 */
   const currentIssues = computed<ValidationIssue[]>(() => {
     version.value
@@ -203,6 +218,7 @@ export function useEventConnections(store: EventFlowStore) {
     toggleCurrentConnectionEnabled,
     commitEventName,
     triggerSummary,
+    flowSummaryFor,
     currentIssues,
   }
 }

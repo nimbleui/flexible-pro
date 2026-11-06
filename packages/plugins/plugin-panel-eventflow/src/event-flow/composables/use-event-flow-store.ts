@@ -1,6 +1,11 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { ComputedRef, Ref } from 'vue'
-import type { DocumentService, MaterialService, SelectionService } from '@lc/contracts'
+import type {
+  DocumentService,
+  FlowService,
+  MaterialService,
+  SelectionService,
+} from '@lc/contracts'
 import type { ExpressionEngine, FunctionDescriptor, NodeSchema, SchemaPatch } from '@lc/schema'
 import type { ScopeSymbol } from '@lc/expression/editor'
 import { buildPageSymbols } from '@lc/expression/editor'
@@ -17,6 +22,12 @@ export interface EventFlowStore {
   selection: SelectionService | undefined
   material: MaterialService | undefined
   expression: ExpressionEngine | undefined
+  /**
+   * 流程图仓库；宿主没装时为 undefined，此时子流程候选为空。
+   *
+   * 事件流面板本身不执行图，只在下拉里列出可引用的已发布流程，所以它是可选依赖。
+   */
+  flow: FlowService | undefined
   /** 服务只用来触发重读，数据始终从服务实时取 */
   version: Ref<number>
   /** 页面数据符号供条件表达式补全；函数体仍然只能看到形参 */
@@ -37,6 +48,7 @@ export function useEventFlowStore(): EventFlowStore {
   const selection = ctx.get<SelectionService>('selection')
   const material = ctx.get<MaterialService>('material')
   const expression = ctx.get<ExpressionEngine>('expression')
+  const flow = ctx.get<FlowService>('flow')
 
   const version = ref(0)
   /** 挂载期注册的订阅；卸载时逐个释放，面板重挂不会叠加监听 */
@@ -53,6 +65,8 @@ export function useEventFlowStore(): EventFlowStore {
     if (document) disposables.push(document.onDidChange(bump))
     if (selection) disposables.push(selection.onDidChange(bump))
     if (material) disposables.push(material.onDidChange(bump))
+    // 图的事件绑定存在图那一侧，改它不会动页面文档；不订阅就刷不出「这个事件上还挂着一张图」
+    if (flow) disposables.push(flow.onDidChange(bump))
   })
 
   onUnmounted(() => {
@@ -108,6 +122,7 @@ export function useEventFlowStore(): EventFlowStore {
     selection,
     material,
     expression,
+    flow,
     version,
     expressionSymbols,
     expressionFunctions,
