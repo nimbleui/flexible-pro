@@ -66,7 +66,7 @@ export function sameConfigValue(a: unknown, b: unknown): boolean {
  * 按字段控件形态从事件目标取值。
  *
  * 每种控件的合法输入不同：number 挡掉空串与 NaN（否则一个中间态就会把配置写成
- * `NaN` 或 `null` 进历史），select / action 挡掉占位的空值，json 有自己的提交路径。
+ * `NaN` 或 `null` 进历史），select / ref 挡掉占位的空值，json 有自己的提交路径。
  * 目标类型与控件形态不匹配时同样丢弃，避免冒泡进来的其它控件误写字段。
  */
 export function readFieldInput(
@@ -87,10 +87,26 @@ export function readFieldInput(
     }
 
     case 'select':
-    case 'action':
       if (!(target instanceof HTMLSelectElement) || target.value === '')
         return { accepted: false }
       return { accepted: true, value: target.value }
+
+    /**
+     * 引用型字段：候选来自文档或运行时，值一定是字符串（或字符串数组）。
+     *
+     * 多选清空要写成 `[]` 而不是删键：`flow.sequence` 的执行器要求 `actionIds` 是数组，
+     * 键不存在时它会抛「必须是动作 id 数组」，而作者刚做的动作明明是「把列表清空」。
+     */
+    case 'ref': {
+      if (!(target instanceof HTMLSelectElement)) return { accepted: false }
+      if (!field.multiple) {
+        if (target.value === '') return { accepted: false }
+        return { accepted: true, value: target.value }
+      }
+
+      const values = [...target.selectedOptions].map((option) => option.value).filter(Boolean)
+      return { accepted: true, value: values }
+    }
 
     case 'text':
       if (!(target instanceof HTMLInputElement)) return { accepted: false }

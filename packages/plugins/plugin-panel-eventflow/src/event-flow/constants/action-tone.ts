@@ -67,6 +67,22 @@ const TOAST_LEVEL_LABELS: Record<string, string> = {
   error: '错误',
 }
 
+/**
+ * 引用来源为空时的下拉占位文案。
+ *
+ * 「暂无可选变量」比「暂无数据」有用得多：作者需要知道缺的是哪一类候选，
+ * 才知道该去页面数据里补变量，还是该先在动作链里加动作。
+ */
+export const REF_SOURCE_LABELS: Record<string, string> = {
+  variable: '变量',
+  dataSource: '数据源',
+  action: '动作',
+  node: '节点',
+  flow: '流程',
+  event: '事件',
+  page: '页面',
+}
+
 function configString(config: Record<string, unknown>, key: string): string {
   const value = config[key]
   return typeof value === 'string' ? value : ''

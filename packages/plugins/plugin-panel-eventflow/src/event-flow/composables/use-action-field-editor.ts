@@ -1,19 +1,10 @@
 import { computed, ref, watch } from 'vue'
 import type { ComputedRef, Ref } from 'vue'
 import { formatJsonValue, parseJsonDraft } from '@lc/shared'
-import type { ActionDeclaration, ActionFieldSchema } from '@lc/schema'
-import { actionPath, isExpressionString } from '@lc/schema'
-import { actionTypeTitle } from '../constants/action-tone'
+import type { ActionDeclaration, ActionFieldSchema, RefOption } from '@lc/schema'
+import { actionPath, isExpressionString, listRefOptions } from '@lc/schema'
 import { inputValue, readFieldInput, sameConfigValue } from '../utils/action-field'
 import type { EventFlowStore } from './use-event-flow-store'
-
-/** 动作选择器里的一个候选项 */
-export interface ActionOption {
-  /** 写入 config 的动作 id */
-  value: string
-  /** 展示名：自定义 name 优先，否则取类型标题 */
-  label: string
-}
 
 /** 草稿归属键：JSON 输入框按「动作 + 字段」区分，切换动作时不会串草稿 */
 function jsonKeyOf(actionId: string, fieldKey: string): string {
@@ -21,7 +12,7 @@ function jsonKeyOf(actionId: string, fieldKey: string): string {
 }
 
 /**
- * 右栏动作配置表单：普通字段、动作选择器与 JSON 字段的读取、校验与提交。
+ * 右栏动作配置表单：普通字段、引用选择器与 JSON 字段的读取、校验与提交。
  *
  * `config` 是整体替换的（JSON Patch 的 replace 需要完整对象），所以每个字段都按
  * 「原配置 + 单键覆盖」重建；值没变直接返回，避免一次无意义的点击留下一条可撤销的历史。
@@ -31,7 +22,7 @@ export function useActionFieldEditor(
   selectedAction: ComputedRef<ActionDeclaration | undefined>,
   selectedActionId: Ref<string | undefined>,
 ) {
-  const { document, version, commit } = store
+  const { document, version, commit, flow } = store
 
   const jsonDraft = ref<string | null>(null)
   const jsonDraftKey = ref<string | null>(null)
@@ -44,23 +35,33 @@ export function useActionFieldEditor(
   })
 
   /**
-   * `kind: 'action'` 字段的候选项。
+   * 引用型字段的候选项。
    *
-   * 排除当前动作自身：分支目标指向自己是环，校验会报错，与其让用户选出来再被拦，
+   * 候选一律由 `listRefOptions` 从当前文档算出，面板不自己拼清单：分支目标、序列成员、
+   * 本页变量与数据源在事件流、右栏节点事件、流程编辑器里都要列一遍，各拼一次早晚分叉。
+   *
+   * `exclude` 只给动作类字段传当前动作：指向自己是环，与其让作者选出来再被校验拦下，
    * 不如在选择器里就不出现。
    */
-  const actionOptions = computed<ActionOption[]>(() => {
+  function refOptions(field: ActionFieldSchema): readonly RefOption[] {
     version.value
-    const table = document?.model.schema.actions ?? {}
-    const self = selectedActionId.value
+    const schema = document?.model.schema
+    if (!schema || field.ref === undefined) return []
 
-    return Object.values(table)
-      .filter((action) => action.id !== self)
-      .map((action) => ({
-        value: action.id,
-        label: action.name ?? actionTypeTitle(action.type),
-      }))
-  })
+    return listRefOptions(field.ref, {
+      schema,
+      flows: flow?.list(),
+      exclude: field.ref === 'action' ? selectedActionId.value : undefined,
+    })
+  }
+
+  /** 多选字段的当前值；非数组的历史数据（手填 JSON 时代留下的）按空处理 */
+  function fieldMultiValue(field: ActionFieldSchema): string[] {
+    const value = selectedAction.value?.config[field.key]
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string')
+      : []
+  }
 
   function commitActionName(event: Event): void {
     const action = selectedAction.value
@@ -111,15 +112,21 @@ export function useActionFieldEditor(
     return ''
   }
 
+  /**
+   * 当前值不在候选里时返回 true，模板据此追加一个只读选项。
+   *
+   * 必须显示而不是静默回落到「未设置」：动作被删除、数据源改名之后引用会悬空，
+   * 校验已经报了错，可如果下拉里看不见那个断掉的值，用户无从判断断链在哪。
+   */
   function isUnlistedSelectValue(field: ActionFieldSchema): boolean {
-    if (field.kind === 'action') {
-      // 动作被删除后引用会悬空，校验已报错；这里仍要显示出来，否则用户看不见断链在哪
-      const value = fieldSelectValue(field)
-      return value !== '' && !actionOptions.value.some((option) => option.value === value)
-    }
+    if (field.multiple) return false
 
     const value = fieldSelectValue(field)
     if (value === '') return false
+    if (field.kind === 'ref') {
+      return !refOptions(field).some((option) => option.value === value)
+    }
+
     return !(field.options ?? []).some((option) => option.value === value)
   }
 
@@ -199,8 +206,76 @@ export function useActionFieldEditor(
     )
   }
 
+  /**
+   * 未登记字段声明的动作类型，直接编辑整份 config。
+   *
+   * 存在的理由：插件自定义动作没有内置字段表，只给一句「没有可渲染的内置字段」
+   * 等于把作者挡在门外——他的动作本身是合法的，config 也是 JSON 可序列化的，
+   * 平台只是不知道该怎么画表单。给一个原始编辑入口比给一个死提示诚实。
+   */
+  const configDraft = ref<string | null>(null)
+  const configDraftActionId = ref<string | null>(null)
+  const configError = ref('')
+
+  watch(selectedActionId, () => {
+    configDraft.value = null
+    configDraftActionId.value = null
+    configError.value = ''
+  })
+
+  function configJsonText(): string {
+    const action = selectedAction.value
+    if (!action) return ''
+    if (configDraftActionId.value === action.id && configDraft.value !== null) {
+      return configDraft.value
+    }
+    return formatJsonValue(action.config)
+  }
+
+  function onConfigJsonInput(event: Event): void {
+    const action = selectedAction.value
+    if (!action) return
+    configDraftActionId.value = action.id
+    configDraft.value = inputValue(event)
+    configError.value = ''
+  }
+
+  function commitConfigJson(): void {
+    const action = selectedAction.value
+    if (!action) return
+
+    const parsed = parseJsonDraft(configJsonText())
+    if (!parsed.ok) {
+      configError.value = parsed.error
+      return
+    }
+    if (!parsed.value || typeof parsed.value !== 'object' || Array.isArray(parsed.value)) {
+      configError.value = '动作 config 必须是一个 JSON 对象'
+      return
+    }
+
+    configError.value = ''
+    configDraft.value = null
+    configDraftActionId.value = null
+    commit(
+      [
+        {
+          op: 'replace',
+          path: actionPath(action.id, 'config'),
+          value: parsed.value as Record<string, unknown>,
+        },
+      ],
+      '修改动作配置',
+    )
+  }
+
   return {
-    actionOptions,
+    refOptions,
+    fieldMultiValue,
+    configJsonText,
+    configError,
+    onConfigJsonInput,
+    commitConfigJson,
     commitActionName,
     fieldText,
     fieldNumber,
