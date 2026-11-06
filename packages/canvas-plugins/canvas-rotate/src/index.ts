@@ -1,5 +1,10 @@
 import type { CanvasTransaction } from '@lc/contracts'
-import { defineCanvasPlugin, isPointerEvent, transformableIds } from '@lc/contracts'
+import {
+  defineCanvasPlugin,
+  handleTargetIds,
+  isPointerEvent,
+  transformableIds,
+} from '@lc/contracts'
 import { createNodeLayoutPatch } from '@lc/schema'
 import { rotateNodes, snapRadians } from './rotate'
 import type { RotatableNode } from './rotate'
@@ -32,13 +37,13 @@ export default defineCanvasPlugin({
         // 同 band 内压过缩放手柄：旋转圆点悬在框外，仍要与角手柄可区分地优先命中
         zIndex: 10,
         pointerEvents: 'children',
-        // 与 canvas-resize 同规则：选中集全部锁定时不放手柄
-        visible: (frame) => frame.selection.some((id) => !canvas.nodeFlags.locked.has(id)),
+        // 与 canvas-resize 同规则：选区里没有可变换节点（全是画幅根或锁定项）时不放手柄
+        visible: (frame) => handleTargetIds(frame.selection, canvas.nodeFlags).length > 0,
         load: () => Promise.resolve({ default: RotateHandle }),
       }),
     )
 
-    /** 取手势起始快照：未登记几何或被锁定的 id 跳过，schema 里没有 rotate 时按 0 处理 */
+    /** 取手势起始快照：画幅根、被锁定或未登记几何的 id 跳过，schema 里没有 rotate 时按 0 处理 */
     function collect(ids: readonly string[]): RotatableNode[] {
       const nodes: RotatableNode[] = []
       for (const id of transformableIds(ids, document.model.schema)) {

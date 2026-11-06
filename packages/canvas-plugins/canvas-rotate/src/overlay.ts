@@ -1,6 +1,7 @@
 import { defineComponent, h } from 'vue'
 import type { CSSProperties, PropType } from 'vue'
 import type { CanvasFrame, CanvasService, DocumentService } from '@lc/contracts'
+import { handleTargetIds } from '@lc/contracts'
 import { useAppContext } from '@lc/vue'
 import { placeRotateHandle } from './rotate'
 import type { RotateHandlePlacement } from './rotate'
@@ -56,16 +57,18 @@ export const RotateHandle = defineComponent({
     /**
      * 求当前选区的手柄落点（屏幕空间）。
      *
-     * 无选中、包围盒缺失（节点已删除等瞬态）时返回 null，覆盖层整体不渲染。
+     * 基准与 canvas-resize 一致，取选区里真正可变换的那部分节点：画幅根和被锁定的
+     * 节点转不动，把它们算进包围盒会把手柄顶到页面边缘去。
+     * 无可变换成员、包围盒缺失（节点已删除等瞬态）时返回 null，覆盖层整体不渲染。
      */
     function computePlacement(): RotateHandlePlacement | null {
-      const selection = props.frame.selection
-      if (selection.length === 0) return null
+      const targets = handleTargetIds(props.frame.selection, canvas.nodeFlags)
+      if (targets.length === 0) return null
 
-      const singleId = selection.length === 1 ? (selection[0] as string) : null
+      const singleId = targets.length === 1 ? (targets[0] as string) : null
       const bounds = singleId
         ? canvas.scene.getBounds(singleId)
-        : canvas.scene.getBoundsOf(selection)
+        : canvas.scene.getBoundsOf(targets)
       if (!bounds) return null
 
       // 多选没有单一 rotate 可跟随，按 0 度退化为 AABB 顶边

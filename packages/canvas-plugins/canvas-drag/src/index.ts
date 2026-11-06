@@ -72,7 +72,7 @@ function dragTargetsOf(
     ? canvas.selection.ids
     : [targetNodeId]
   // 命中测试已经挡住了锁定节点，这里再过滤一次：图层树可以把锁定节点
-  // 放进取景框，整组拖拽时必须让它留在原地
+  // 放进取景框，整组拖拽时必须让它留在原地。画幅根同理——拖动它等于搬走整个页面
   const roots = transformableIds(group, document.model.schema)
   return { roots, ids: [...collectSubtree(document.model.schema, roots)] }
 }
@@ -168,6 +168,7 @@ function previewDragFrame(
  *
  * - 按住已选中节点拖动：一次事务提交、一条历史
  * - 拖动容器时整棵子树一起平移（子级 rect 是世界坐标，不会随父级自动跟随）
+ * - 画幅根不可拖动：让位（`pass`）而不是吞掉事件，单击仍然选中根以便编辑页面属性
  * - 按住 Alt 临时禁用吸附
  * - 位移未超过阈值时不写 patch，避免误提交 1px 移动
  */

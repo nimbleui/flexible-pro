@@ -1,5 +1,5 @@
 import type { CanvasTransaction } from '@lc/contracts'
-import { defineCanvasPlugin } from '@lc/contracts'
+import { defineCanvasPlugin, handleTargetIds } from '@lc/contracts'
 import { createNodeLayoutPatch } from '@lc/schema'
 import { alignRects, distributeRects } from './align'
 import type { AlignMode, AlignNode } from './align'
@@ -41,12 +41,12 @@ export default defineCanvasPlugin({
   apply(ctx) {
     const canvas = ctx.canvas
 
-    /** 取当前选中集中可参与对齐的世界矩形；隐藏、锁定或尚未登记几何的节点被排除 */
+    /** 取当前选中集中可参与对齐的世界矩形；画幅根、锁定与尚未登记几何的节点被排除 */
     function collect(): AlignNode[] {
       const nodes: AlignNode[] = []
-      for (const id of canvas.selection.ids) {
-        // 隐藏节点压根不在场景里，getBounds 拿不到；锁定节点在场景里，必须显式跳过
-        if (canvas.nodeFlags.locked.has(id)) continue
+      // 对齐的参与者与出得了手柄的那批节点同源：画幅根是被对齐的参照物，不能被搬走
+      for (const id of handleTargetIds(canvas.selection.ids, canvas.nodeFlags)) {
+        // 隐藏节点压根不在场景里，getBounds 拿不到
         const rect = canvas.scene.getBounds(id)
         if (rect) nodes.push({ id, rect })
       }

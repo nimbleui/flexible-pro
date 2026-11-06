@@ -54,9 +54,9 @@ export default defineCanvasPlugin({
      *
      * 锁定节点（含祖先被锁定）必须先解锁才能删/复制/微调；隐藏节点不在此列——
      * 图层树里选中隐藏节点后删除它是正当操作，命令的快捷键只响应舞台焦点。
+     * 画幅根已由 `transformableIds` 统一剔除：根不是可删除/可移动的物件。
      */
-    const editableIds = (): string[] =>
-      transformableIds(selectedIds(), schema()).filter((id) => id !== schema().nodeId)
+    const editableIds = (): string[] => transformableIds(selectedIds(), schema())
 
     function commit(patches: SchemaPatch[], label: string): boolean {
       if (patches.length === 0) return false

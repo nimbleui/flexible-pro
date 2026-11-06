@@ -4,7 +4,6 @@ import { normalizeRect } from '@lc/canvas'
 import type { Rect } from '@lc/schema'
 import { HOVER_SETTING, MARQUEE_SETTING } from './constants'
 import { nextInCycle, outermostOf, selectableParent, stackAt } from './hierarchy'
-import SelectionOverlay from './overlay'
 
 export { manifest } from './manifest'
 
@@ -36,12 +35,16 @@ function additiveOf(modifiers: CanvasModifiers): boolean {
  * 选择插件。
  *
  * 命中顺序由绘制顺序决定（内层优先），指针语义：
- * - 单击：最上层节点；空白处清空
+ * - 单击：最上层节点；空白处清空；按在画幅背景上且没有拖出位移 → 选中页面本身
  * - Shift+单击：加选 / 减选命中的节点
  * - Ctrl/⌘+单击：直穿到底，加选 / 减选该点最底层的节点
  * - Alt+单击：在重叠节点间循环，重复点击依次向下一层
  * - 拖动空白：框选；按住 Shift/Ctrl/⌘ 拖动：结果并入当前选中集
  * - 双击命中的节点 / Esc：选中主选节点的父级（向上选择，自动跳过隐藏与锁定祖先）
+ *
+ * 画幅根（`canvas.nodeFlags.root`）覆盖整页，按在它身上如果走普通节点分支，就会变成
+ * 「按哪儿都拖得动、框不动」：按下即选中根、拖动搬走整页。所以按下根一律按空白处理，
+ * 拖动用来框选，选中页面交给抬手后管线合成的 click（位移在阈值内才会发）。
  *
  * 悬停高亮跟随指针显示「单击会选中谁」，锁定与隐藏节点天然不参与（命中测试已过滤）。
  */
@@ -100,7 +103,8 @@ export default defineCanvasPlugin({
         id: 'canvas-selection.overlay',
         band: 'selection',
         pointerEvents: 'none',
-        load: () => Promise.resolve({ default: SelectionOverlay }),
+        // 懒加载：覆盖层依赖 Vue，静态引入会让 Node 侧的插件单测解析不了 .vue
+        load: () => import('./overlay'),
       }),
     )
 
@@ -138,10 +142,10 @@ export default defineCanvasPlugin({
           event.type === 'click' && Boolean(event.targetNodeId) && !additiveOf(event.modifiers),
         handle: (event) => {
           if (event.type !== 'click' || !event.targetNodeId) return 'pass'
-          // 点击（无拖动）已多选的节点时收敛为单选；拖动场景由管线抑制 click，不受影响
-          if (canvas.selection.ids.length > 1) {
-            canvas.selection.set([event.targetNodeId])
-          }
+          // 单击（无拖动）收敛为该节点：拖拽场景由管线抑制 click，走不到这里。
+          // 按下画幅根时不预选中（见 pointer 处理器），「点页面背景 = 选中页面」
+          // 就发生在这次 click 上；选中服务对同集合去重，重复 set 不会多通知。
+          canvas.selection.set([event.targetNodeId])
           return 'pass'
         },
       }),
@@ -159,9 +163,14 @@ export default defineCanvasPlugin({
           if (event.type !== 'pointerdown') return 'pass'
           setHover(undefined)
 
-          if (event.targetNodeId) {
-            const target = event.targetNodeId
+          // 画幅根覆盖整页，按下它等同于按下空白：不预选中、不交给拖拽插件，
+          // 位移交给框选；零位移抬手时由管线合成的 click 负责选中页面
+          const target =
+            event.targetNodeId && event.targetNodeId !== canvas.nodeFlags.root
+              ? event.targetNodeId
+              : undefined
 
+          if (target) {
             // Alt：在重叠节点里循环；连点在原地才继续，换位置重新从最上层开始
             if (event.modifiers.alt) {
               let start = canvas.selection.primary ?? target
@@ -202,7 +211,7 @@ export default defineCanvasPlugin({
             return 'pass'
           }
 
-          // 空白处：加选修饰键下保留原选中集，框选结果并入而不是替换
+          // 空白处与画幅背景：加选修饰键下保留原选中集，框选结果并入而不是替换
           const base = additiveOf(event.modifiers) ? [...canvas.selection.ids] : []
           if (base.length === 0) canvas.selection.clear()
           cycle = null

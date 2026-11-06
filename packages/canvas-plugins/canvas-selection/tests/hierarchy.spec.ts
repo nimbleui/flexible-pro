@@ -19,7 +19,7 @@ function page(nodes: NodeSchema[], nodeId = 'root'): PageSchema {
 }
 
 function flags(partial: Partial<NodeFlagView> = {}): NodeFlagView {
-  return { hidden: new Set<string>(), locked: new Set<string>(), ...partial }
+  return { hidden: new Set<string>(), locked: new Set<string>(), root: 'root', ...partial }
 }
 
 describe('向上选择父级', () => {

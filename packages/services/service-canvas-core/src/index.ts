@@ -107,7 +107,9 @@ export default definePlugin({
       viewport,
       isContainer,
       getRotation: nodeRotation,
-      // 处理器在指针事件里同步调用，这里只查上一次文档同步算出的集合
+      // 处理器在指针事件里同步调用，这里只查上一次文档同步算出的集合。
+      // 画幅根保留在命中结果里：选中它才能编辑页面属性；「不可移动 / 不可缩放」属于变换
+      // 闸门（transformableIds 与 handleTargetIds），不在命中这一层表达
       isSelectable: (nodeId) => !nodeFlags.locked.has(nodeId),
     })
     const measure = createMeasure(scene)

@@ -1,5 +1,10 @@
 import type { CanvasModifiers, CanvasTransaction, SnapService } from '@lc/contracts'
-import { defineCanvasPlugin, isPointerEvent, transformableIds } from '@lc/contracts'
+import {
+  defineCanvasPlugin,
+  handleTargetIds,
+  isPointerEvent,
+  transformableIds,
+} from '@lc/contracts'
 import { normalizeRect } from '@lc/canvas'
 import type { Rect } from '@lc/schema'
 import { createNodeLayoutPatch } from '@lc/schema'
@@ -41,13 +46,14 @@ export default defineCanvasPlugin({
         band: 'handles',
         // children：层本身不挡命中，只有手柄元素可被指针命中并带上 data-handle-id
         pointerEvents: 'children',
-        // 整组都被锁定时不放手柄：手势起始处会过滤掉锁定节点，手柄点了也只是空转
-        visible: (frame) => frame.selection.some((id) => !canvas.nodeFlags.locked.has(id)),
+        // 选区里没有「出得了手柄的节点」时不放手柄：画幅根与被锁定节点都会在手势
+        // 起始处被过滤掉，留着手柄只会让人对着点了不动的框空转
+        visible: (frame) => handleTargetIds(frame.selection, canvas.nodeFlags).length > 0,
         load: () => Promise.resolve({ default: ResizeHandles }),
       }),
     )
 
-    /** 取场景里已登记几何、且允许变换的选中节点；未登记或被锁定的 id 静默跳过 */
+    /** 取场景里已登记几何、且允许变换的选中节点；画幅根、锁定或未登记的 id 静默跳过 */
     function collectSelection(ids: readonly string[]): SelectionNode[] {
       const nodes: SelectionNode[] = []
       for (const id of transformableIds(ids, document.model.schema)) {

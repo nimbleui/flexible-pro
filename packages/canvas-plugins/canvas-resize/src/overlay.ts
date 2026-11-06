@@ -1,6 +1,7 @@
 import { defineComponent, h } from 'vue'
 import type { CSSProperties, PropType } from 'vue'
 import type { CanvasFrame, CanvasService, DocumentService, Size } from '@lc/contracts'
+import { handleTargetIds } from '@lc/contracts'
 import type { Rect } from '@lc/schema'
 import { useAppContext } from '@lc/vue'
 
@@ -56,7 +57,9 @@ interface HandleBox {
 /**
  * 求当前选区的手柄框。
  *
- * 无选中、或包围盒缺失（节点已删除等瞬态）时返回 null，覆盖层整体不渲染。
+ * 基准是选区里真正可变换的那部分节点（见 {@link handleTargetIds}）：画幅根与被锁定
+ * 节点改不动，把它们算进包围盒会画出一圈「框得住、拖不动」的手柄。
+ * 无可变换成员、或包围盒缺失（节点已删除等瞬态）时返回 null，覆盖层整体不渲染。
  * 投影只应用 zoom 与视口原点，与选择覆盖层同样假设视口无旋转；
  * `rotationDeg` 是节点自身角度，不参与这一步换算。
  */
@@ -65,13 +68,11 @@ function resolveHandleBox(
   canvas: CanvasService,
   document: DocumentService,
 ): HandleBox | null {
-  const selection = frame.selection
-  if (selection.length === 0) return null
+  const targets = handleTargetIds(frame.selection, canvas.nodeFlags)
+  if (targets.length === 0) return null
 
-  const singleId = selection.length === 1 ? (selection[0] as string) : null
-  const bounds = singleId
-    ? canvas.scene.getBounds(singleId)
-    : canvas.scene.getBoundsOf(selection)
+  const singleId = targets.length === 1 ? (targets[0] as string) : null
+  const bounds = singleId ? canvas.scene.getBounds(singleId) : canvas.scene.getBoundsOf(targets)
   if (!bounds) return null
 
   const { zoom, x: originX, y: originY } = frame.viewport
@@ -82,7 +83,7 @@ function resolveHandleBox(
     height: bounds.height * zoom,
     rotationDeg: singleId ? (document.model.schema.nodes[singleId]?.layout?.rotate ?? 0) : 0,
     bounds,
-    grouped: selection.length > 1,
+    grouped: targets.length > 1,
   }
 }
 

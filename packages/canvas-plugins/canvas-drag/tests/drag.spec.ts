@@ -67,10 +67,13 @@ function createContext(
   handler: InteractionHandler
   gesture: () => GestureCallbacks
   previews: SchemaPatch[]
+  /** 每次 transaction.begin 的历史标签，用于断言「压根没起手势」 */
+  began: string[]
 } {
   let handler: InteractionHandler | undefined
   let gesture: GestureCallbacks | undefined
   const previews: SchemaPatch[] = []
+  const began: string[] = []
 
   const transaction: CanvasTransaction = {
     closed: false,
@@ -109,7 +112,8 @@ function createContext(
     },
     selection: { ids: options.selection },
     transaction: {
-      begin() {
+      begin(optionsForBegin: { label: string }) {
+        began.push(optionsForBegin.label)
         return transaction
       },
     },
@@ -136,6 +140,7 @@ function createContext(
     handler: handler as InteractionHandler,
     gesture: () => gesture as GestureCallbacks,
     previews,
+    began,
   }
 }
 
@@ -219,6 +224,54 @@ describe('节点拖拽', () => {
 
     expect(movedRects(previews)).toEqual(
       new Map([['/nodes/title/layout/rect', rect(72, 66, 120, 24)]]),
+    )
+  })
+
+  it('按下画幅根不进入拖拽手势', () => {
+    const schema = createSchema()
+    const { context, handler, previews, began } = createContext(schema, {
+      selection: ['root'],
+    })
+
+    const result = handler.handle(
+      pointerEvent({
+        targetNodeId: 'root',
+        screen: { x: 10, y: 10 },
+        world: { x: 10, y: 10 },
+      }),
+      context,
+    )
+
+    // pass 而不是 handled：单击仍要落回选中根，让属性面板可编辑页面
+    expect(result).toBe('pass')
+    expect(began).toEqual([])
+    expect(previews).toEqual([])
+  })
+
+  it('整组拖拽时画幅根留在原地', () => {
+    const schema = createSchema()
+    const { context, handler, gesture, previews } = createContext(schema, {
+      selection: ['root', 'title'],
+    })
+
+    handler.handle(
+      pointerEvent({
+        targetNodeId: 'title',
+        screen: { x: 60, y: 60 },
+        world: { x: 60, y: 60 },
+      }),
+      context,
+    )
+    gesture().onMove(
+      pointerEvent({
+        type: 'pointermove',
+        screen: { x: 80, y: 60 },
+        world: { x: 80, y: 60 },
+      }),
+    )
+
+    expect(movedRects(previews)).toEqual(
+      new Map([['/nodes/title/layout/rect', rect(80, 60, 120, 24)]]),
     )
   })
 })
