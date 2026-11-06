@@ -17,6 +17,15 @@ const props = defineProps<{
    * 面板实现自行对齐。未传时面板收到 undefined。
    */
   context?: Record<string, unknown>
+
+  /**
+   * 只渲染该 id 的面板；缺省时渲染槽内全部面板。
+   *
+   * 底部停靠区的几个面板共用一个槽并且互斥显示，同时挂载会让每块面板各自订阅
+   * 文档、各自占一份高度。过滤发生在加载之前，所以未选中的面板不会被激活也不会
+   * 被下载。
+   */
+  active?: string
 }>()
 
 const ctx = useAppContext()
@@ -58,7 +67,11 @@ watch(
   () => {
     // 读取 version 建立依赖：贡献变化后即使插槽名没变也要重新取列表
     version.value
-    return ctx.contribution.listSlot(props.name)
+    const items = ctx.contribution.listSlot(props.name)
+    // 读了 props.active 就把它变成了依赖：换页签时只有命中的面板进入加载队列
+    return props.active === undefined
+      ? items
+      : items.filter((item) => item.value.id === props.active)
   },
   (items) => {
     // 列表先按缓存渲染，未命中的面板由 ensurePanel 异步补齐后原地替换
