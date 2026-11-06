@@ -5,9 +5,7 @@ import {
   FLOW_TRIGGER,
   createFlowNode,
   findFlowNodeType,
-  flowBindingOf,
   flowNodeFields,
-  readFlowTriggerBinding,
 } from '../src/flow'
 import { createExpression } from '../src/expression'
 import {
@@ -17,13 +15,19 @@ import {
   validateFlow,
 } from '../src/flow-graph'
 
-function makeTrigger(id: string, sourceNodeId = 'page', eventName = 'pageLoad'): FlowNode {
+/**
+ * 触发节点。
+ *
+ * config 只有 `kind` 一项：具体绑到哪个页面的哪个事件写在页面文档的 `connection.flowId`
+ * 上，图侧不再存一份影子绑定。
+ */
+function makeTrigger(id: string): FlowNode {
   return {
     id,
     type: FLOW_TRIGGER,
     name: '开始',
     position: { x: 0, y: 0 },
-    config: { kind: 'pageEvent', sourceNodeId, eventName },
+    config: { kind: 'pageEvent' },
   }
 }
 
@@ -58,16 +62,23 @@ describe('流程图协议', () => {
 
     expect(node.type).toBe(FLOW_TRIGGER)
     expect(node.config.kind).toBe('componentEvent')
-    // 必填字段预置空串，面板才能立刻渲染出可填的输入框而不是判断「键不存在」
-    expect(node.config.sourceNodeId).toBe('')
-    expect(node.config.eventName).toBe('')
     expect(node.position).toEqual({ x: 12, y: 30 })
   })
 
-  it('页面事件条目自带 page 哨兵值，json 字段不预置空串', () => {
+  it('触发节点不再预置页面 / 节点 / 事件三段绑定', () => {
+    /**
+     * 绑定归页面。图侧留着这三段，就会出现「图上写着绑 A 页的按钮、页面里绑的是这张图」
+     * 两处可以同时成立而互不相同的状态，运行时到底听谁的没有任何地方说得出。
+     */
     const node = createFlowNode('trigger.page', 'n1', { x: 0, y: 0 })
-    expect(node.config.sourceNodeId).toBe('page')
 
+    expect(node.config).toEqual({ kind: 'pageEvent' })
+    expect('documentId' in node.config).toBe(false)
+    expect('sourceNodeId' in node.config).toBe(false)
+    expect('eventName' in node.config).toBe(false)
+  })
+
+  it('json 字段不预置空串，普通必填字段预置空串', () => {
     const merge = createFlowNode('logic.merge', 'n2', { x: 0, y: 0 })
     expect('sources' in merge.config).toBe(false)
     expect(merge.config.assignTo).toBe('')
@@ -78,10 +89,7 @@ describe('流程图协议', () => {
   })
 
   it('字段声明优先取图专属，其次回落到内置动作', () => {
-    expect(flowNodeFields(FLOW_TRIGGER).map((field) => field.key)).toEqual([
-      'sourceNodeId',
-      'eventName',
-    ])
+    expect(flowNodeFields(FLOW_TRIGGER).map((field) => field.key)).toEqual(['kind'])
     // state.set 在链与图里是同一件事，字段只声明一份
     expect(flowNodeFields('state.set').map((field) => field.key)).toEqual(['key', 'value'])
     expect(flowNodeFields('flow.parallel')).toEqual([])
@@ -93,28 +101,30 @@ describe('流程图协议', () => {
     expect(findFlowNodeType('missing.type')).toBeUndefined()
   })
 
-  it('读取触发绑定，配置不完整时返回 null', () => {
-    expect(readFlowTriggerBinding(makeTrigger('t', 'button', 'click'))).toEqual({
-      kind: 'pageEvent',
-      sourceNodeId: 'button',
-      eventName: 'click',
-    })
+  it('触发类型候选与节点库的触发条目同源', () => {
+    /**
+     * 面板下拉里能选到的类型，必须正好是节点库能落出来的那几种。两处各写一份名字表时，
+     * 目录改名或加一类触发后面板会静默少一项，而图上照样落得出来。
+     */
+    const options = flowNodeFields(FLOW_TRIGGER)[0].options ?? []
+    const catalogTitles = [
+      '页面事件',
+      '组件事件',
+      '定时任务',
+      'Webhook',
+      '系统事件',
+      '自定义事件',
+    ]
 
-    const broken = makeTrigger('t')
-    broken.config.eventName = ''
-    expect(readFlowTriggerBinding(broken)).toBeNull()
-
-    expect(readFlowTriggerBinding(makeNode('a', 'state.set'))).toBeNull()
-  })
-
-  it('取整张图的绑定；没有触发节点时返回 undefined', () => {
-    const trigger = makeTrigger('t', 'button', 'submit')
-    expect(flowBindingOf(makeFlow([trigger], []))).toEqual({
-      kind: 'pageEvent',
-      sourceNodeId: 'button',
-      eventName: 'submit',
-    })
-    expect(flowBindingOf(makeFlow([makeNode('a', 'state.set')], []))).toBeUndefined()
+    expect(options.map((option) => option.label)).toEqual(catalogTitles)
+    expect(options.map((option) => option.value)).toEqual([
+      'pageEvent',
+      'componentEvent',
+      'schedule',
+      'webhook',
+      'systemEvent',
+      'custom',
+    ])
   })
 })
 
@@ -213,19 +223,11 @@ describe('流程图校验', () => {
 
   it('多个触发节点时只保留第一个，其余报错', () => {
     const flow = validFlow()
-    const extra = makeTrigger('t2', 'page', 'pageUnload')
-    flow.nodes.t2 = extra
+    flow.nodes.t2 = makeTrigger('t2')
 
     const issues = validateFlow(flow).filter((issue) => issue.path === '/nodes/t2')
     expect(issues).toHaveLength(1)
     expect(issues[0].message).toContain('只允许一个触发节点')
-  })
-
-  it('触发绑定不完整时报配置问题', () => {
-    const flow = validFlow()
-    flow.nodes.t.config.eventName = ''
-
-    expect(validateFlow(flow).map((issue) => issue.path)).toContain('/nodes/t/config')
   })
 
   it('自环与重复连线各自报错', () => {

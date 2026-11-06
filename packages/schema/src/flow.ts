@@ -99,17 +99,16 @@ export type FlowTriggerKind =
 /**
  * 触发节点的配置形态。
  *
- * `sourceNodeId` / `eventName` 与 {@link EventConnection} 同名同义：事件匹配是
- * 「来源节点 + 事件名」这一个二元键，图侧不再发明第二套键名，否则运行时得同时
- * 维护两张查找表。页面级事件沿用 {@link PAGE_EVENT_SOURCE} 哨兵值。
+ * 只剩「这张图由哪一类来源唤起」。具体绑到哪个页面的哪个事件的哪个按钮，写在页面文档的
+ * `connection.flowId` 上——绑定的所有权归页面，图侧不再存一份可以互相矛盾的影子键。
+ *
+ * `pageEvent` 与 `componentEvent` 的差别只在语义标注：两者都由页面事件唤起，运行时读的是
+ * 同一个 `connection`。`schedule` / `webhook` / `systemEvent` / `custom` 目前**没有派发方**，
+ * 声明出来是为了让目录完整、试运行能选起点，别误以为配了就会自动跑。
  */
 export interface FlowTriggerConfig {
   /** 触发来源类型 */
   kind: FlowTriggerKind
-  /** 事件来源节点 id；页面级事件为 `'page'`，定时与 Webhook 同样用哨兵占位 */
-  sourceNodeId: string
-  /** 事件名；定时任务与 Webhook 用它表达任务标识与回调路径 */
-  eventName: string
 }
 
 /** 流程级设置；只放执行器真正读取的项，展示类配置留在编辑器本地状态 */
@@ -146,6 +145,13 @@ export interface FlowDefinition {
   status: FlowStatus
   /** 已发布版本号；从未发布过时为初始版本占位 */
   version: string
+  /**
+   * 归属项目 id（可选）。
+   *
+   * 缺省等价于「默认项目」：项目化改造之前存的图没有这个字段，由宿主侧的
+   * `resolveProjectId` 统一解释，schema 层不定义项目 id 常量。
+   */
+  projectId?: string
   /** 最后修改时间（ISO 字符串） */
   updatedAt: string
   /** 节点表，键为节点 id */
@@ -223,18 +229,6 @@ export interface FlowNodeCatalogEntry {
   presetConfig?: Record<string, unknown>
 }
 
-/** 触发类条目的公共字段：来源与事件名决定运行时能不能匹配上 */
-const TRIGGER_FIELDS: readonly ActionFieldSchema[] = [
-  {
-    key: 'sourceNodeId',
-    label: '来源节点',
-    kind: 'text',
-    required: true,
-    placeholder: '页面级事件填 page',
-  },
-  { key: 'eventName', label: '事件名', kind: 'text', required: true, placeholder: '如 click' },
-]
-
 /** 节点库全量目录；分组顺序即左侧面板的展示顺序 */
 export const FLOW_NODE_CATALOG: readonly FlowNodeCatalogEntry[] = [
   {
@@ -244,7 +238,6 @@ export const FLOW_NODE_CATALOG: readonly FlowNodeCatalogEntry[] = [
     description: '页面自身事件触发',
     category: 'trigger',
     triggerKind: 'pageEvent',
-    presetConfig: { sourceNodeId: PAGE_EVENT_SOURCE },
   },
   {
     key: 'trigger.component',
@@ -427,6 +420,20 @@ export const FLOW_NODE_CATALOG: readonly FlowNodeCatalogEntry[] = [
     category: 'data',
   },
   {
+    key: 'data.fetch',
+    type: 'dataSource.fetch',
+    title: '获取数据',
+    description: '触发已注册数据源',
+    category: 'data',
+  },
+  {
+    key: 'data.reset',
+    type: 'state.reset',
+    title: '重置变量',
+    description: '恢复页面变量的初始值',
+    category: 'data',
+  },
+  {
     key: 'system.log',
     type: LOG_RECORD,
     title: '日志记录',
@@ -475,6 +482,37 @@ export const FLOW_NODE_CATALOG: readonly FlowNodeCatalogEntry[] = [
     description: '向用户弹出一条提示',
     category: 'system',
   },
+  {
+    key: 'system.navigate',
+    type: 'navigation.go',
+    title: '页面跳转',
+    description: '受控路由跳转',
+    category: 'system',
+  },
+]
+
+/**
+ * 触发节点的唯一字段：它是被哪一类来源唤起的。
+ *
+ * 选项直接从节点库的触发类条目推导，而不是另抄一份六个名字的表——目录里已经带了
+ * `triggerKind` 与中文标题，两处各写一遍迟早会对不上（面板出现目录里落不出来的类型，
+ * 或反过来）。
+ *
+ * 这里刻意**没有**「所在页面 / 来源节点 / 事件名」三段：绑定归页面文档的
+ * `connection.flowId`，图侧再存一份就是两处真相，改一边不改另一边时运行时照跑，
+ * 而跑的到底是哪一份没有任何界面说得出。
+ */
+const TRIGGER_FIELDS: readonly ActionFieldSchema[] = [
+  {
+    key: 'kind',
+    label: '触发类型',
+    kind: 'select',
+    required: true,
+    options: FLOW_NODE_CATALOG.filter((entry) => entry.triggerKind).map((entry) => ({
+      value: entry.triggerKind as FlowTriggerKind,
+      label: entry.title,
+    })),
+  },
 ]
 
 /**
@@ -520,9 +558,10 @@ const FLOW_NODE_FIELDS: Readonly<Record<string, readonly ActionFieldSchema[]>> =
     {
       key: 'flowId',
       label: '目标流程',
-      kind: 'text',
+      kind: 'ref',
+      ref: 'flow',
       required: true,
-      placeholder: '已发布流程的 id',
+      placeholder: '只列已发布的流程',
     },
   ],
   [FLOW_EXPRESSION]: [
@@ -791,48 +830,4 @@ export const FLOW_BRANCH_TYPES: ReadonlySet<string> = new Set([FLOW_CONDITION, F
  */
 export function isFlowBranchNode(node: FlowNode): boolean {
   return FLOW_BRANCH_TYPES.has(node.type)
-}
-
-/**
- * 读取触发节点的绑定。
- *
- * `kind` 只影响面板展示，执行侧真正用于匹配的仍是「来源节点 + 事件名」二元键；
- * 字段缺失或类型不对时返回 null，由调用方决定是提示还是忽略——运行时匹配到 null
- * 的流程不参与事件分派，这比拿一个 `undefined` 去比较更安全。
- *
- * @param node 待判定的节点
- * @returns 绑定信息；非触发节点或配置不完整时为 null
- */
-export function readFlowTriggerBinding(node: FlowNode): FlowTriggerConfig | null {
-  if (!isFlowTriggerNode(node)) return null
-
-  const { kind, sourceNodeId, eventName } = node.config as Partial<FlowTriggerConfig>
-  if (typeof sourceNodeId !== 'string' || sourceNodeId === '') return null
-  if (typeof eventName !== 'string' || eventName === '') return null
-
-  return {
-    kind: typeof kind === 'string' ? (kind as FlowTriggerKind) : 'custom',
-    sourceNodeId,
-    eventName,
-  }
-}
-
-/**
- * 取一张图的触发绑定。
- *
- * 一张图只允许一个触发节点（见 `flow-graph.ts` 的校验），因此这里取第一个触发节点
- * 即可；没有触发节点的图不可执行，返回 undefined 由发布校验拦下。
- */
-export function flowBindingOf(flow: FlowDefinition): FlowTriggerConfig | undefined {
-  for (const node of Object.values(flow.nodes)) {
-    const binding = readFlowTriggerBinding(node)
-    if (binding) return binding
-  }
-
-  return undefined
-}
-
-/** 事件匹配键；同一时刻只能有一条已发布流程占用，避免一个事件触发多张图 */
-export function flowEventKey(sourceNodeId: string, eventName: string): string {
-  return `${sourceNodeId}:${eventName}`
 }

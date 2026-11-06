@@ -17,7 +17,6 @@ import {
   FLOW_SWITCH,
   flowNodeFields,
   isFlowTriggerNode,
-  readFlowTriggerBinding,
 } from './flow'
 
 /** 节点 id → 出边列表；一次遍历建好，供走图与校验共用，避免每个节点重扫一遍全表 */
@@ -311,13 +310,6 @@ export function validateFlow(flow: FlowDefinition): ValidationIssue[] {
         severity: 'error',
       })
     }
-  }
-  if (triggers.length === 1 && !readFlowTriggerBinding(triggers[0])) {
-    issues.push({
-      path: `/nodes/${triggers[0].id}/config`,
-      message: '触发节点未填来源节点与事件名，事件匹配不上',
-      severity: 'error',
-    })
   }
 
   const seenLinks = new Set<string>()

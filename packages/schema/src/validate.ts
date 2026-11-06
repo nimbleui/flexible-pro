@@ -11,9 +11,28 @@ import type { ActionDeclaration, ActionFieldSchema, EventConnection } from './ac
 import { isExpressionString } from './expression'
 import type { NodeSchema } from './node'
 import type { PageSchema } from './page'
+import type { FlowDefinition } from './flow'
 
 /** 校验问题级别 */
 export type ValidationSeverity = 'error' | 'warning'
+
+/**
+ * `validateDocument` 的可选输入。
+ *
+ * 只放「页面文档自己答不了」的问题。流程图住在另一份存储里，schema 层既不该去 import
+ * 宿主的 store，也不该假装能校验它看不见的引用——所以由调用方把它知道的那份清单传进来，
+ * 不传就整体跳过这一类检查，而不是误报成「图不存在」。
+ */
+export interface DocumentValidationInput {
+  /**
+   * 当前项目里的全部流程图，**含草稿**。
+   *
+   * 必须含草稿才能把两种情况分开：引用的 id 查不到（多半是图被删了）是 error，
+   * 图还在但仍是草稿是 warning——后者不是页面的错，只是那条事件暂时不会唤起它。
+   * 传已发布清单会让草稿绑定被报成「不存在」，把用户往错的方向赶。
+   */
+  flows?: readonly FlowDefinition[]
+}
 
 /** 单条校验问题 */
 export interface ValidationIssue {
@@ -222,11 +241,14 @@ function expandUsedActions(
  *
  * 除产出问题外还返回被引用的动作 id 集合：「未被使用的动作」只能在这之后判定，
  * 传参返回而不是让调用方再扫一遍连接。
+ *
+ * @param flowStatuses 图 id → 发布状态；`undefined` 表示调用方没有图清单，流程图引用整体不校验
  */
 function validateConnections(
   connections: Readonly<Record<string, EventConnection>>,
   nodes: Readonly<Record<string, NodeSchema>>,
   actions: Readonly<Record<string, ActionDeclaration>>,
+  flowStatuses: ReadonlyMap<string, FlowDefinition['status']> | undefined,
 ): {
   /** 连接表逐条产出的问题；顺序与 Object.entries(connections) 一致，面板据此展示 */
   issues: ValidationIssue[]
@@ -239,23 +261,33 @@ function validateConnections(
   const connectionSources = new Map<string, string>()
 
   for (const [key, connection] of Object.entries(connections)) {
-    checkConnection(key, connection, nodes, actions, issues, usedActions, connectionSources)
+    checkConnection(
+      key,
+      connection,
+      nodes,
+      actions,
+      flowStatuses,
+      issues,
+      usedActions,
+      connectionSources,
+    )
   }
 
   return { issues, usedActions }
 }
 
 /**
- * 单条连接的一致性检查：键/id、事件来源、引用动作、事件重复绑定。
+ * 单条连接的一致性检查：键/id、事件来源、引用动作、引用的流程图、事件重复绑定。
  *
  * 问题与引用集合都通过出参累加——usedActions / connectionSources 是跨连接共享的
- * 单遍游标，改成返回值反而要在外层再合并一次。四条检查的先后即产出顺序，勿调换。
+ * 单遍游标，改成返回值反而要在外层再合并一次。检查的先后即产出顺序，勿调换。
  */
 function checkConnection(
   key: string,
   connection: EventConnection,
   nodes: Readonly<Record<string, NodeSchema>>,
   actions: Readonly<Record<string, ActionDeclaration>>,
+  flowStatuses: ReadonlyMap<string, FlowDefinition['status']> | undefined,
   issues: ValidationIssue[],
   usedActions: Set<string>,
   connectionSources: Map<string, string>,
@@ -277,7 +309,46 @@ function checkConnection(
   }
 
   collectConnectionActions(key, connection.actionIds, actions, issues, usedActions)
+  checkConnectionFlow(key, connection.flowId, flowStatuses, issues)
   registerConnectionEvent(key, connection, connectionSources, issues)
+}
+
+/**
+ * 连接引用的流程图可用性。
+ *
+ * 两种情形必须分开说：id 查不到通常是图被删了，这条绑定永远不会生效，是 error；
+ * 图还在但仍是草稿，页面本身没错，只是这条事件暂时唤起不了它，是 warning——
+ * 把后者也报成 error 会让人以为自己的页面坏了，而真正要做的只是去把图发布。
+ *
+ * 没有图清单（`flowStatuses` 为 undefined）时整体跳过：schema 层看不见另一份存储，
+ * 不能因为自己看不见就断言它不存在。
+ */
+function checkConnectionFlow(
+  key: string,
+  flowId: string | undefined,
+  flowStatuses: ReadonlyMap<string, FlowDefinition['status']> | undefined,
+  issues: ValidationIssue[],
+): void {
+  if (!flowId || !flowStatuses) return
+
+  const status = flowStatuses.get(flowId)
+
+  if (status === undefined) {
+    issues.push({
+      path: `/connections/${key}/flowId`,
+      message: `连接引用的流程图 "${flowId}" 不存在，这个事件只会执行动作链`,
+      severity: 'error',
+    })
+    return
+  }
+
+  if (status !== 'published') {
+    issues.push({
+      path: `/connections/${key}/flowId`,
+      message: `连接引用的流程图还是草稿，发布后页面事件才会执行它`,
+      severity: 'warning',
+    })
+  }
 }
 
 /** 连接引用的动作：不存在的报错，存在的计入 usedActions（孤儿判定据此反推） */
@@ -450,13 +521,17 @@ function checkRootNode(
  * - 动作表键与动作 id 必须一致、type 非空、fallback 策略带补救动作
  * - 动作引用的动作必须存在，且引用图无环
  * - 事件连接引用的动作与节点必须存在，同一事件不可被重复绑定
+ * - 传入图清单时，还查连接引用的流程图是否存在 / 是否已发布
  *
  * 问题顺序即返回顺序（版本 → 动作 → 动作环 → 连接 → 孤儿动作 → 组件树），
  * 面板按此顺序展示，拆分检查项时不要改变产出顺序。
  *
  * @returns 问题列表；空数组表示结构合法。
  */
-export function validateDocument(schema: PageSchema): ValidationIssue[] {
+export function validateDocument(
+  schema: PageSchema,
+  input: DocumentValidationInput = {},
+): ValidationIssue[] {
   const issues: ValidationIssue[] = []
 
   if (!schema.version) {
@@ -465,10 +540,19 @@ export function validateDocument(schema: PageSchema): ValidationIssue[] {
 
   const nodes = schema.nodes ?? {}
   const actions = schema.actions ?? {}
+  // 只在真的拿到图清单时建这张表：不传就要整体跳过检查，逐条比对也一样是零成本
+  const flowStatuses = input.flows
+    ? new Map(input.flows.map((flow) => [flow.id, flow.status]))
+    : undefined
 
   // 事件连接引用的动作与节点都必须存在，且先于组件树校验：
   // 否则空页面会提前返回，把「连到已删除节点的事件」整体漏掉。
-  const connections = validateConnections(schema.connections ?? {}, nodes, actions)
+  const connections = validateConnections(
+    schema.connections ?? {},
+    nodes,
+    actions,
+    flowStatuses,
+  )
   // 孤儿判定要在闭包之后：只被 flow.sequence 引用的动作不算孤儿
   expandUsedActions(actions, connections.usedActions)
 
