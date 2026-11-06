@@ -46,6 +46,7 @@ export type {
   ActionErrorStrategy,
   ActionFieldKind,
   ActionFieldSchema,
+  ActionRefSource,
   EventConnection,
   PageEventName,
 } from './actions'
@@ -106,12 +107,11 @@ export {
   createFlowNode,
   findFlowCatalogEntry,
   findFlowNodeType,
-  flowBindingOf,
-  flowEventKey,
   flowNodeFields,
   isFlowBranchNode,
-  readFlowTriggerBinding,
 } from './flow'
+export type { FlowBindingOption } from './flow-binding'
+export { flowBindingSummary, listFlowBindingOptions } from './flow-binding'
 export type { FlowAdjacency } from './flow-graph'
 export {
   buildFlowAdjacency,
@@ -190,6 +190,23 @@ export type {
   TransformConfig,
 } from './datasource'
 
+// -------------------- 项目接口与引用 -------------------- //
+export type { ApiMethod, ApiRequestFields, PageApiBinding, ProjectApi } from './api'
+export {
+  apiRequestFieldsOf,
+  apiToRestConfig,
+  applyApiBindings,
+  findBindingIdConflicts,
+  findUnresolvedBindings,
+  joinApiUrl,
+  resolveApiBinding,
+  stripApiBindings,
+} from './api'
+
+// -------------------- 全局请求默认值 -------------------- //
+export type { HttpRequestAuth, RequestDefaults, RequestEnvironment } from './request'
+export { mergeRequestDefaults, withAuthHeader } from './request'
+
 // -------------------- 插槽 -------------------- //
 export type { SlotDefinition, SlotRegion } from './slots'
 
@@ -218,6 +235,7 @@ export {
   filterOutlineTree,
   findPosition,
   groupNodes,
+  nodeLabel,
   paintOrder,
   reorderChildren,
   renameNode,
@@ -225,12 +243,17 @@ export {
   ungroupNodes,
 } from './tree'
 
+// -------------------- 引用型字段的候选 -------------------- //
+export type { RefOption, RefOptionsInput } from './ref-options'
+export { listRefOptions } from './ref-options'
+
 // -------------------- 补丁 / 校验 / 迁移 -------------------- //
 export type { SchemaPatch, SchemaPatchOp, SchemaPatches } from './patch'
 export {
   actionPath,
   applyPatches,
   applySchemaPatches,
+  arrayFieldPatch,
   connectionPath,
   createNodeLayoutPatch,
   getAtPath,
@@ -238,7 +261,7 @@ export {
   nodePath,
 } from './patch'
 
-export type { ValidationIssue, ValidationSeverity } from './validate'
+export type { DocumentValidationInput, ValidationIssue, ValidationSeverity } from './validate'
 export { hasBlockingIssue, validateDocument } from './validate'
 
 export type { SchemaMigration } from './migrate'

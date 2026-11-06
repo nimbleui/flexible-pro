@@ -22,6 +22,20 @@ export interface NodePosition {
   index: number
 }
 
+/**
+ * 节点在面板里的显示名。
+ *
+ * 图层树、大纲、事件流、绑定表、出码注释以前各自拼 `name || componentName || id`，
+ * 拼法一旦分叉就会出现「同一个节点在左栏叫 A、在下栏叫 B」。口径放这里，面板只调用。
+ *
+ * @param node 目标节点
+ * @param id 兜底用的 id；节点自身 id 缺省时（构造中的草稿）由调用方给
+ * @returns 改名优先，其次组件名，最后 id
+ */
+export function nodeLabel(node: NodeSchema, id = node.id): string {
+  return node.name || node.componentName || id
+}
+
 /** 图层树条目 */
 export interface OutlineItem {
   /** 对应的 schema 节点；面板直接读它的显示名、显隐与锁定状态 */
