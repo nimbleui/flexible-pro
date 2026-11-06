@@ -93,6 +93,6 @@ describe('REST 取数', () => {
         { kind: 'rest', url: '/api/invalid' },
         { fetchImpl: invalidMock as unknown as typeof fetch },
       ),
-    ).rejects.toThrow('响应不是合法 JSON')
+    ).rejects.toThrow('响应不是合法 JSON（GET /api/invalid）')
   })
 })

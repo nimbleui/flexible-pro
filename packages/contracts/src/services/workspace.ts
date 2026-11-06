@@ -1,5 +1,5 @@
 import type { Disposable } from '@lc/kernel'
-import type { PageSchema } from '@lc/schema'
+import type { PageSchema, RequestDefaults } from '@lc/schema'
 import type { CanvasContext, EditorContext } from '../contexts'
 
 /** 打开文档 Realm 的选项 */
@@ -12,6 +12,14 @@ export interface RealmOptions {
   schema?: PageSchema
   /** 编辑或只读预览；只读模式下文档服务拒绝写入 */
   mode?: 'edit' | 'preview'
+  /**
+   * 项目级请求默认值（可选）。
+   *
+   * 由宿主按当前项目与当前环境给出，交给数据源服务在发请求前合并。它是**初始值**：
+   * 文档打开期间改了配置，宿主调 `dataSource.setRequestDefaults` 推给已开的 Realm，
+   * 而不是重建 Realm——重建会从存储重新装载，未保存的画布改动就没了。
+   */
+  requestDefaults?: RequestDefaults
 }
 
 /**

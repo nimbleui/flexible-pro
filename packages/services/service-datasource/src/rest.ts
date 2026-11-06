@@ -59,7 +59,9 @@ function readResponse(response: Response, config: RestConfig): Promise<unknown> 
     try {
       return JSON.parse(text) as unknown
     } catch {
-      throw new Error('响应不是合法 JSON')
+      // 带上方法与实际地址：域名配错时服务端常返回 200 的 HTML，只说「不是合法 JSON」
+      // 使用者无从知道请求打到了哪里——而配错前缀正是这个项目级默认值最容易犯的错
+      throw new Error(`响应不是合法 JSON（${config.method ?? 'GET'} ${buildRestUrl(config)}）`)
     }
   })
 }

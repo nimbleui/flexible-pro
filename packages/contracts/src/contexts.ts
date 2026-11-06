@@ -9,6 +9,7 @@ import type { DataSourceService } from './services/datasource'
 import type { DocumentService } from './services/document'
 import type { FlowService } from './services/flow'
 import type { HistoryService } from './services/history'
+import type { HttpService } from './services/http'
 import type { KeybindingService } from './services/keybinding'
 import type { LoaderService } from './services/loader'
 import type { MaterialService } from './services/material'
@@ -53,6 +54,13 @@ declare module '@lc/kernel' {
 
     /** 轻提示；由宿主 UI 提供，无 DOM 环境不存在 */
     toast?: ToastService
+    /**
+     * 平台 HTTP 能力；由宿主提供，提供不了时取数退回 `fetchRest`。
+     *
+     * 与 `toast`、`navigation` 同一类：服务名在 `RESERVED_SERVICES` 里占位，但只有宿主
+     * 知道当前项目、当前环境与凭据该往哪儿取，所以实现留在宿主。
+     */
+    http?: HttpService
     /** 路由跳转；由宿主路由提供，无宿主路由环境不存在 */
     navigation?: NavigationService
     /** 流程图仓库；由宿主的流程存储提供，没有流程编排能力时不存在 */
@@ -140,6 +148,7 @@ export const SERVICE_NAMES = [
   'action',
   'toast',
   'navigation',
+  'http',
   'flow',
   'canvas',
   'snap',

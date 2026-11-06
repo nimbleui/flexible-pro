@@ -1,16 +1,22 @@
-import type { DataSourceService, DataSourceState } from '@lc/contracts'
+import type { DataSourceService, DataSourceState, HttpService } from '@lc/contracts'
 import { defineEditorPlugin } from '@lc/contracts'
 import type {
   DataSourceSchemaDef,
   LocalStorageConfig,
   PageSchema,
+  RequestDefaults,
   RestConfig,
 } from '@lc/schema'
-import { resolveDataSourceValue } from '@lc/schema'
+import { mergeRequestDefaults, resolveDataSourceValue } from '@lc/schema'
 import { fetchRest } from './rest'
 
 export { buildRestUrl, fetchRest } from './rest'
 export type { RestRequestOptions } from './rest'
+
+/** 插件配置：由宿主按当前项目与当前环境给出的请求默认值 */
+interface DataSourceServiceConfig {
+  requestDefaults?: RequestDefaults
+}
 
 interface Entry {
   /** 配置指纹；变化时重置状态并在 autoFetch 下重新请求 */
@@ -79,12 +85,21 @@ function initialState(source: DataSourceSchemaDef): DataSourceState {
  * 状态属于文档 Realm：切换文档即换一套请求与状态。当前实现 REST 与本地数据源；
  * GraphQL、transform、cache、轮询尚未接入，未实现类型保持“未取数”状态。
  */
-export default defineEditorPlugin({
+export default defineEditorPlugin<DataSourceServiceConfig>({
   name: 'service-datasource',
   inject: ['document'],
 
-  apply(ctx) {
+  schema: {
+    // 原样带过：默认值的形状由宿主存储负责收窄，这里只可能收到「没有配置」这一种缺省
+    parse: (input) => (input as DataSourceServiceConfig | undefined) ?? {},
+  },
+
+  apply(ctx, config) {
     const document = ctx.document
+    /** 宿主的 HTTP 能力；没有提供时退回本包的 `fetchRest` */
+    const http = ctx.get<HttpService>('http')
+    /** 当前生效的请求默认值；`setRequestDefaults` 是唯一写入方 */
+    let requestDefaults = config.requestDefaults
     const entries = new Map<string, Entry>()
     const listeners = new Set<() => void>()
     let disposed = false
@@ -139,7 +154,13 @@ export default defineEditorPlugin({
       notify()
 
       try {
-        const data = await fetchRest(config, { signal: controller.signal })
+        // 默认值在这里合并：域名与 token 属于项目而不是文档，落进 schema 等于把凭证抄进
+        // 每一篇导出的文档。有宿主 http 服务时交给它发（凭据注入与 401 重取只有一份实现），
+        // 没有就退回裸取数，行为与引入这些能力之前一致。
+        const merged = mergeRequestDefaults(config, requestDefaults)
+        const data = http
+          ? await http.request(merged, { signal: controller.signal, defaults: requestDefaults })
+          : await fetchRest(merged, { signal: controller.signal })
         if (controller.signal.aborted || disposed) return
         entry.state = { data, loading: false, loaded: true, error: null }
       } catch (error) {
@@ -222,10 +243,29 @@ export default defineEditorPlugin({
       return changed
     }
 
+    /**
+     * 换一套请求默认值并重取。
+     *
+     * 默认值不参与配置指纹，`sync()` 看不见它的变化，所以必须显式重发：切了环境却还显示
+     * 上一个域名拿回来的数据，界面上没有任何线索，属于最难被发现的那类错。
+     * 只重发 autoFetch 的 REST 源——显式关掉自动取数的源由用户自己点「刷新」触发。
+     */
+    function applyRequestDefaults(defaults: RequestDefaults | undefined): void {
+      requestDefaults = defaults
+
+      for (const source of schema().datasources ?? []) {
+        if (restConfigOf(source) === undefined || !shouldAutoFetch(source)) continue
+        void fetchState(source.id)
+      }
+
+      notify()
+    }
+
     const service: DataSourceService = {
       stateOf: (id) => entries.get(id)?.state,
       states: () => Object.fromEntries([...entries].map(([id, entry]) => [id, entry.state])),
       fetch: fetchState,
+      setRequestDefaults: applyRequestDefaults,
       onDidChange(listener) {
         listeners.add(listener)
         return { dispose: () => listeners.delete(listener) }

@@ -84,7 +84,8 @@ export default definePlugin({
       })
       realmCtx.plugin(historyPlugin)
       realmCtx.plugin(selectionPlugin)
-      realmCtx.plugin(dataSourcePlugin)
+      // 请求默认值由宿主按项目与环境给出：它不进文档 schema，切环境不该产生一次可撤销的编辑
+      realmCtx.plugin(dataSourcePlugin, { requestDefaults: options.requestDefaults })
       realmCtx.plugin(statePlugin)
       realmCtx.plugin(actionPlugin)
 
