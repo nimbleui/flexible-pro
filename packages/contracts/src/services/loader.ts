@@ -12,6 +12,15 @@ export interface PluginPackage {
   manifest: PluginManifest
   /** 模块加载器；返回插件入口模块命名空间 */
   load: () => Promise<unknown>
+  /**
+   * 该插件物料的 ESM 包名，如 `@agile-plus/materials`；缺省表示产物不在可直接导入的包里。
+   *
+   * 只有宿主知道这件事：清单由插件自己书写，而「从哪个包 import」属于装配层。
+   * 远程物料包与本地蓝图同理，登记方不填就是未映射。
+   * 出码按 `物料名 → 来源插件 → importSource` 反查生成 import 语句，
+   * 消费方（`plugin-panel-code`）不为此新增任何插件侧字段。
+   */
+  importSource?: string
 }
 
 /**
