@@ -16,6 +16,18 @@ export { completeExpression } from './completion'
 export type { ExpressionIssue } from './diagnostics'
 export { diagnoseExpression } from './diagnostics'
 
+export type { ExpressionRef, RefTextMode } from './refs'
+export { listExpressionRefs } from './refs'
+
+/**
+ * 模板取壳与分段。
+ *
+ * 出码器需要它把 `共 {{ n }} 项` 翻成 JS 模板字面量；与引擎共用同一份分段规则，
+ * 才能保证「设计器里看到的插值」和「出码后跑出来的字符串」是同一个字符串。
+ */
+export type { TemplateSegment } from '../source'
+export { splitTemplate, unwrapBraces } from '../source'
+
 export type { SignatureContext, SignatureHelp } from './signature'
 export { signatureHelp } from './signature'
 
