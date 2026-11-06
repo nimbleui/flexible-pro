@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Component, CSSProperties, PropType } from 'vue'
+import type { Component, PropType } from 'vue'
 import {
   computed,
   defineComponent,
@@ -11,7 +11,7 @@ import {
   shallowRef,
   watch,
 } from 'vue'
-import type { EditorContext, RendererService } from '@lc/contracts'
+import type { EditorContext, Point, RendererService } from '@lc/contracts'
 import type { ActionService } from '@lc/contracts'
 import type { Disposable } from '@lc/kernel'
 import type { Rect } from '@lc/schema'
@@ -19,6 +19,7 @@ import { PAGE_EVENT_SOURCE, buildEventPayload, buildExpressionScope } from '@lc/
 import type { RenderNode } from '../render/tree'
 import { buildRenderTree } from '../render/tree'
 import { splitSlotChildren } from '../render/slots'
+import { contentOriginOf, nodeStyleAt } from '../render/nodeStyle'
 import { eventListenerProp } from '../render/events'
 
 /**
@@ -161,39 +162,28 @@ function listenersOf(node: RenderNode['node']): Record<string, unknown> {
   return handlers
 }
 
-function nodeStyle(item: RenderNode): CSSProperties {
-  const rect = item.rect
-  return {
-    ...(item.node.style as CSSProperties | undefined),
-    position: 'absolute',
-    left: `${rect.x - origin.value.x}px`,
-    top: `${rect.y - origin.value.y}px`,
-    width: `${rect.width}px`,
-    height: `${rect.height}px`,
-    zIndex: item.node.layout?.zIndex,
-    transform: item.node.layout?.rotate ? `rotate(${item.node.layout.rotate}deg)` : undefined,
-    display: item.visible ? undefined : 'none',
-  }
-}
-
-function renderNode(item: RenderNode): ReturnType<typeof h> {
+function renderNode(item: RenderNode, origin: Point): ReturnType<typeof h> {
   const component = materialOf(item.node.componentName)
   const name = item.node.componentName
+  // 子层按本节点矩形做补偿，与 CanvasStage 同一口径；用页面原点会让嵌套节点每层重复累加祖先偏移
+  const contentOrigin = contentOriginOf(item)
 
   // 与 CanvasStage 同一套归属判定：声明了插槽的内容交给组件，其余继续平铺
   slotVersion.value
   const declared = component ? ctx.material.get(name)?.slots : undefined
   const split = component ? splitSlotChildren(item.node, item.children, declared) : null
   const rest = split ? split.rest : item.children
-  const children = rest.length ? h(NodeTree, { key: 'children', items: rest }) : null
-  const named = split ? slotFactories(split.named) : undefined
+  const children = rest.length
+    ? h(NodeTree, { key: 'children', items: rest, origin: contentOrigin })
+    : null
+  const named = split ? slotFactories(split.named, contentOrigin) : undefined
 
   return h(
     'div',
     {
       key: item.key,
       class: 'lc-runtime__node',
-      style: nodeStyle(item),
+      style: nodeStyleAt(item, origin),
     },
     [
       component
@@ -211,12 +201,16 @@ function renderNode(item: RenderNode): ReturnType<typeof h> {
  */
 function slotFactories(
   named: Record<string, RenderNode[]>,
+  origin: Point,
 ): Record<string, () => ReturnType<typeof h>[]> | undefined {
   const entries = Object.entries(named)
   if (entries.length === 0) return undefined
 
   return Object.fromEntries(
-    entries.map(([slot, items]) => [slot, () => [h(NodeTree, { key: `slot-${slot}`, items })]]),
+    entries.map(([slot, items]) => [
+      slot,
+      () => [h(NodeTree, { key: `slot-${slot}`, items, origin })],
+    ]),
   )
 }
 
@@ -225,9 +219,11 @@ const NodeTree = defineComponent({
   name: 'LcRuntimeNodeTree',
   props: {
     items: { type: Array as PropType<RenderNode[]>, required: true },
+    /** 当前层的坐标原点；页面层传根节点矩形，容器内部传该容器的矩形 */
+    origin: { type: Object as PropType<Point>, required: true },
   },
   setup(treeProps) {
-    return () => treeProps.items.map((item) => renderNode(item))
+    return () => treeProps.items.map((item) => renderNode(item, treeProps.origin))
   },
 })
 
@@ -303,7 +299,7 @@ onUnmounted(() => {
     class="lc-runtime"
     :style="{ width: `${canvasSize.width}px`, height: `${canvasSize.height}px` }"
   >
-    <NodeTree :items="tree" />
+    <NodeTree :items="tree" :origin="origin" />
   </div>
 </template>
 

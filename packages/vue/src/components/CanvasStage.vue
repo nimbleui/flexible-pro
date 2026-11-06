@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CSSProperties, Component, PropType } from 'vue'
+import type { Component, PropType } from 'vue'
 import {
   computed,
   defineComponent,
@@ -25,6 +25,7 @@ import { CANVAS_DROP_PREVIEW_SETTING, materialNameFromDragTypes } from '@lc/cont
 import type { ExpressionEngine } from '@lc/schema'
 import { buildPageData } from '@lc/schema'
 import { splitSlotChildren } from '../render/slots'
+import { contentOriginOf, nodeStyleAt } from '../render/nodeStyle'
 import { buildRenderTree } from '../render/tree'
 import type { RenderNode } from '../render/tree'
 import LayerHost from './LayerHost.vue'
@@ -93,31 +94,10 @@ function materialOf(name: string): Component | null {
   return components.get(name) ?? null
 }
 
-/**
- * 节点样式：把世界矩形减去父级原点写入 DOM。
- *
- * 容器渲染使用「坐标补偿」而不是相对坐标模型：schema 里的 rect 始终是世界坐标，
- * 嵌套 DOM 只负责裁剪与层叠，视觉与扁平渲染保持一致。
- */
-function nodeStyle(item: RenderNode, origin: Point): CSSProperties {
-  const rect = item.rect
-  return {
-    ...(item.node.style as CSSProperties | undefined),
-    position: 'absolute',
-    left: `${rect.x - origin.x}px`,
-    top: `${rect.y - origin.y}px`,
-    width: `${rect.width}px`,
-    height: `${rect.height}px`,
-    zIndex: item.node.layout?.zIndex,
-    transform: item.node.layout?.rotate ? `rotate(${item.node.layout.rotate}deg)` : undefined,
-    display: item.visible ? undefined : 'none',
-  }
-}
-
 function renderNode(item: RenderNode, origin: Point): ReturnType<typeof h> {
   const component = materialOf(item.node.componentName)
   const name = item.node.componentName
-  const contentOrigin: Point = { x: item.rect.x, y: item.rect.y }
+  const contentOrigin = contentOriginOf(item)
 
   // 订阅物料变化：自定义组件改了插槽声明后，这里要重新决定内容归属
   slotVersion.value
@@ -137,7 +117,7 @@ function renderNode(item: RenderNode, origin: Point): ReturnType<typeof h> {
       class: 'lc-node',
       'data-node-id': item.node.id,
       'data-disabled': item.disabled ? 'true' : undefined,
-      style: nodeStyle(item, origin),
+      style: nodeStyleAt(item, origin),
     },
     [
       component
