@@ -23,7 +23,7 @@
 - `provideContext(app, context)`（`:14-16`）**只在应用根调用一次**，注入的是 AppContext。
 - `ContextScope.vue:6-16` 用**组件级 `provide`** 再注入一层。注释点明关键理由：「同一应用里可以按子树注入不同的 Realm，嵌套时子组件取到的是最近一层（画布作用域会再注入一次）」。
 
-所以 `views/DesignerView.vue:81` 的 `<ContextScope :context="editor.context">` 之下的面板调用 `useAppContext()`（`:19-25`，**未注入即抛错，不静默返回 undefined**）拿到的是 **EditorRealm 上下文**，于是 `ctx.get('document')` 才成立。这是多 Realm 支持的落地方式，而不是靠约定「只有一个编辑器」。
+所以 `views/DesignerView.vue:434` 的 `<ContextScope :context="editor.context">` 之下的面板调用 `useAppContext()`（`:19-25`，**未注入即抛错，不静默返回 undefined**）拿到的是 **EditorRealm 上下文**，于是 `ctx.get('document')` 才成立。这是多 Realm 支持的落地方式，而不是靠约定「只有一个编辑器」。
 
 ### `useService` / `useRegistryList`
 
@@ -200,16 +200,21 @@ element.focus()                     // :258 键盘挂在舞台上
 
 ### 布局
 
-外壳拆成两个文件：`apps/host/src/App.vue`（34 行）只放跨路由的壳，`apps/host/src/views/DesignerView.vue`（124 行）放一个文档的设计器界面。
+外壳拆成三个文件：`apps/host/src/App.vue` 只放跨路由的壳（顶栏 + `RouterView`），`views/ProjectShellView.vue` 是项目外壳（面包屑 + 四个资产页签 + 项目不存在态），`views/DesignerView.vue` 放一个文档的设计器界面。下面两段里的行号只作定位辅助，结构以文件为准。
 
 ```text
 apps/host/src/App.vue                                   外壳
 └ .lc-app
-  ├ header.lc-app__header                               :15-29
-  │   brand（LC / LowCode Studio / 微前端宿主徽章）      :16-20
-  │   nav > RouterLink「页面」                           :22-24
-  │   button「命令 ⌘K」→ appCtx.emit('palette:toggle')   :8-10、:26-28
-  └ RouterView :key="route.path"                        :32   换文档即整页重建
+  ├ header.lc-app__header                               顶栏三项：项目管理（实链）+ 插件市场 / AI 助手（占位）
+  │   brand（低代码平台 / 企业版徽章）
+  │   nav > RouterLink「项目管理」→ /projects；其余两项 aria-disabled
+  │   button「搜索」→ appCtx.emit('palette:toggle')，通知与账户按钮尚未接入
+  └ RouterView :key="route.path"                        换文档即整页重建
+
+apps/host/src/views/ProjectShellView.vue                项目外壳
+├ .lc-shell__bar                                        项目管理 / 项目名 + id + 说明 + 四个页签（带计数）
+├ activeTab                                             剥掉项目前缀后比前缀，design/ 与 preview/ 归页面页签
+└ RouterView                                            项目内的资产视图
 
 apps/host/src/views/DesignerView.vue                    设计器视图
 <div v-if="!ready" .lc-designer__loading>               :374  就绪门，见 12 号文档 §5
@@ -245,7 +250,75 @@ ContextScope(editor.context)                            :376
 
 ### 演示文档
 
-`apps/host/src/demo-document.ts:13-40+`：`createDemoSchema()` 返回 `version: SCHEMA_VERSION`、`nodeId: 'board'`、根 `Box` 820×540，`children: ['title','subtitle','cards','circle','badge','watermark','note']`。头注释说明它刻意包含**一个分组、一个锁定节点、一个隐藏节点**，并埋了深链 `board → cards → cardB → cardBList → 文本`，用来验证变换类手势作用在容器上时是否连带整棵子树。`apps/host/src/pages.ts` 把它和一份只含根容器的空白页组成页面列表，路由按 `documentId` 取用。
+`apps/host/src/demo-document.ts:13-40+`：`createDemoSchema()` 返回 `version: SCHEMA_VERSION`、`nodeId: 'board'`、根 `Box` 820×540，`children: ['title','subtitle','cards','circle','badge','watermark','note']`。头注释说明它刻意包含**一个分组、一个锁定节点、一个隐藏节点**，并埋了深链 `board → cards → cardB → cardBList → 文本`，用来验证变换类手势作用在容器上时是否连带整棵子树。
+
+### 宿主侧存储与项目工作台
+
+五份记录都还没有后端，一律落 localStorage；接服务端时只替换各自 store 文件里的 `readStorage` / `persist`，其余模块不动。
+
+| 键                        | 模块                                     | 写入方                                                 |
+| ------------------------- | ---------------------------------------- | ------------------------------------------------------ |
+| `lc.projects.v1`          | `projects/project-store.ts`              | 项目管理页的建/改名/删                                 |
+| `lc.pages.v1`             | `pages/page-store.ts`                    | 页面列表的新建/改名/删，以及设计器「保存」写回文档快照 |
+| `lc.flows.v1`             | `workflows/flow-store.ts`                | 流程列表与流程编辑器（草稿、发布）                     |
+| `lc.global-functions.v1`  | `functions/global-functions.ts`          | 函数管理页                                             |
+| `lc.custom-components.v1` | `custom-components/custom-components.ts` | 组件列表与组件蓝图页                                   |
+| `lc.apis.v1`              | `apis/api-store.ts`                      | 接口管理页的登记/修改/删除                             |
+| `lc.api-scope.v1`         | `apis/api-config.ts`                     | 接口管理页的「请求配置」面板（多套环境的域名与默认头） |
+| `lc.releases.v1`          | `projects/release-store.ts`              | 发布页的「发布新版本」与「切到此版本」                 |
+
+**项目是五类资产的归属容器**：`projects/project-model.ts` 里 `ProjectDefinition` 只带展示字段，资产记录各带一个可选 `projectId` 外键，缺省即 `DEFAULT_PROJECT_ID`（唯一的解释点是 `resolveProjectId`）。项目记录不反向存资产 id——双向引用会在删资产后留下悬空指针，而「项目里有什么」永远能从资产侧过滤出来。项目卡片上的计数与删除拦截共用 `countProjectAssets` 一次过滤。
+
+`PageRecord`（`pages/page-model.ts`）取代了改造前的 `apps/host/src/pages.ts` 常量数组：那份数组的条目带 `createSchema` 工厂函数，「新建页面」在刷新后必然消失，项目侧也就无从统计。首次装载时由 `pages/page-seed.ts` 按原 id 写入内置页面，之后它们与设计器保存出来的页面是同一种记录，可改名可删除。设计器保存走 `savePageSchema`：只替换文档，标题与归属各有唯一写入方，写回前做 JSON 往返拷贝，避免存储与画布内存里的 `model.schema` 共享引用。
+
+**路由带项目段，读取端与写入端都按项目校验**。五类资产与发布/运行路径都挂在 `/projects/:projectId` 下面（`router.ts` 的 `projectChildren`，共 17 条子路由），`ProjectShellView` 提供面包屑与六个页签（页面/流程/函数/组件/接口/发布，前五个带计数），页签计数与卡片计数都走 `countAssetsOf` 的同一套过滤。旧路径 `/pages`、`/design/:documentId`、`/preview/:documentId` 等 11 条继续存在并回落默认项目——书签与写进文档动作里的跳转目标（示例文档的 `navigate` 动作写着 `/preview/event-doc`）都指向无前缀路径，而文档内容已经落盘。
+
+作用域在两头各有一道：列表与编辑器用 `visibleInProject(record, projectId)` 把不属于本项目的记录当不存在；`savePageSchema(id, schema, projectId)` 再校验一次。后者不是重复——地址栏把 A 项目的文档挂到 B 项目的 URL 上时，画布显示的是空白回退文档，而「保存」写的是同一个 id，只过滤读取端正好漏在这条路上（实测：写回被拒、A 的记录 `updatedAt` 未变）。
+
+**页面事件到流程图的绑定存在页面这一侧**：`connection.flowId` 一个字段就是全部真相，运行时按 id 向宿主图仓库要**已发布**版本（`workflows/flow-service.ts` → `flow-store.getPublishedFlowById`）。项目作用域仍然卡住——页面写下的 id 只是个字符串，把 B 项目的图粘到 A 项目的页面上照样存得下，所以查询带项目段，缺省即默认项目。
+
+这里有一段历史值得留着：绑定原先写在图的触发节点上，用「文档 + 来源节点 + 事件名」三段键匹配，配套还有发布抢键闸门（`workflows/flow-conflicts.ts`，已删除）。那套设计有两个改不掉的毛病——节点 id 只在页面内唯一，少一段就会让一张图跑到别人的同名节点上；而「图上写着绑 A 页、页面里也写着绑 B 页」这种两处真相一旦出现，运行时听谁的没有任何界面说得出。改成页面持有之后，三段键、占位段 `NON_PAGE_TRIGGER`、抢键闸门一起退役，「一个事件绑两张图」也从结构上不可能了。
+
+### 接口管理与页面引用
+
+**接口是第五类资产，归属项目而不是归属文档**。`apis/` 各司其职：`api-model.ts` 是接口记录的纯逻辑（输入归一化、读档收窄、按 `group` 分组），`api-store.ts` 持 `lc.apis.v1` 与增删改（`findApiReferences` 反查页面文档里的 `schema.apis`，`removeApi` 对仍被引用的接口直接拒绝，与 `removeProject` 同一取舍），`api-config-model.ts` + `api-config.ts` 持请求环境与 `lc.api-scope.v1`，`api-request.ts` 是调试台的请求执行，`api-load.ts` 是文档装载侧的唯一入口。视图是 `views/ApiListView.vue`（顶部嵌 `components/api/ApiRequestConfigPanel.vue`）与 `views/ApiEditorView.vue`（请求定义 / 响应与类型 / 调试三页签）。
+
+**请求环境（域名、默认头、默认参数、凭据策略）存在接口侧而不是 `ProjectDefinition` 上**：给项目加一个只有取数读得懂的字段，会让「项目」变成杂物抽屉。一个项目可以并存「本地 / 测试 / 生产」多套，同一时刻只有一套生效；切环境只改这一处，所有相对路径与没写同名头的请求都跟着变——这正是「域名配在页面里」变成 N 处副本的反面。
+
+**两条边界是刻意的**：其一，环境值合并发生在**发请求前一刻**（`@lc/schema` 的 `mergeRequestDefaults`，被运行时取数与调试台共用），不进文档 schema，所以切环境不产生一次可撤销的编辑，token 也不会跟着文档导出、复制或进页面记录；其二，同名值**局部优先**——全局是兜底而不是覆盖，需要强制统一注入时就不该在接口里写这一项。配置面板里 `Authorization` 一类敏感头的值按密码框渲染（可勾「显示敏感值」），但存储仍是浏览器明文：这是没有后端的必然结果，`secrets` 服务名内核已预留，接上服务端之后由它接管。切换「编辑目标」与「设为当前」是两个动作，只有后者会调 `pushRequestDefaults` 把新值推给**本项目**已打开的 Realm 并触发重新取数——`listEditors()` 里可能挂着别的项目的 Realm，把 A 的 token 推给 B 是那种一发现就说明作用域错了的 bug。
+
+**调试台用的是表单上当前的草稿而不是已保存的定义**，`apis/api-request.ts` 为此把入参收成 `ApiRequestFields`（`ProjectApi` 的请求侧子集，定义在 `@lc/schema`），不必为一次调试伪造 id 与时间戳；配置映射与默认值合并完全复用 `apiToRestConfig` + `mergeRequestDefaults`，所以「调试通、放进页面就挂」不会是两套规则造成的。剩下的差别只有两处刻意的：本模块自带一份 fetch 调用而不是 import `@lc/service-datasource` 的 `fetchRest`（宿主没声明那个依赖，语义漂移以运行时为准），以及结果不抛异常——状态码、响应头、耗时与失败原因要一起显示。响应可以一键写回 `sample` 与 `resultType`（`typeNodeFromSample`），这是接口管理相对「在页面里手抄一份数据源」的实际增量。
+
+**凭据（token）走「登录接口 + 401 重取一次」**：环境里可以选一条**项目已登记的接口**当登录来源，并写明 token 在响应里的点路径（`data.accessToken`，与数据源 `PathTransform.path` 同一套写法）。发业务请求前先取票（`withAuthHeader` 注入 `Authorization: Bearer …`，可改头名与值模板），命中 401 就丢掉缓存重取一次并重发——**只重发一次**，否则凭据始终无效的请求会在两端之间无限打转。三处刻意的设计：token 缓存在模块级并按**合并后的登录地址**作键，所以换环境自然换票、并发请求只登录一次；登录接口本身不带凭据，杜绝递归；环境改动、切换或删除时 `dropTokens()`，避免继续送出上一个环境的凭据。实现落在宿主的 `apis/api-request.ts`，并通过 `http` 服务名对外提供（这个名字在 `RESERVED_SERVICES` 里早已占位，宿主提供也要走 GRANTS 授权）：`@lc/service-datasource` 拿到 `http` 就用它发请求，没有就退回本包的 `fetchRest`——于是运行时取数与接口调试台共用同一份凭据逻辑，不存在「调试通、页面 401」。实测：以 `/package.json` 当登录接口（`tokenPath: name`），绑定后的数据源发出两次请求，第一次不带凭据、第二次带 `Bearer @lc/host` 并成功；随后在调试台点「发送」只发了一次业务请求，说明凭据缓存是共用的。
+
+**登录接口是按当前定义拷一份副本进环境**（`apiRequestFieldsOf`），不是运行时按 id 回查接口表：快照与 Realm 不该依赖可能被改过的表，也不该有跨项目读表的能力。代价是改了登录接口的路径之后，环境要重新保存一次——面板会把副本路径显示出来。
+
+**页面存引用，不存副本**：`PageSchema.apis?: PageApiBinding[]` 只记 `{ id: 绑定名, apiId }`，地址/方法/头/参数/样本/类型都在项目定义那一侧。展开与剥离是一对纯函数（`@lc/schema` 的 `applyApiBindings` / `stripApiBindings`，判据同为「id 出现在 `apis` 里就归绑定所有」）：
+
+| 端   | 位置                                                       | 作用                                                         |
+| ---- | ---------------------------------------------------------- | ------------------------------------------------------------ |
+| 装载 | `apis/api-load.ts` → `DesignerView.vue`、`PreviewView.vue` | 进 Realm 前把绑定展开成 `datasources` 里的完整条目           |
+| 写回 | `pages/page-store.ts` 的 `savePageSchema`                  | 落盘前剥离展开结果，否则引用退化成副本、改定义对这个页面无效 |
+
+因此 `@lc/service-datasource` 取数、`buildPageSymbols` 补全、`PageRuntime` 渲染与「数据绑定」面板都不用知道项目接口存在，运行也不需要新增跨作用域服务。绑定与解绑由 `components/page-data/utils/api-binding.ts` 的 `bindingPatches` 一次打两条补丁（`/apis` 与 `/datasources`），所以点完「引用项目接口」画布立刻能取数；绑定名走 `validateDataName` 与 `suggestBindingName`（取路径最后一个真实段转驼峰），与变量、页面自有数据源共用同一张占用表。
+
+### 发布、快照与运行态
+
+**一次发布 = 汇总校验 + 不可变快照 + 移动指针**，三段分别在不同文件里，边界是刻意的：
+
+| 段   | 位置                        | 内容                                                                                                                                                                                                                            |
+| ---- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 校验 | `projects/release-model.ts` | `validateProjectRelease`：没有页面 / 页面引用的项目接口已不存在 / 页面文档有阻断问题 / 页面事件绑了不存在的图 → error；已发布图当前内容仍有阻断 → error；草稿流程、页面事件绑了草稿图 → warning                                 |
+| 快照 | `projects/release-store.ts` | `publishProject` 把 `collectProjectAssets` 的结果 JSON 深拷贝成 `ProjectRelease`，写进 `lc.releases.v1`；引用在此展开成完整配置，**当时生效的那套请求环境整体记进 `assets.environment`**，线上版本不跟着后来改的域名或 token 漂 |
+| 指针 | `projects/project-store.ts` | `setPublishedRevision` 是 `publishedRevision` 的唯一写入方；回滚只调它                                                                                                                                                          |
+
+- **回滚只动指针，不写回资产记录**。工作区里未发布的草稿被一次回滚盖掉是数据丢失，而「线上跑哪个版本」本来就该是随时能拨回去的开关。
+- **快照写入前做 JSON 深拷贝**（`cloneAssets`）。各资产 store 都是整对象替换，理论上不会原地改旧对象，但快照声明的是不可变，不能依赖上游自觉：一次别名共享会让「运行 v1 的内容」跟着草稿一起变，而界面上毫无痕迹。实测过这条路径：改了草稿的标题并保存，`v1` 快照里仍是旧文本。
+- **每项目保留最近 5 份**（`RELEASE_RETENTION`）。快照装整份资产内容，全留会让 localStorage 随发布次数线性膨胀。剪枝只删最旧的，所以现存最大号永远等于历史最高号。
+- **`nextRevision` 必须同时看现存快照与指针**：只看指针时，线上切回 v1 后再发布会算出 v2，而 v2 那份快照还在表里，同号两份内容，运行页取到哪份取决于遍历顺序。这条是浏览器实测里真踩到的，回归用例见 `tests/release-model.spec.ts` 的「回滚后再发布不跟已有快照撞号」。
+- **运行页与预览页是两条不同的路**：预览（`/preview/:documentId`）复用设计器打开的那个 Realm，所以能看到没保存的草稿；运行页（`/run/:documentId`）读 `currentReleaseOf(projectId)` 指向的快照，并且 Realm key 带版本号（`demo-doc@r7`）——同 key 会让 `workspace` 复用设计器那份草稿 Realm，于是「运行 v7」显示的是从没发布过的内容。合成 key 只用于 Realm 索引，文档模型 id 在全仓没有其他消费者。请求默认值也按这条分工走：预览拿**当前**环境，运行页拿**快照里记下的**那套（实测：把项目环境切到一个不存在的域名前缀，预览立即报 `响应不是合法 JSON（GET /__nope/package.json）`，运行页仍然正常返回数据）。
+- 两者的渲染生命周期共用 `pages/use-page-runtime.ts`（建/复用 Realm、就绪门、页面函数注册与注销、`$route` 作用域），差别只在 `preferExisting`：为 `false` 时 Realm 是自己新建的，卸载即回收，避免版本×页面的 Realm 只增不减。
+- 发布页的按钮禁用依据是 `checkProjectRelease`（纯读，不写任何东西），问题清单在同一页展开为「N 处阻断 · M 条提示」；页面列表每行的「运行」按线上快照存在与否决定可用，不就在快照里的页面直接禁用并解释原因，而不是跳进一张空白运行页。
 
 ### 样式
 

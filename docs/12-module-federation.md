@@ -8,7 +8,7 @@
 平台从「一个可运行应用」拆成两个 Vite 应用，用 Module Federation 连接：
 
 ```text
-apps/host      @lc/host      MF Host   ：外壳、路由、页面列表、文档 Realm、面板、状态栏、开发者工具
+apps/host      @lc/host      MF Host   ：外壳、路由、项目工作台与资产存储、文档 Realm、面板、状态栏、开发者工具
 apps/designer  @lc/designer  MF Remote ：画布模块，只暴露 ./CanvasModule，无 index.html，不独立运行
 ```
 
@@ -75,11 +75,11 @@ context.runtime.grant('canvas-snap', ['snap'])
   ├ loader.register(4 个宿主侧包)             :79-80
   └ 注册 app.commandPalette + Mod+K          :83-92
 
-路由 /design/:documentId → DesignerView      apps/host/src/views/DesignerView.vue
-├ workspace.getEditor ?? createEditorRealm   :43-49
-├ editor.createCanvasRealm()                 :52   （canvas-core 在这里排队装配）
-├ onMounted: await runtime.whenIdle()        :68-73  就绪门，之后才渲染子树
-└ <CanvasModule :app-context :canvas-context>  :105  defineAsyncComponent 拉远程
+路由 /projects/:pid/design/:documentId → ProjectShellView → DesignerView
+├ workspace.getEditor ?? createEditorRealm   :66-72
+├ editor.createCanvasRealm()                 :75   （canvas-core 在这里排队装配）
+├ onMounted: await runtime.whenIdle()        :195  就绪门，之后才渲染子树
+└ <CanvasModule :app-context :canvas-context>  :587  defineAsyncComponent 拉远程
 
 远程 CanvasModule setup                       apps/designer/src/CanvasModule.vue
 ├ installCanvasCapabilities(appContext)       :27   登记 15 包 + 自签授权（幂等）
@@ -88,7 +88,7 @@ context.runtime.grant('canvas-snap', ['snap'])
 └ ready → <CanvasStage :context>              :40
 ```
 
-**就绪门为什么必要**：`Context.plugin()` 只做登记，服务要到 runtime 的微任务批里才 `apply`（`packages/kernel/src/context.ts:442-452` 的注释）。拆分前 `bootstrapDesigner()` 在 `createApp` 之后统一 `await whenIdle()` 才渲染；拆分后 Realm 由路由创建，若不同步等待，`StatusBar` 在 setup 里 `canvasContext.require('canvas')` 就会抛「未找到服务」——这次实现真的踩过一次，门加在 `DesignerView.vue:68-73`。
+**就绪门为什么必要**：`Context.plugin()` 只做登记，服务要到 runtime 的微任务批里才 `apply`（`packages/kernel/src/context.ts:442-452` 的注释）。拆分前 `bootstrapDesigner()` 在 `createApp` 之后统一 `await whenIdle()` 才渲染；拆分后 Realm 由路由创建，若不同步等待，`StatusBar` 在 setup 里 `canvasContext.require('canvas')` 就会抛「未找到服务」——这次实现真的踩过一次，门加在 `DesignerView.vue:194-197`。
 
 ## 6. 运行与部署
 
@@ -135,7 +135,7 @@ context.runtime.grant('canvas-snap', ['snap'])
 ## 8. 已知边界
 
 1. **远程不可达时只有提示，没有重试**：`errorComponent` 只给文案，不会自动重连，也没有降级到静态占位画布。
-2. **文档 Realm 只增不减**：`EditorRealm` 由路由创建、只在应用销毁时级联回收；页面列表会显示「已打开」，但没有关闭文档的入口。`CanvasRealm` 则随视图释放（`DesignerView.vue:57-60`）。
+2. **文档 Realm 只增不减**：`EditorRealm` 由路由创建、只在应用销毁时级联回收；页面列表会显示「已打开」，但没有关闭文档的入口。`CanvasRealm` 则随视图释放（`DesignerView.vue:75` 创建、`:123-129` 卸载时回收）。
 3. **画布内核仍在宿主**：`@lc/canvas` 与 `service-canvas-core` 通过 `service-workspace` 的依赖进入宿主 bundle。要做到「宿主完全不含画布代码」，得把 Realm 工厂也搬进远程，那会让 `workspace` 服务分裂成两侧——当前不划算。
 4. **`@lc/*` 平台包在两个 bundle 里各有一份**：`@lc/vue`、`@lc/contracts` 都双副本，只靠 `Symbol.for` + 字符串服务名 + 宿主原型访问器三点保证一致。若将来要共享整个内核层，需要给每个包配 MF `shared` 与真实版本号，属于另一件事。
 5. **主题令牌由宿主提供**：`--lc-*` 定义在 `apps/host/src/styles/tokens.css`，远程的画布样式只消费变量。远程被别的宿主复用时，那个宿主必须自带同一套令牌。

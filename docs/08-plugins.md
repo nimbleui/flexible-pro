@@ -1,6 +1,6 @@
 # 08 插件层
 
-20 个已登记插件包 + 2 个预设。全部通过 `manifest.contributes` 声明入口，宿主与预设不认识任何一个具体插件。
+25 个插件包（10 个业务插件 + 15 个画布能力）+ 2 个预设。全部通过 `manifest.contributes` 声明入口，宿主与预设不认识任何一个具体插件。
 
 ## 1. 装配路径回顾
 
@@ -40,7 +40,7 @@ for (const feature of features)
 
 `@lc/preset-canvas` 的依赖只有 `contracts` 与 `kernel`，**不认识任何画布插件**——这是「新增画布能力不需要改宿主」的结构保证。
 
-## 3. 业务插件（8 个）
+## 3. 业务插件（10 个）
 
 | 包                            | manifest.name      | 贡献点      | 条目 | 关键属性                                                                                                                           |
 | ----------------------------- | ------------------ | ----------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -51,11 +51,13 @@ for (const feature of features)
 | `@lc/plugin-panel-style`      | `panel-style`      | `panels`    | 1    | slot `designer.stylePanel`、title「样式」、`order: 10`、`onPanel:style`                                                            |
 | `@lc/plugin-panel-node-event` | `panel-node-event` | `panels`    | 1    | slot `designer.eventPanel`、title「事件」、`order: 10`、`onPanel:nodeEvent`                                                        |
 | `@lc/plugin-panel-advanced`   | `panel-advanced`   | `panels`    | 1    | slot `designer.advancedPanel`、title「高级」、`order: 10`、`onPanel:advanced`                                                      |
-| `@lc/plugin-panel-eventflow`  | `panel-eventflow`  | `panels`    | 1    | slot `designer.bottomPanel`、`order: 10`、`onPanel:eventflow`（`plugin-panel-eventflow/src/manifest.ts:3-22`）                     |
+| `@lc/plugin-panel-eventflow`  | `panel-eventflow`  | `panels`    | 1    | slot `designer.bottomPanel`、`order: 10`、`onPanel:eventflow`（`plugin-panel-eventflow/src/manifest.ts:3-23`）                     |
+| `@lc/plugin-panel-data`       | `panel-data`       | `panels`    | 1    | slot `designer.bottomPanel`、title「数据绑定」、`order: 20`、`onPanel:data`                                                        |
+| `@lc/plugin-panel-code`       | `panel-code`       | `panels`    | 1    | slot `designer.bottomPanel`、title「代码」、`order: 30`、`onPanel:code`                                                            |
 
-左槽现在只剩物料面板一个贡献者（大纲改投浮层槽，`order` 10 < 20 的先后关系因此不再有意义）；底槽是事件流、浮层槽是页面大纲，右侧四个页签各一个贡献者，每个槽当前都只有一个面板。
+左槽现在只剩物料面板一个贡献者（大纲改投浮层槽，`order` 10 < 20 的先后关系因此不再有意义）；浮层槽是页面大纲，右侧四个页签各一个贡献者，**底槽是唯一有多位贡献者的槽**——事件流、数据绑定、代码三家共用它，页签条由外壳按贡献生成、`LcSlot` 的 `active` 只挂载当前那一个（分工差别见 [05 §3](./05-contracts-and-schema.md)）。
 
-一个插件包只能贡献**一个**面板组件：`collectModules` 把 manifest 里出现的每个 `module` 字符串都登记成 `插件名/模块路径`，但加载器一律指向同一个 `pkg.load`（`service-loader/src/index.ts:322-329`），`Slot.vue` 再取 `module.default`（`packages/vue/src/components/Slot.vue:100-106`）。所以样式 / 事件 / 高级三个页签是三个独立包，而不是属性面板多写三条 `panels` 贡献。
+一个插件包只能贡献**一个**面板组件：`collectModules` 把 manifest 里出现的每个 `module` 字符串都登记成 `插件名/模块路径`，但加载器一律指向同一个 `pkg.load`（`service-loader/src/index.ts:322-329`），`Slot.vue` 再取 `module.default`（`packages/vue/src/components/Slot.vue:100-106`）。所以样式 / 事件 / 高级三个右栏页签是三个独立包，底栏的数据绑定与代码也各自一包，而不是让事件流面板多写三条 `panels` 贡献。
 
 ### 3.1 `materials-basic`：四个物料
 
@@ -153,6 +155,39 @@ MIME 前缀 `application/x-lc-material:` + 物料名按码点转十六进制（`
 - 表达式读写在 `utils/expression-field.ts`：输入框统一显示 `{{ ... }}`，落盘存剥壳后的内层文本（与既有文档的 `condition` 写法一致）；空文本与只剩外壳都视为清空，不存恒为真的空表达式；裸字符串原样回显而不顺手包装——包装会把它从常量变成会求值的表达式，那是语义变更。
 - 指令表整体替换而不逐条写索引路径（`utils/directives.ts`）：同一批编辑按索引改会互相覆盖，整表一次写入更稳；下标越界返回等值新数组而不抛错，因为列表可能在提交之间被撤销或画布删除改短。
 - `readonly` / `required` 两种指令在协议里有、`buildRenderTree` 未实现（只吃 show / hide / disabled），下拉里照列但标注「渲染层未生效」。
+
+### 3.8 底栏两个新面板
+
+**`panel-data`：数据绑定。** 面板整体只读，回答「数据从哪来、被谁读、有没有读错」，增删改仍走宿主的页面数据弹框（点「编辑页面数据」执行 `pageData.openDialog` 命令，不新造一套入口）。三列：左列数据项（变量 / 接口数据 / 函数 / 路由参数，带引用计数与取数状态）、中列绑定表（29 条真实绑定，点行把画布选中集切过去）、右列绑定详情与「数据体检」。
+
+绑定扫描与引用反查都建立在 `@lc/expression/editor` 新增的 `listExpressionRefs` 上（`packages/expression/src/editor/refs.ts`）：它把白名单语法树走一遍，只记录**最长静态访问链**，因此 `data.users.data` 不会连带产出 `data.users` 与 `data` 两条前缀；`data[key]` 这类动态下标在断点处截断并标 `dynamic`。两条判定共用同一份引用集：
+
+- 未声明引用：`data.` 后第一段不在 `variables ∪ datasources` 里就报。**只校验 `data` 根**——`$route` / `event` 由宿主注入、循环形参只在局部作用域，设计期都没有稳定的声明源可查；裸标识符写错也不在这里重复报，表达式引擎本来就会按 `unbound-identifier` 上报诊断。
+- 死数据：没有任何绑定读它。出现动态 `data` 下标时整体跳过这项检查，宁可少报也不把正在用的数据说成死数据。动作 `config` / `condition` 计入引用集，否则事件里正在用的变量会被误报；函数体不计入，因为 `PageSchema.functions` 的契约是纯函数、只看得见形参。
+
+**`panel-code`：出码。** `src/code/codegen/` 是一组框架无关的纯函数，输入 `PageSchema` + 两个注入点（表达式编译器、物料导入解析器），输出单文件 Vue SFC 文本与降级清单。产物与作用域同构是关键设计：脚本里固定生成 `const data = computed(() => ({ ...sources, ...state }))`，形状与 `buildPageData` 一致，于是**表达式原文一个字都不用改写**——`data.tickets.data.total` 在设计器、绑定面板和出码产物里是同一串文本，可核对性由此而来。
+
+三条刻意保留的边界，都写进产物文件头与面板的降级清单，不做静默处理：
+
+- 事件动作链不出码（由平台运行时按 `connections` 执行），模板里给每个绑定过事件的节点留一条注释；
+- 数据源缓存不出码（平台运行时也未实现）；`mock` 的 `delay` 同样不生效，因为 `initialState` 本来就是同步读声明；
+- 物料没有登记可导入包时降级成占位组件（`render()` 画一个标着物料名的 div，与画布上的虚线占位框同一语义），页面仍然能跑。
+
+第三条依赖 `PluginPackage` 新增的可选 `importSource`（`contracts/src/services/loader.ts`）。这件事只有宿主知道：清单由插件自己书写，而「从哪个包 import」属于装配层，所以字段落在 `bootstrap.ts` 的 `BUILTIN_PACKAGES` 上而不是每个物料 manifest 里——外部包 `@agile-plus/materials` 因此无需改动就能被正确解析。出码按 `物料名 → MaterialEntry.plugin → importSource` 反查，产物写成 `components['agile-plus.switch']` 这种查表形态，因为物料名允许带点、不是合法标识符。
+
+## 4. 引用型字段在两个面板里的落地
+
+`kind: 'ref'` 只是声明「这里要引用一个东西」，候选项从哪来、选完怎么写回文档是面板的事。两个面板各自接了一次，规则相同：
+
+- **候选来源分层**。变量 / 数据源 / 本页动作三类候选出自当前页面文档，`listRefOptions` 直接算；页面 / 节点 / 事件 / 流程图四类候选**没有任何一份文档能单独回答**——「哪张页面」在工作区存储里、「页面上的节点」在另一份文档里、「节点能 emit 什么事件」在物料注册表里、「哪些图已发布」在流程仓库里。所以前半截在 schema 层（纯函数），后半截在宿主（`apps/host/src/components/flow/composables/use-ref-options.ts`），面板只消费拼好的 `RefOption[]`。
+- **上游没选就返回空列表**，并显示「先选上一项」而不是让作者对着空下拉自由发挥：`event` 的候选取决于同一份 config 里 `sourceNodeId` 选了谁，这种依赖协议层不猜。
+- **选不中的历史值要显式留出来**。文档里的值可能落在候选项之外（数据被删、外部插件写的），下拉补一条「未选择」占位并保留原值显示，否则浏览器把它渲染成空白，作者看不出断链在哪。
+- **多选落空值写 `[]` 而不是删键**（`flow.sequence.actionIds` 清空后仍是一个合法的空序列），单选落空值才删键——留一个值为 `undefined` 的键序列化后会变成真实的 `null`。
+- **未知动作类型不再是死面板**。事件流面板原来遇到没登记 `fields` 的动作类型就整块空白；现在改用 config 原文 JSON 编辑器兜底，半截 JSON 只回错误不落文档。这是逃生门而不是常规路径：常规路径是节点库里补齐那三类「链有图无」的动作（`system.navigate` / `data.fetch` / `data.reset`），让作者根本走不到兜底。
+
+绑定流程图这件事的**入口在页面这一侧**：右栏「事件」页签每条已绑定的事件下面有一个「执行流程图」下拉，写的是 `connection.flowId`，走 `document.apply` 因此可撤销、可被文档校验看到。动作链与流程图是同一事件上的两条执行体、都执行（执行侧见 [05 §4](./05-contracts-and-schema.md)），所以底部事件流面板另外显示一枚「流程」角标——不写出来，作者看到的就只有「我明明只配了链，为什么多跑了一段」，而在两个面板里各自检查都查不出毛病。两处共用 `@lc/schema` 的 `flowBindingSummary` / `listFlowBindingOptions`，「草稿」「已删除」这两种最容易误读的状态文案只有一份实现。下拉把草稿也列出来但标注「暂不生效」：藏掉它只会让人以为这里不能选流程。图仓库的发布状态变化要订阅 `FlowService.onDidChange` 才刷得出来——图发布与否不动页面文档，只订阅文档变更的界面会一直停在旧状态。
+
+流程编辑器的触发节点因此**不再填**「所在页面 / 来源节点 / 事件名」三段（那正是两处真相的来源），只声明来源类型；想知道「这张图被谁用」，配置面板里点「谁在用这张图」现扫一遍当前项目的页面（`components/flow/utils/flow-usage.ts`，纯函数）。懒加载是有意的：绑定散落在各份页面文档里，每帧重扫整批文档只为回答一个低频问题，不值得。
 
 ## 4. 画布插件（15 个）
 

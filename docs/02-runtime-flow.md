@@ -60,7 +60,7 @@ modulesPlugin → loaderPlugin → materialPlugin → commandPlugin → expressi
 
 | #   | 位置                                | 动作                                                                                                                                                                            |
 | --- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `views/DesignerView.vue:43-49`      | `workspace.getEditor(id) ?? createEditorRealm({ documentId, title, schema })`，文档来自 `apps/host/src/pages.ts`                                                                |
+| 1   | `views/DesignerView.vue:66-72`      | `workspace.getEditor(id) ?? createEditorRealm({ documentId, title, schema })`，文档取自 `apps/host/src/pages/page-store.ts` 的页面记录（`PageRecord.schema`）                   |
 | 2   | `service-workspace/src/index.ts:74` | 同 `documentId` 已存在则抛错；`:78` `ctx.fork()` 得到 Realm 专属 service scope                                                                                                  |
 | 3   | `:79`                               | `realmCtx.plugin(documentPlugin, {id, schema, title, mode})` → `service-document/src/index.ts:146` 提供 `document`                                                              |
 | 4   | `:85`                               | `historyPlugin` → 提供 `history`（`:94`）。装配顺序固定 document → history → selection，因为 `service-history` 声明 `inject: ['document']`（`service-history/src/index.ts:26`） |
@@ -68,13 +68,13 @@ modulesPlugin → loaderPlugin → materialPlugin → commandPlugin → expressi
 | 6   | `:145`                              | `active = realm`（最近创建者即当前编辑器）                                                                                                                                      |
 | 7   | `:148`                              | `ctx.effect(() => ({ dispose: () => realm.dispose() }))`：workspace 插件停用时级联关闭文档                                                                                      |
 
-Realm 创建后不立刻渲染：`views/DesignerView.vue:68-73` 先 `await appCtx.runtime.whenIdle()` 作就绪门，再渲染需要 `require('canvas')` 的子树。
+Realm 创建后不立刻渲染：`views/DesignerView.vue:194-197` 先 `await appCtx.runtime.whenIdle()` 作就绪门，再渲染需要 `require('canvas')` 的子树。
 
 ### 2.5 建立画布：CanvasRealm + 15 个能力插件
 
 | #   | 位置                                      | 动作                                                                                                                                                                                                                                                                                     |
 | --- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `views/DesignerView.vue:52`               | `editor.createCanvasRealm()` → `service-workspace/src/index.ts:107`：`realmCtx.fork()` + `canvasCtx.plugin(canvasCorePlugin)`                                                                                                                                                            |
+| 1   | `views/DesignerView.vue:75`               | `editor.createCanvasRealm()` → `service-workspace/src/index.ts:107`：`realmCtx.fork()` + `canvasCtx.plugin(canvasCorePlugin)`                                                                                                                                                            |
 | 2   | `service-canvas-core/src/index.ts:52-126` | 组装画布内核的全部工厂：`createViewport({minZoom:0.1,maxZoom:4})`、`createScheduler`、`createSettingsService`、`createLayerService`、`createContextMenuService`、`createScene({getRootRect})`、`createHitTest`、`createMeasure`、`createInteractionPipeline`、`createTransactionService` |
 | 3   | `:176-179`                                | 接入脏来源：`document.onDidChange → syncScene`、`viewport.onDidChange → scheduler.invalidateViewport`、`selection.onDidChange → scheduler.invalidateViewport`                                                                                                                            |
 | 4   | `:233`                                    | `ctx.provide('canvas', service, { apiVersion: '1.0' })`                                                                                                                                                                                                                                  |
@@ -97,8 +97,8 @@ Realm 创建后不立刻渲染：`views/DesignerView.vue:68-73` 先 `await appCt
 
 ### 2.6 应用级命令与调试入口
 
-- `bootstrap.ts:83-92`：注册 `app.commandPalette` 命令（run 内 `context.emit('palette:toggle')`）与 `Mod+K` 快捷键。命令面板是应用级 UI，所以命令也注册在应用级，快捷键只是入口。面板组件本身挂在设计器视图的编辑器作用域里（`views/DesignerView.vue:129`），因为要用文档级服务。
-- `bootstrap.ts:97`：`import.meta.env.MODE !== 'production'` 时挂 `window.__lc = { context }`。拆分后 `editor` / `canvas` 不再是启动期单例，改从 `__lc.context.workspace.listEditors()` 与 `getEditor(id)` 取当前 Realm；`__lc.canvas` 由设计器视图写入当前活动画布（`views/DesignerView.vue:55`、卸载时清空）。
+- `bootstrap.ts:83-92`：注册 `app.commandPalette` 命令（run 内 `context.emit('palette:toggle')`）与 `Mod+K` 快捷键。命令面板是应用级 UI，所以命令也注册在应用级，快捷键只是入口。面板组件本身挂在设计器视图的编辑器作用域里（`views/DesignerView.vue:737`），因为要用文档级服务。
+- `bootstrap.ts:97`：`import.meta.env.MODE !== 'production'` 时挂 `window.__lc = { context }`。拆分后 `editor` / `canvas` 不再是启动期单例，改从 `__lc.context.workspace.listEditors()` 与 `getEditor(id)` 取当前 Realm；`__lc.canvas` 由设计器视图写入当前活动画布（`views/DesignerView.vue:78`、卸载时清空）。
 - `apps/designer/src/CanvasModule.vue:29` 最后一次 `whenIdle()`，画布能力装配收敛。
 
 ### 2.7 首帧渲染
@@ -121,7 +121,7 @@ Realm 创建后不立刻渲染：`views/DesignerView.vue:68-73` 先 `await appCt
 | 14  | `CanvasStage.vue:242`      | `canvas.scheduler.onFrame(refreshMatrix)`：`:153` 把 `viewport.matrix` 拼成 `matrix(a,b,c,d,e,f)` 写进内容层 transform                                                                      |
 | 15  | `CanvasStage.vue:255`      | `centerRootAtCurrentZoom()`（定义在 `:163`）：首帧保持默认 100% 缩放，只把文档根矩形摆到视口中心；尺寸未测得时跳过，要看全貌用「适应画布」命令                                              |
 | 16  | `CanvasStage.vue:258`      | `element.focus()`：键盘事件挂在舞台元素上                                                                                                                                                   |
-| 17  | `DesignerView.vue:579-655` | 右栏四个页签各一个插槽：`designer.rightPanel`（属性）、`designer.stylePanel`（样式）、`designer.eventPanel`（事件）、`designer.advancedPanel`（高级），每个槽当前各一个贡献面板，`order:10` |
+| 17  | `DesignerView.vue:674-716` | 右栏四个页签各一个插槽：`designer.rightPanel`（属性）、`designer.stylePanel`（样式）、`designer.eventPanel`（事件）、`designer.advancedPanel`（高级），每个槽当前各一个贡献面板，`order:10` |
 | 18  | `App.vue:59-60`            | `<StatusBar>` 读视口/选中/脏/历史；`<CommandPalette>` 订阅 `palette:toggle`（`components/CommandPalette.vue:27`）                                                                           |
 | 19  | `LayerHost.vue:138-139`    | `syncLayers()` 对**已注册的全部图层**调用 `ensureLayer()` → `layer.load()`（`:112-117`），每帧 `refresh`（`:157` 订阅 `scheduler.onFrame`）                                                 |
 

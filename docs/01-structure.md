@@ -5,7 +5,7 @@
 ```text
 new-cordis/
 ├─ apps/
-│  ├─ host/                   主应用（MF Host）：外壳、路由、页面列表、文档 Realm
+│  ├─ host/                   主应用（MF Host）：外壳、路由、项目工作台与资产存储、文档 Realm
 │  └─ designer/               画布模块（MF Remote）：只暴露 ./CanvasModule，不独立运行
 ├─ packages/
 │  ├─ kernel/                   @lc/kernel              应用插件内核（零依赖）
@@ -85,7 +85,7 @@ new-cordis/
 
 | 组                          | 数量 | 典型依赖                                                       |
 | --------------------------- | ---- | -------------------------------------------------------------- |
-| `packages/plugins/*`        | 4    | contracts、kernel、schema、vue                                 |
+| `packages/plugins/*`        | 10   | contracts、kernel、schema、vue                                 |
 | `packages/canvas-plugins/*` | 15   | contracts、kernel、schema、vue（部分额外依赖 canvas / shared） |
 
 只有 4 个画布插件直接依赖 `@lc/canvas`：`canvas-drag`、`canvas-resize`、`canvas-selection`、`canvas-snap`，用于复用内核的几何/事务实现；其余 11 个仅通过 `@lc/contracts` 的 `CanvasService` 接口访问内核。**依赖接口而非实现**是这一层的默认写法。
