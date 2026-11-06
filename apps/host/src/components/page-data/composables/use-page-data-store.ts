@@ -5,10 +5,12 @@ import type { Disposable } from '@lc/kernel'
 import type {
   DataSourceSchemaDef,
   ExpressionEngine,
+  PageApiBinding,
   PageRouteSchema,
   PageVariableSchema,
   SchemaPatch,
 } from '@lc/schema'
+import { arrayFieldPatch } from '@lc/schema'
 import { useAppContext } from '@lc/vue'
 import { functionTypeOptions, pageTypeOptions } from '../../common/type-options'
 import type { EditingKey } from '../utils/data-naming'
@@ -27,12 +29,20 @@ export interface PageDataStore {
   sourceVersion: Ref<number>
   variables: ComputedRef<readonly PageVariableSchema[]>
   datasources: ComputedRef<readonly DataSourceSchemaDef[]>
+  /** 页面已建立的项目接口绑定；条目内容在 `datasources` 里已展开，这里只存引用关系 */
+  apiBindings: ComputedRef<readonly PageApiBinding[]>
   route: ComputedRef<PageRouteSchema | undefined>
   /** 可引用的已定义类型：页面变量/接口结果 + 自定义函数形参与返回 */
   typeOptions: ComputedRef<ReturnType<typeof pageTypeOptions>>
   commit(patches: readonly SchemaPatch[], label: string): void
+  /**
+   * 数组字段整体写入。
+   *
+   * add / replace / remove 的判据在 `@lc/schema` 的 `arrayFieldPatch` 里，接口绑定那条路
+   * 直接用同一个函数，两处不会走出两套「空数组要不要留键」的规则。
+   */
   writeArray(
-    key: 'variables' | 'datasources',
+    key: 'variables' | 'datasources' | 'apis',
     current: readonly unknown[] | undefined,
     next: readonly unknown[],
     label: string,
@@ -81,6 +91,11 @@ export function usePageDataStore(): PageDataStore {
     return doc.model.schema.datasources ?? []
   })
 
+  const apiBindings = computed<readonly PageApiBinding[]>(() => {
+    version.value
+    return doc.model.schema.apis ?? []
+  })
+
   const route = computed<PageRouteSchema | undefined>(() => {
     version.value
     return doc.model.schema.route
@@ -99,20 +114,14 @@ export function usePageDataStore(): PageDataStore {
     doc.apply(patches, { record: true, label })
   }
 
-  /** 数组字段统一走这里：空数组删除属性，避免留下 `variables: []` 之类噪声 */
+  /** 数组字段统一走这里：一次改动一条历史记录 */
   function writeArray(
-    key: 'variables' | 'datasources',
+    key: 'variables' | 'datasources' | 'apis',
     current: readonly unknown[] | undefined,
     next: readonly unknown[],
     label: string,
   ): void {
-    const patch: SchemaPatch =
-      next.length === 0
-        ? { op: 'remove', path: `/${key}` }
-        : current === undefined
-          ? { op: 'add', path: `/${key}`, value: next }
-          : { op: 'replace', path: `/${key}`, value: next }
-    commit([patch], label)
+    commit([arrayFieldPatch(key, current, next)], label)
   }
 
   function availableDataNames(excludeVariable: EditingKey): Set<string> {
@@ -136,6 +145,7 @@ export function usePageDataStore(): PageDataStore {
     sourceVersion,
     variables,
     datasources,
+    apiBindings,
     route,
     typeOptions,
     commit,

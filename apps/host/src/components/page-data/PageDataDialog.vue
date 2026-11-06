@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import TypeNodeEditor from '../common/TypeNodeEditor.vue'
+import { useApiBinding } from './composables/use-api-binding'
 import { useDatasourceForm } from './composables/use-datasource-form'
 import { usePageDataStore } from './composables/use-page-data-store'
 import { useRouteForm } from './composables/use-route-form'
@@ -55,6 +56,23 @@ const {
   saveSource,
   removeSource,
 } = useDatasourceForm(store)
+
+// 引用项目接口只维护 `schema.apis`；展开出的条目由 `bindingPatches` 一并写进 datasources
+const {
+  apiLabelOf,
+  bindingError,
+  closePicker,
+  confirmBind,
+  isBound,
+  openPicker,
+  pendingBind,
+  pickerOpen,
+  projectApis,
+  startBind,
+  unbind,
+  unbindingName,
+  unresolved,
+} = useApiBinding(store)
 
 const { routeParamsText, routeQueryText, routeError, resetRouteDraft, saveRoute } =
   useRouteForm(store)
@@ -254,13 +272,69 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                 <span class="lc-page-data__count">
                   结果在 data.&lt;数据源名&gt;.data，状态在 .loading / .loaded / .error
                 </span>
-                <button type="button" class="lc-page-data__button" @click="openSourceCreate">
-                  + 新建接口数据
-                </button>
+                <div class="lc-page-data__toolbar-actions">
+                  <button type="button" class="lc-page-data__button" @click="openPicker">
+                    引用项目接口
+                  </button>
+                  <button type="button" class="lc-page-data__button" @click="openSourceCreate">
+                    + 新建接口数据
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="pickerOpen" class="lc-page-data__picker">
+                <p v-if="projectApis.length === 0" class="lc-page-data__empty">
+                  这个项目还没登记接口。到「接口管理」登记之后就能在这里引用，接口地址改动会同步到所有引用它的页面。
+                </p>
+
+                <template v-else-if="pendingBind === null">
+                  <button
+                    v-for="row in projectApis"
+                    :key="row.api.id"
+                    type="button"
+                    class="lc-page-data__picker-item"
+                    @click="startBind(row.api)"
+                  >
+                    <span class="lc-page-data__picker-name">{{ row.api.name }}</span>
+                    <code class="lc-page-data__picker-path"
+                      >{{ row.api.method }} {{ row.api.path }}</code
+                    >
+                    <span v-if="row.boundCount > 0" class="lc-page-data__badge">
+                      本页已引用 {{ row.boundCount }} 次
+                    </span>
+                  </button>
+                </template>
+
+                <form v-else class="lc-page-data__form" @submit.prevent="confirmBind">
+                  <p class="lc-page-data__picker-target">
+                    引用「{{ pendingBind.api.name }}」
+                    <code>{{ pendingBind.api.method }} {{ pendingBind.api.path }}</code>
+                  </p>
+                  <label class="lc-page-data__field">
+                    <span>绑定名（data.&lt;绑定名&gt;）</span>
+                    <input v-model="pendingBind.name" type="text" autocomplete="off" />
+                  </label>
+                  <label class="lc-page-data__check">
+                    <input v-model="pendingBind.autoFetch" type="checkbox" />
+                    进入页面就自动取数
+                  </label>
+                  <p v-if="bindingError" class="lc-page-data__error">{{ bindingError }}</p>
+                  <div class="lc-page-data__actions">
+                    <button type="button" class="lc-page-data__button" @click="closePicker">
+                      取消
+                    </button>
+                    <button
+                      type="submit"
+                      class="lc-page-data__button lc-page-data__button--primary"
+                    >
+                      建立引用
+                    </button>
+                  </div>
+                </form>
               </div>
 
               <div v-if="datasources.length === 0" class="lc-page-data__empty">
-                还没有接口数据。REST 会按地址自动取数，示例数据只用于补全结构。
+                还没有接口数据。引用项目接口可以复用已登记的地址，新建则只属于本页。
               </div>
 
               <ul v-else class="lc-page-data__list">
@@ -275,6 +349,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                       <span class="lc-page-data__badge">{{
                         sourceTypeLabel(source.type)
                       }}</span>
+                      <span v-if="apiLabelOf(source.id)" class="lc-page-data__badge">
+                        项目接口 · {{ apiLabelOf(source.id) }}
+                      </span>
                       <span
                         class="lc-page-data__status"
                         :data-tone="sourceStatusTone(source.id)"
@@ -293,6 +370,17 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                     </p>
                   </div>
                   <div class="lc-page-data__actions">
+                    <button
+                      v-if="source.type === 'rest' && deletingSource !== index"
+                      type="button"
+                      class="lc-page-data__button"
+                      :disabled="sourceState(source.id)?.loading === true"
+                      :title="sourceState(source.id)?.loading ? '请求进行中' : '重新请求'"
+                      @click="refreshSource(source.id)"
+                    >
+                      刷新
+                    </button>
+
                     <template v-if="deletingSource === index">
                       <span class="lc-page-data__confirm">删除？</span>
                       <button
@@ -310,17 +398,37 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                         取消
                       </button>
                     </template>
-                    <template v-else>
+
+                    <!-- 绑定的条目内容归项目维护，这里只能解绑：给它「编辑」会做出一个改不动的地址 -->
+                    <template v-else-if="isBound(source.id)">
+                      <template v-if="unbindingName === source.id">
+                        <span class="lc-page-data__confirm">解除引用？</span>
+                        <button
+                          type="button"
+                          class="lc-page-data__button lc-page-data__button--danger"
+                          @click="unbind(source.id)"
+                        >
+                          确认
+                        </button>
+                        <button
+                          type="button"
+                          class="lc-page-data__button"
+                          @click="unbindingName = null"
+                        >
+                          取消
+                        </button>
+                      </template>
                       <button
-                        v-if="source.type === 'rest'"
+                        v-else
                         type="button"
                         class="lc-page-data__button"
-                        :disabled="sourceState(source.id)?.loading === true"
-                        :title="sourceState(source.id)?.loading ? '请求进行中' : '重新请求'"
-                        @click="refreshSource(source.id)"
+                        @click="unbindingName = source.id"
                       >
-                        刷新
+                        解除引用
                       </button>
+                    </template>
+
+                    <template v-else>
                       <button
                         type="button"
                         class="lc-page-data__button"
@@ -340,6 +448,33 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                         删除
                       </button>
                     </template>
+                  </div>
+                </li>
+              </ul>
+              <!-- 悬空引用单独列出来：它展开不出内容，所以在上面的列表里根本不会出现 -->
+              <ul v-if="unresolved.length > 0" class="lc-page-data__list">
+                <li
+                  v-for="binding in unresolved"
+                  :key="`dangling-${binding.id}`"
+                  class="lc-page-data__item"
+                >
+                  <div class="lc-page-data__item-main">
+                    <div class="lc-page-data__item-head">
+                      <code class="lc-page-data__name">data.{{ binding.id }}</code>
+                      <span class="lc-page-data__badge">引用失效</span>
+                    </div>
+                    <p class="lc-page-data__desc">
+                      它指向的接口（{{ binding.apiId }}）已不在这个项目里，取不到数据。
+                    </p>
+                  </div>
+                  <div class="lc-page-data__actions">
+                    <button
+                      type="button"
+                      class="lc-page-data__button lc-page-data__button--danger"
+                      @click="unbind(binding.id)"
+                    >
+                      解除引用
+                    </button>
                   </div>
                 </li>
               </ul>
