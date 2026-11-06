@@ -83,6 +83,50 @@
   text-align: center;
 }
 
+/* 「谁在用这张图」的反查结果：一行一个事件，页面名 / 节点名 / 事件名三段对齐着读 */
+.lc-flow-inspector__usage-list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lc-flow-inspector__usage-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.lc-flow-inspector__usage-page {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--lc-text);
+}
+
+.lc-flow-inspector__usage-node {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--lc-text-muted);
+}
+
+.lc-flow-inspector__usage-event {
+  flex: none;
+  color: var(--lc-accent, #4cc9f0);
+}
+
+.lc-flow-inspector__usage-off {
+  flex: none;
+  color: var(--lc-warning, #f5a524);
+}
+
 /* ---------------------------------------------------------------------------
  * 节点头部
  * ------------------------------------------------------------------------ */

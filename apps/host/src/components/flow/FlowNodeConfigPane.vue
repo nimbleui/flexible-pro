@@ -1,9 +1,22 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { CSSProperties } from 'vue'
-import type { ActionErrorStrategy, ActionFieldSchema, FlowNode } from '@lc/schema'
-import { findFlowNodeType, flowNodeFields, isExpressionString } from '@lc/schema'
+import type { ActionErrorStrategy, ActionFieldSchema, FlowNode, RefOption } from '@lc/schema'
+import {
+  FLOW_SUBFLOW,
+  FLOW_TRIGGER,
+  findFlowNodeType,
+  flowNodeFields,
+  isExpressionString,
+  listRefOptions,
+} from '@lc/schema'
+import type { FlowService } from '@lc/contracts'
+import { useAppContext } from '@lc/vue'
 import type { FlowEditorHandle } from './composables/use-flow-editor'
+import { pages } from '../../pages/page-store'
+import { resolveProjectId } from '../../projects/project-model'
+import type { FlowUsage } from './utils/flow-usage'
+import { findFlowUsages } from './utils/flow-usage'
 import { flowNodeTone } from './constants/node-tone'
 import FlowFieldControl from './FlowFieldControl.vue'
 import {
@@ -70,6 +83,65 @@ const iconStyle = computed<CSSProperties>(() => {
 const fields = computed<readonly ActionFieldSchema[]>(() =>
   node.value ? flowNodeFields(node.value.type) : [],
 )
+
+/**
+ * 引用型字段的候选。
+ *
+ * 图上的引用只剩一种：`flow.subflow` 指向的另一个流程。项目归属取图自己的 `projectId`
+ * 而不是路由参数——图上的字段才是「这张图属于谁」的事实来源，候选跟着同一个值走，
+ * 才不会出现在 A 项目的图里选到 B 项目的流程。编辑器随路由重建，所以这里一次性取值即可。
+ */
+const appCtx = useAppContext()
+
+const subflowOptions = computed(() =>
+  listRefOptions('flow', {
+    flows: appCtx.get<FlowService>('flow')?.list(),
+    exclude: node.value?.type === FLOW_SUBFLOW ? node.value?.id : undefined,
+  }),
+)
+
+/**
+ * 按字段声明取候选。
+ *
+ * 曾经这里还要给触发节点准备「所在页面 / 来源节点 / 事件名」三段候选，跨文档去读别人的
+ * 页面表与物料声明。绑定改成页面持有之后，图侧不再引用任何页面，这三段候选随之消失；
+ * `variable` / `dataSource` / `action` 在图里没有对应的命名空间可列，返回空列表由面板提示。
+ */
+function refOptionsFor(field: ActionFieldSchema): readonly RefOption[] {
+  return field.ref === 'flow' ? subflowOptions.value : []
+}
+
+/** 触发节点才有「谁在用我」可查；其它节点这一栏只会是空的 */
+const isTriggerNode = computed(() => node.value?.type === FLOW_TRIGGER)
+
+/**
+ * 「本图被哪些页面事件引用」的结果；`null` 表示还没扫过。
+ *
+ * 懒加载是有意的：绑定写在各个页面文档里，要回答这个问题只能把项目里所有页面读一遍。
+ * 选中一个节点就重扫整批文档既慢又没人看，做成点一下才发生。
+ */
+const usages = ref<readonly FlowUsage[] | null>(null)
+
+/** 换节点就丢掉上一次的结果，否则会把上一张图的引用显示在当前图的面板上 */
+watch(
+  () => node.value?.id,
+  () => {
+    usages.value = null
+  },
+)
+
+function scanUsages(): void {
+  const flow = props.editor.flow.value
+  if (!flow) return
+
+  const projectId = resolveProjectId(flow.projectId)
+  usages.value = findFlowUsages(
+    pages.value
+      .filter((page) => resolveProjectId(page.projectId) === projectId)
+      .map((page) => ({ id: page.id, title: page.title, schema: page.schema })),
+    flow.id,
+  )
+}
 
 /** 补救节点候选：排除自身，指向自己的补救在执行器里就是原地打转 */
 const fallbackOptions = computed(() => {
@@ -300,12 +372,41 @@ function onFieldCommit(key: string, value: unknown): void {
           :field="field"
           :model-value="node.config[field.key]"
           :node-id="node.id"
+          :ref-options="refOptionsFor(field)"
           @commit="onFieldCommit(field.key, $event)"
         />
 
         <p v-if="fields.length === 0" class="lc-flow-inspector__hint">
           该节点没有需要配置的参数
         </p>
+
+        <!--
+          触发节点不再填「绑哪个页面哪个按钮」——绑定由页面持有，入口在设计器右栏的「事件」页签。
+          这里只提供反查：作者改图之前最想知道的就是「动了它会不会影响别的页面」。
+        -->
+        <section v-if="isTriggerNode" class="lc-flow-inspector__section">
+          <button type="button" class="lc-flow-inspector__section-head" @click="scanUsages()">
+            <span>谁在用这张图</span>
+          </button>
+
+          <template v-if="usages">
+            <p v-if="usages.length === 0" class="lc-flow-inspector__hint">
+              还没有页面事件绑定这张图。在页面设计器里选中节点 → 右栏「事件」→
+              「执行流程图」即可绑定。
+            </p>
+            <ul v-else class="lc-flow-inspector__usage-list">
+              <li
+                v-for="usage in usages"
+                :key="`${usage.documentId}:${usage.sourceNodeId}:${usage.eventName}`"
+              >
+                <span class="lc-flow-inspector__usage-page">{{ usage.documentTitle }}</span>
+                <span class="lc-flow-inspector__usage-node">{{ usage.nodeLabel }}</span>
+                <code class="lc-flow-inspector__usage-event">{{ usage.eventName }}</code>
+                <span v-if="!usage.effective" class="lc-flow-inspector__usage-off">已停用</span>
+              </li>
+            </ul>
+          </template>
+        </section>
 
         <section class="lc-flow-inspector__section">
           <button

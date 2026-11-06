@@ -1,23 +1,22 @@
 import { shallowRef } from 'vue'
 import type { Disposable } from '@lc/kernel'
-import type { FlowDefinition, FlowNode, FlowSettings } from '@lc/schema'
+import type { FlowDefinition, FlowEdge, FlowNode, FlowSettings } from '@lc/schema'
 import {
   DEFAULT_FLOW_SETTINGS,
   FLOW_INITIAL_VERSION,
   FLOW_TRIGGER,
   createFlowNode,
-  flowBindingOf,
-  flowEventKey,
   hasBlockingIssue,
   validateFlow,
 } from '@lc/schema'
+import { resolveProjectId } from '../projects/project-model'
 import { createSeedFlow } from './flow-template'
 
 /**
  * 流程图存储。
  *
- * 图即可被事件绑定的执行单元，所以它的生命周期与「页面文档」脱钩：页面事件按
- * `sourceNodeId + eventName` 匹配到一张已发布的图，执行的是图的 id。
+ * 图是可独立发版的执行单元，所以它的生命周期与「页面文档」脱钩：页面在自己的
+ * `connection.flowId` 上写住要跑哪张图，运行时按 id 取**已发布**版本执行。
  * 目前没有后端，存储落在 localStorage；接服务端时只需替换本文件的读写实现，
  * 与 `functions/global-functions.ts` 是同一种取舍。
  */
@@ -30,6 +29,8 @@ export interface FlowDraftInput {
   description?: string
   /** 是否附带示例图；缺省只放一个触发节点 */
   withSeed?: boolean
+  /** 归属项目 id；由调用方从当前项目路由取，事件键只在同项目内互相拦截 */
+  projectId: string
 }
 
 const STORAGE_KEY = 'lc.flows.v1'
@@ -105,6 +106,7 @@ function isFlow(value: unknown): value is FlowDefinition {
     (value.status === 'draft' || value.status === 'published') &&
     typeof value.version === 'string' &&
     typeof value.updatedAt === 'string' &&
+    (value.projectId === undefined || typeof value.projectId === 'string') &&
     nodesOk &&
     edgesOk &&
     isFlowSettings(value.settings)
@@ -190,6 +192,9 @@ export function nextFlowVersion(version: string): string {
  * 建完直接入库而不是只返回对象：调用方拿到 id 就跳编辑器，编辑器按 id 从存储里取图。
  * 不落库的话新建完立刻是「流程不存在」，整张图根本无从画起。
  *
+ * 归属由调用方给：创建入口都在项目路由下，图要落在当前项目里，
+ * 之后的事件冲突拦截才只跟同项目的图比。
+ *
  * @throws 名称为空时抛错
  */
 export function createFlow(input: FlowDraftInput): FlowDefinition {
@@ -198,37 +203,28 @@ export function createFlow(input: FlowDraftInput): FlowDefinition {
 
   const now = new Date().toISOString()
   const nodes: Record<string, FlowNode> = {}
+  const edges: Record<string, FlowEdge> = {}
 
   if (input.withSeed) {
     const seeded = createSeedFlow()
     Object.assign(nodes, seeded.nodes)
-
-    return saveFlow({
-      id: createFlowId(),
-      name,
-      description: input.description?.trim() || undefined,
-      status: 'draft',
-      version: FLOW_INITIAL_VERSION,
-      updatedAt: now,
-      nodes,
-      edges: { ...seeded.edges },
-      settings: { ...DEFAULT_FLOW_SETTINGS },
-    })
+    Object.assign(edges, seeded.edges)
+  } else {
+    const trigger = createFlowNode('trigger.page', 'node-trigger', { x: 320, y: 80 })
+    trigger.name = '开始'
+    nodes[trigger.id] = trigger
   }
-
-  const trigger = createFlowNode('trigger.page', 'node-trigger', { x: 320, y: 80 })
-  trigger.name = '开始'
-  nodes[trigger.id] = trigger
 
   return saveFlow({
     id: createFlowId(),
     name,
     description: input.description?.trim() || undefined,
+    projectId: input.projectId,
     status: 'draft',
     version: FLOW_INITIAL_VERSION,
     updatedAt: now,
     nodes,
-    edges: {},
+    edges,
     settings: { ...DEFAULT_FLOW_SETTINGS },
   })
 }
@@ -258,10 +254,14 @@ export function saveFlow(flow: FlowDefinition): FlowDefinition {
 /**
  * 发布一张图。
  *
- * 两道闸门：一是 `validateFlow` 不能有阻断问题，二是同一事件键不能被两张已发布
- * 的图重复占用——重复会让运行时不知道执行哪一张，且这种冲突在图上完全看不出来。
+ * 只有一道闸门：`validateFlow` 不能有阻断问题。
  *
- * @throws 校验不通过或事件绑定冲突时抛错，错误文案可直接展示给用户
+ * 以前这里还要拦「同一事件键被两张已发布的图抢用」。绑定改由页面的
+ * `connection.flowId` 持有之后，这类冲突在结构上不可能发生：一个事件只有一个字段，
+ * 装得下一张图；而一张图被多少个事件引用都不冲突——它跑的永远是同一份内容。
+ * 少掉这道闸门不是放松校验，是那条不变式已经不需要有人守了。
+ *
+ * @throws 校验不通过时抛错，错误文案可直接展示给用户
  */
 export function publishFlow(id: string): FlowDefinition {
   const current = state.value.find((item) => item.id === id)
@@ -271,21 +271,6 @@ export function publishFlow(id: string): FlowDefinition {
   if (hasBlockingIssue(issues)) {
     const first = issues.find((issue) => issue.severity === 'error')
     throw new Error(`[host] 流程不能发布：${first?.message ?? '存在阻断问题'}`)
-  }
-
-  const binding = flowBindingOf(current)
-  if (binding) {
-    const key = flowEventKey(binding.sourceNodeId, binding.eventName)
-    const conflict = state.value.find((item) => {
-      if (item.id === id || item.status !== 'published') return false
-      const other = flowBindingOf(item)
-
-      return other !== undefined && flowEventKey(other.sourceNodeId, other.eventName) === key
-    })
-
-    if (conflict) {
-      throw new Error(`[host] 事件 "${key}" 已被流程「${conflict.name}」占用`)
-    }
   }
 
   const published: FlowDefinition = {
@@ -312,25 +297,32 @@ export function getFlow(id: string): FlowDefinition | undefined {
 }
 
 /**
- * 按事件键找已发布的图。
+ * 在指定项目里按 id 取已发布的图。
  *
- * 只认 `published`：草稿参与匹配会让「正在编辑的图」抢先执行，作者在设计器里
- * 改一半的分支就会跑到真实页面上。
+ * 只认 `published`：草稿参与执行会让「正在编辑的图」抢先跑起来，作者在设计器里
+ * 改一半的分支就会落到真实页面上。
+ *
+ * 项目作用域仍然要卡：页面写下的 `flowId` 只是个字符串，把 B 项目的图 id 粘到 A 项目的
+ * 页面上照样能存进去。少这一层，「我在 B 画的流程在 A 的页面上跑了」就又回来了。
+ *
+ * @param projectId 当前项目 id
+ * @param flowId 页面连接上引用的图 id
  */
-export function findPublishedFlowByEvent(
-  sourceNodeId: string,
-  eventName: string,
+export function getPublishedFlowById(
+  projectId: string,
+  flowId: string,
 ): FlowDefinition | undefined {
-  const key = flowEventKey(sourceNodeId, eventName)
+  return state.value.find(
+    (flow) =>
+      flow.id === flowId &&
+      flow.status === 'published' &&
+      resolveProjectId(flow.projectId) === projectId,
+  )
+}
 
-  return state.value.find((flow) => {
-    if (flow.status !== 'published') return false
-    const binding = flowBindingOf(flow)
-
-    return (
-      binding !== undefined && flowEventKey(binding.sourceNodeId, binding.eventName) === key
-    )
-  })
+/** 指定项目里全部图（含草稿）；绑定下拉的状态标注与页面校验都据此区分「不存在」与「还是草稿」 */
+export function listProjectFlows(projectId: string): readonly FlowDefinition[] {
+  return state.value.filter((flow) => resolveProjectId(flow.projectId) === projectId)
 }
 
 /** 订阅流程列表变更；返回注销句柄 */

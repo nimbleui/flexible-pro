@@ -28,11 +28,9 @@ export function createSeedFlow(): FlowDefinition {
       name: '开始',
       description: '页面点击触发',
       position: { x: 470, y: 40 },
-      config: {
-        kind: 'pageEvent',
-        sourceNodeId: 'submit-button',
-        eventName: 'click',
-      },
+      // 只声明来源类型。绑哪个页面的哪个按钮写在页面那一侧（`admin-doc` 的
+      // `on-filter-all` 连接把这张图选成了「执行流程图」），图里不留影子绑定。
+      config: { kind: 'pageEvent' },
     },
     {
       id: 'fetch',

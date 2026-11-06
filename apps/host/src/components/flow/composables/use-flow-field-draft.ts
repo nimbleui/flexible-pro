@@ -116,8 +116,8 @@ export function fieldDraftText(kind: ActionFieldKind, value: unknown): string {
 /**
  * 输入框文本 → 字段的待提交值，按控件形态折叠。
  *
- * `select` / `toggle` / `action` 三种形态不经过这里：它们的值域由控件本身约束，
- * 选择即合法，直接提交即可。
+ * `select` / `toggle` / `ref` 三种形态不经过这里：它们的值域由控件本身约束（下拉的
+ * 候选就是合法集），选择即合法，直接提交即可。
  */
 export function parseFieldDraft(kind: ActionFieldKind, text: string): JsonDraftResult {
   const trimmed = text.trim()
