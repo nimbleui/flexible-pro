@@ -10,9 +10,13 @@
   min-height: 0;
   isolation: isolate;
   color: var(--lc-text);
+  /* 科技感基底：左上蓝青光晕 + 右下紫光晕 + 极淡工程网格，皆叠在 --lc-app-bg 之上 */
   background:
-    radial-gradient(1100px 620px at 16% -12%, rgba(47, 140, 255, 0.16), transparent 62%),
-    radial-gradient(900px 540px at 100% 0%, rgba(55, 182, 255, 0.1), transparent 58%),
+    radial-gradient(1100px 620px at 14% -14%, rgba(47, 140, 255, 0.2), transparent 60%),
+    radial-gradient(900px 560px at 102% -4%, rgba(55, 182, 255, 0.12), transparent 56%),
+    radial-gradient(820px 640px at 100% 102%, rgba(139, 92, 246, 0.12), transparent 58%),
+    linear-gradient(var(--lc-grid) 1px, transparent 1px) 0 0 / 44px 44px,
+    linear-gradient(90deg, var(--lc-grid) 1px, transparent 1px) 0 0 / 44px 44px,
     var(--lc-app-bg);
 }
 
@@ -737,8 +741,13 @@
 }
 
 .lc-designer__action--primary {
-  border-color: rgba(55, 182, 255, 0.55);
-  background: linear-gradient(135deg, var(--lc-accent), var(--lc-accent-bright));
+  border-color: rgba(139, 92, 246, 0.5);
+  background: linear-gradient(
+    135deg,
+    var(--lc-accent-bright),
+    var(--lc-accent) 52%,
+    var(--lc-accent-2)
+  );
   box-shadow: 0 0 18px rgba(47, 140, 255, 0.35);
   color: #04101f;
   font-weight: 600;

@@ -42,6 +42,15 @@
   --lc-dock-bg: rgba(7, 21, 40, 0.86);
   --lc-glow: rgba(47, 140, 255, 0.45);
   --lc-glow-strong: rgba(55, 182, 255, 0.6);
+
+  /* 外壳布局专用：科技感增强层（画布覆盖层不依赖这些，改名 / 取值可自由调整） */
+  --lc-accent-2: #8b5cf6;
+  --lc-accent-2-bright: #a78bfa;
+  --lc-accent-2-soft: rgba(139, 92, 246, 0.16);
+  --lc-grid: rgba(120, 190, 255, 0.05);
+  --lc-glow-soft: rgba(47, 140, 255, 0.2);
+  --lc-hairline: rgba(64, 150, 255, 0.1);
+  --lc-surface-raised: #0d2444;
 }
 
 html,

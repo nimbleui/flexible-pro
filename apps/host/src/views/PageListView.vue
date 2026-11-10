@@ -386,7 +386,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 .lc-pages__primary {
   border-color: var(--lc-accent);
-  background: linear-gradient(135deg, var(--lc-accent), var(--lc-accent-bright));
+  background: linear-gradient(
+    135deg,
+    var(--lc-accent-bright),
+    var(--lc-accent) 52%,
+    var(--lc-accent-2)
+  );
   box-shadow: 0 0 18px var(--lc-glow);
   color: var(--lc-app-bg);
   font-weight: 600;
@@ -410,7 +415,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 .lc-pages__button--primary {
   border-color: var(--lc-accent);
-  background: linear-gradient(150deg, var(--lc-accent-bright), var(--lc-accent));
+  background: linear-gradient(
+    150deg,
+    var(--lc-accent-bright),
+    var(--lc-accent) 55%,
+    var(--lc-accent-2)
+  );
   color: var(--lc-app-bg);
   font-weight: 600;
 }
@@ -465,6 +475,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .lc-pages__item {
+  position: relative;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -475,8 +486,38 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   border-radius: var(--lc-radius-md);
   background: linear-gradient(150deg, var(--lc-surface), var(--lc-surface-sunken));
   transition:
-    border-color 0.15s ease,
-    background 0.15s ease;
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+/* 行尾光晕：hover 时点亮，呼应全局蓝紫霓虹，不抢交互焦点 */
+.lc-pages__item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 120px;
+  height: 100%;
+  pointer-events: none;
+  background: radial-gradient(circle at 100% 50%, rgba(55, 182, 255, 0.16), transparent 72%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.lc-pages__item:hover {
+  border-color: var(--lc-border-strong);
+  background: linear-gradient(150deg, var(--lc-surface-raised), var(--lc-surface));
+  box-shadow:
+    0 0 0 1px rgba(55, 182, 255, 0.2),
+    0 16px 40px rgba(0, 6, 18, 0.5),
+    0 0 28px rgba(47, 140, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.lc-pages__item:hover::before {
+  opacity: 1;
 }
 
 /* 等待删除确认的行：状态由 pendingDelete 决定，不能让「删除？」只靠 hover 露出来 */

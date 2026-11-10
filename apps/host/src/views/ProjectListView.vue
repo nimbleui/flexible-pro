@@ -369,7 +369,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 .lc-projects__primary {
   border-color: var(--lc-accent);
-  background: linear-gradient(135deg, var(--lc-accent), var(--lc-accent-bright));
+  background: linear-gradient(
+    135deg,
+    var(--lc-accent-bright),
+    var(--lc-accent) 52%,
+    var(--lc-accent-2)
+  );
   box-shadow: 0 0 18px var(--lc-glow);
   color: var(--lc-app-bg);
   font-weight: 600;
@@ -392,7 +397,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 .lc-projects__button--primary {
   border-color: var(--lc-accent);
-  background: linear-gradient(150deg, var(--lc-accent-bright), var(--lc-accent));
+  background: linear-gradient(
+    150deg,
+    var(--lc-accent-bright),
+    var(--lc-accent) 55%,
+    var(--lc-accent-2)
+  );
   color: var(--lc-app-bg);
   font-weight: 600;
 }
@@ -423,16 +433,48 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .lc-projects__card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 16px 18px;
+  overflow: hidden;
   border: 1px solid var(--lc-border);
   border-radius: var(--lc-radius-md);
   background: linear-gradient(150deg, var(--lc-surface), var(--lc-surface-sunken));
   transition:
-    border-color 0.15s ease,
-    background 0.15s ease;
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+/* 卡片右上角蓝紫光晕：hover 时点亮，给数据资产一点「在线模块」的能量感 */
+.lc-projects__card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 130px;
+  height: 130px;
+  pointer-events: none;
+  background: radial-gradient(circle at 100% 0%, rgba(55, 182, 255, 0.2), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.lc-projects__card:hover {
+  border-color: var(--lc-border-strong);
+  background: linear-gradient(150deg, var(--lc-surface-raised), var(--lc-surface));
+  box-shadow:
+    0 0 0 1px rgba(55, 182, 255, 0.2),
+    0 18px 44px rgba(0, 6, 18, 0.5),
+    0 0 30px rgba(47, 140, 255, 0.22);
+  transform: translateY(-2px);
+}
+
+.lc-projects__card:hover::before {
+  opacity: 1;
 }
 
 /* 等待删除确认的卡片：状态由 pendingDelete 决定，不能让「删除？」只靠 hover 露出来 */
