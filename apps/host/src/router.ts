@@ -1,22 +1,3 @@
-import { createRouter, createWebHistory } from 'vue-router'
-import type { RouteRecordRaw } from 'vue-router'
-import ProjectListView from './views/ProjectListView.vue'
-import ProjectShellView from './views/ProjectShellView.vue'
-import ProjectReleaseView from './views/ProjectReleaseView.vue'
-import ProjectRunView from './views/ProjectRunView.vue'
-import PageListView from './views/PageListView.vue'
-import DesignerView from './views/DesignerView.vue'
-import PreviewView from './views/PreviewView.vue'
-import FunctionListView from './views/FunctionListView.vue'
-import FunctionEditView from './views/FunctionEditView.vue'
-import ComponentListView from './views/ComponentListView.vue'
-import ComponentBlueprintView from './views/ComponentBlueprintView.vue'
-import FlowListView from './views/FlowListView.vue'
-import FlowEditorView from './views/FlowEditorView.vue'
-import ApiListView from './views/ApiListView.vue'
-import ApiEditorView from './views/ApiEditorView.vue'
-import { legacyPath, projectPath } from './projects/project-path'
-
 /**
  * 主应用路由。
  *
@@ -32,26 +13,40 @@ import { legacyPath, projectPath } from './projects/project-path'
  * 定义弹框，落库拿到 id 后才跳编辑器，避免出现第二条创建入口；`flows/new` 只是手改
  * 地址栏的兜底，编辑器会立刻把 URL 换成真实 id，刷新不会重复建图。
  */
+import { createRouter, createWebHistory } from 'vue-router'
+import type { RouteRecordRaw } from 'vue-router'
+import { legacyPath, projectPath } from './projects/project-path'
+
+/**
+ * 视图一律按需加载：编辑器、蓝图与流程画布都带各自的面板和样式，静态全量 import 会让
+ * 入口 chunk 背上运行期用不到的代码。同一视图被多条路由引用时 Vite 会合并成同一个 chunk。
+ */
 const projectChildren: RouteRecordRaw[] = [
   { path: '', redirect: (to) => projectPath(String(to.params.projectId), 'pages') },
-  { path: 'pages', component: PageListView },
-  { path: 'design/:documentId', component: DesignerView },
-  { path: 'preview/:documentId', component: PreviewView },
-  { path: 'functions', component: FunctionListView },
-  { path: 'functions/new', component: FunctionEditView },
-  { path: 'functions/:functionId/edit', component: FunctionEditView },
-  { path: 'components', component: ComponentListView },
-  { path: 'components/:componentId/edit', component: ComponentBlueprintView },
+  { path: 'pages', component: () => import('./views/PageListView.vue') },
+  { path: 'design/:documentId', component: () => import('./views/DesignerView.vue') },
+  { path: 'preview/:documentId', component: () => import('./views/PreviewView.vue') },
+  { path: 'functions', component: () => import('./views/FunctionListView.vue') },
+  { path: 'functions/new', component: () => import('./views/FunctionEditView.vue') },
+  {
+    path: 'functions/:functionId/edit',
+    component: () => import('./views/FunctionEditView.vue'),
+  },
+  { path: 'components', component: () => import('./views/ComponentListView.vue') },
+  {
+    path: 'components/:componentId/edit',
+    component: () => import('./views/ComponentBlueprintView.vue'),
+  },
   // 接口：字段比函数多，新建直接进编辑器，第一条就在「列表页弹框」里填不下
-  { path: 'apis', component: ApiListView },
-  { path: 'apis/new', component: ApiEditorView },
-  { path: 'apis/:apiId/edit', component: ApiEditorView },
-  { path: 'flows', component: FlowListView },
-  { path: 'flows/new', component: FlowEditorView },
-  { path: 'flows/:flowId/edit', component: FlowEditorView },
+  { path: 'apis', component: () => import('./views/ApiListView.vue') },
+  { path: 'apis/new', component: () => import('./views/ApiEditorView.vue') },
+  { path: 'apis/:apiId/edit', component: () => import('./views/ApiEditorView.vue') },
+  { path: 'flows', component: () => import('./views/FlowListView.vue') },
+  { path: 'flows/new', component: () => import('./views/FlowEditorView.vue') },
+  { path: 'flows/:flowId/edit', component: () => import('./views/FlowEditorView.vue') },
   // 发布页与运行页：一个是闸门与版本表，一个渲染线上快照，草稿改动要发布后才进得来
-  { path: 'releases', component: ProjectReleaseView },
-  { path: 'run/:documentId', component: ProjectRunView },
+  { path: 'releases', component: () => import('./views/ProjectReleaseView.vue') },
+  { path: 'run/:documentId', component: () => import('./views/ProjectRunView.vue') },
 ]
 
 /**
@@ -89,8 +84,12 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', redirect: '/projects' },
-    { path: '/projects', component: ProjectListView },
-    { path: '/projects/:projectId', component: ProjectShellView, children: projectChildren },
+    { path: '/projects', component: () => import('./views/ProjectListView.vue') },
+    {
+      path: '/projects/:projectId',
+      component: () => import('./views/ProjectShellView.vue'),
+      children: projectChildren,
+    },
     legacyRoute('/pages', 'pages'),
     legacyRoute('/design/:documentId', 'design/{param}'),
     legacyRoute('/preview/:documentId', 'preview/{param}'),
