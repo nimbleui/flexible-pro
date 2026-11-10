@@ -105,13 +105,30 @@ export function useFlowCanvas(editor: FlowEditorHandle) {
 
   const disposables: Array<{ dispose(): void }> = []
 
-  /** 舞台本地屏幕坐标：以 getBoundingClientRect 为原点，与 viewport 的约定一致 */
-  function toScreenPoint(event: PointerEvent | WheelEvent): Point {
-    const element = stageRef.value
-    if (!element) return { x: 0, y: 0 }
-    const rect = element.getBoundingClientRect()
+  /** 舞台原点快照；pointermove / wheel 高频路径只读缓存，避免每次事件强制同步布局 */
+  let stageOrigin: { left: number; top: number } | null = null
 
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top }
+  /**
+   * 重测舞台原点。
+   *
+   * 挂载、ResizeObserver、每次按下与滚轮前调用；拖拽期间只移动指针不改舞台位置，
+   * 因此 move 全程复用同一份原点。尺寸写入留给 ResizeObserver，避免每次按下
+   * 都多触发一次 viewport 通知与帧提交。
+   *
+   * @returns 本次测得的 rect，供挂载与尺寸变化时同步视口尺寸
+   */
+  function measureStage(): DOMRect | null {
+    const element = stageRef.value
+    if (!element) return null
+    const rect = element.getBoundingClientRect()
+    stageOrigin = { left: rect.left, top: rect.top }
+    return rect
+  }
+
+  /** 舞台本地屏幕坐标：以缓存的舞台原点为基准，与 viewport 的约定一致 */
+  function toScreenPoint(event: PointerEvent | WheelEvent): Point {
+    if (!stageOrigin) return { x: 0, y: 0 }
+    return { x: event.clientX - stageOrigin.left, y: event.clientY - stageOrigin.top }
   }
 
   function toWorldPoint(event: PointerEvent | WheelEvent): Point {
@@ -280,6 +297,10 @@ export function useFlowCanvas(editor: FlowEditorHandle) {
   function onPointerDown(event: PointerEvent): void {
     if (event.button !== 0 && event.button !== 1) return
     if (!stageRef.value) return
+    // 已有手势在进行（多指按下）：覆盖会丢掉上一条的 endGesture，历史补丁不闭合
+    if (gesture.value.kind !== 'none') return
+    // 每次按下重测原点：舞台位置可能在两次按下之间变化，move 期间只读缓存
+    measureStage()
 
     const hit = resolveTarget(event.target)
     const world = toWorldPoint(event)
@@ -367,6 +388,8 @@ export function useFlowCanvas(editor: FlowEditorHandle) {
 
   function onWheel(event: WheelEvent): void {
     event.preventDefault()
+    // 滚轮前重测一次原点：非 ctrl 的平移也要用同一份缓存，舞台位置可能已变
+    measureStage()
 
     if (event.ctrlKey || event.metaKey) {
       viewport.zoomAt(toScreenPoint(event), Math.exp(-event.deltaY * WHEEL_ZOOM_FACTOR))
@@ -394,15 +417,15 @@ export function useFlowCanvas(editor: FlowEditorHandle) {
     const element = stageRef.value
     if (!element) return
 
-    // attach 之前先测一次尺寸，否则首帧的取景会拿到 0×0 而什么都不摆
-    const measure = () => {
-      const rect = element.getBoundingClientRect()
-      viewport.setSize({ width: rect.width, height: rect.height })
-    }
-    measure()
+    // attach 之前先测一次尺寸与原点，否则首帧的取景会拿到 0×0 而什么都不摆
+    const initial = measureStage()
+    if (initial) viewport.setSize({ width: initial.width, height: initial.height })
     frameGraph()
 
-    const observer = new ResizeObserver(measure)
+    const observer = new ResizeObserver(() => {
+      const rect = measureStage()
+      if (rect) viewport.setSize({ width: rect.width, height: rect.height })
+    })
     observer.observe(element)
     disposables.push({ dispose: () => observer.disconnect() })
     disposables.push(viewport.onDidChange(() => scheduler.invalidateViewport()))
@@ -417,6 +440,7 @@ export function useFlowCanvas(editor: FlowEditorHandle) {
     for (const disposable of disposables.reverse()) disposable.dispose()
     disposables.length = 0
     scheduler.dispose()
+    stageOrigin = null
   })
 
   return {
