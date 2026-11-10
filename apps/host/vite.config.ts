@@ -25,39 +25,50 @@ function lanIPv4(): string {
 }
 
 const DEV_HOST = lanIPv4()
-const DESIGNER_ENTRY =
-  process.env.VITE_DESIGNER_ENTRY ?? `http://${DEV_HOST}:5174/remoteEntry.js`
 
-export default defineConfig({
-  plugins: [
-    vue(),
-    federation({
-      name: 'hostShell',
-      remotes: {
-        designerCanvas: {
-          type: 'module',
-          name: 'designerCanvas',
-          entry: DESIGNER_ENTRY,
-          shareScope: 'default',
+export default defineConfig(({ command }) => {
+  const entry = process.env.VITE_DESIGNER_ENTRY
+
+  // 生产构建必须显式给远程地址：不带它会把构建机的内网 IPv4 烧进公开产物，
+  // 且产物随构建机网卡变化而不可复现。dev / preview 仍用本机地址。
+  // 用 command 而不是 mode：vite preview 的 mode 也是 production，但它是 serve。
+  if (command === 'build' && !entry) {
+    throw new Error(
+      '[host] 生产构建必须设置 VITE_DESIGNER_ENTRY（部署后的 remoteEntry.js 完整地址）',
+    )
+  }
+
+  return {
+    plugins: [
+      vue(),
+      federation({
+        name: 'hostShell',
+        remotes: {
+          designerCanvas: {
+            type: 'module',
+            name: 'designerCanvas',
+            entry: entry ?? `http://${DEV_HOST}:5174/remoteEntry.js`,
+            shareScope: 'default',
+          },
         },
-      },
-      shared: {
-        // 远程组件的 vnode 必须由同一个 Vue 实例渲染，否则挂载即失效
-        vue: { singleton: true, requiredVersion: '^3.5.0', eager: true },
-      },
-      // 远程类型不自动生成（需要 per-app tsconfig），见 src/remotes.d.ts
-      dts: false,
-    }),
-  ],
-  resolve: {
-    dedupe: ['vue'],
-  },
-  server: {
-    host: '0.0.0.0',
-    port: 5173,
-  },
-  preview: {
-    host: '0.0.0.0',
-    port: 5173,
-  },
+        shared: {
+          // 远程组件的 vnode 必须由同一个 Vue 实例渲染，否则挂载即失效
+          vue: { singleton: true, requiredVersion: '^3.5.0', eager: true },
+        },
+        // 远程类型不自动生成（需要 per-app tsconfig），见 src/remotes.d.ts
+        dts: false,
+      }),
+    ],
+    resolve: {
+      dedupe: ['vue'],
+    },
+    server: {
+      host: '0.0.0.0',
+      port: 5173,
+    },
+    preview: {
+      host: '0.0.0.0',
+      port: 5173,
+    },
+  }
 })
