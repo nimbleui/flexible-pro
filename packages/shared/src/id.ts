@@ -48,3 +48,24 @@ export function createPersistentId(prefix: string): string {
     return id
   }
 }
+
+/**
+ * 生成可落盘、且不与已有键冲突的稳定 id。
+ *
+ * `createPersistentId` 已保证同进程内不重复，但导入旧文档或测试夹具时，文档里可能
+ * 已经存在同名字典键；实体表以 id 为主键，撞上就会覆盖已有条目。本函数在此基础上
+ * 额外对调用方给出的「已占用键」查重，命中则重试到不冲突为止。
+ *
+ * 只保证不落在 `taken` 内，不扫描全局状态：调用方必须传入完整的同域键集合
+ * （如 `Object.keys(actions)`），否则仍可能撞上未列出的键。
+ *
+ * @param prefix 资产语义前缀，如 `conn`、`action`
+ * @param taken 同一字典内已占用的全部 id
+ * @returns 不在 `taken` 内、可安全落盘的 id
+ */
+export function createUniquePersistentId(prefix: string, taken: readonly string[]): string {
+  const used = new Set(taken)
+  let id = createPersistentId(prefix)
+  while (used.has(id)) id = createPersistentId(prefix)
+  return id
+}

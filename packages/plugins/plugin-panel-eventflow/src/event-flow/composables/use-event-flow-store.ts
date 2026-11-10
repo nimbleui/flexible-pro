@@ -9,7 +9,7 @@ import type {
 import type { ExpressionEngine, FunctionDescriptor, NodeSchema, SchemaPatch } from '@lc/schema'
 import type { ScopeSymbol } from '@lc/expression/editor'
 import { buildPageSymbols } from '@lc/expression/editor'
-import { createPersistentId } from '@lc/shared'
+import { createUniquePersistentId } from '@lc/shared'
 import { useAppContext } from '@lc/vue'
 
 /**
@@ -119,17 +119,6 @@ export function useEventFlowStore(): EventFlowStore {
     return node.name || node.componentName || node.id
   }
 
-  /**
-   * 新 id 自带跨端熵，但仍对文档内现有键查重：导入旧数据或测试夹具时，
-   * 不能让新动作/新连接覆盖已有条目。
-   */
-  function nextId(prefix: string, taken: readonly string[]): string {
-    const used = new Set(taken)
-    let id = createPersistentId(prefix)
-    while (used.has(id)) id = createPersistentId(prefix)
-    return id
-  }
-
   return {
     document,
     selection,
@@ -143,6 +132,6 @@ export function useEventFlowStore(): EventFlowStore {
     selectedNode,
     commit,
     nodeLabel,
-    nextId,
+    nextId: createUniquePersistentId,
   }
 }

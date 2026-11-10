@@ -12,7 +12,7 @@ import {
   flowBindingSummary,
   listFlowBindingOptions,
 } from '@lc/schema'
-import { createPersistentId } from '@lc/shared'
+import { createUniquePersistentId } from '@lc/shared'
 import { useAppContext } from '@lc/vue'
 import type { ChainStep, EventRow } from '../utils/event-bindings'
 import {
@@ -150,17 +150,6 @@ export function useNodeEventBindings() {
   }
 
   /**
-   * 新 id 自带跨端熵，但仍对文档内现有键查重：导入旧数据或测试夹具时，
-   * 不能让新连接或新动作覆盖已有条目。
-   */
-  function nextId(prefix: string, taken: readonly string[]): string {
-    const used = new Set(taken)
-    let id = createPersistentId(prefix)
-    while (used.has(id)) id = createPersistentId(prefix)
-    return id
-  }
-
-  /**
    * 绑定一个事件。
    *
    * 同一节点同一事件只允许一条连接（`validateDocument` 视为错误），已存在时直接返回，
@@ -178,7 +167,7 @@ export function useNodeEventBindings() {
       return
 
     const connection: EventConnection = {
-      id: nextId('conn', Object.keys(connections)),
+      id: createUniquePersistentId('conn', Object.keys(connections)),
       sourceNodeId: current.id,
       eventName: name,
       actionIds: [],
@@ -251,7 +240,7 @@ export function useNodeEventBindings() {
 
     const connections = document.model.schema.connections ?? {}
     const created: EventConnection = {
-      id: nextId('conn', Object.keys(connections)),
+      id: createUniquePersistentId('conn', Object.keys(connections)),
       sourceNodeId: current.id,
       eventName: row.eventName,
       actionIds: [],
@@ -274,7 +263,7 @@ export function useNodeEventBindings() {
 
     const actions = document.model.schema.actions ?? {}
     const action: ActionDeclaration = {
-      id: nextId('action', Object.keys(actions)),
+      id: createUniquePersistentId('action', Object.keys(actions)),
       type,
       config: {},
     }
