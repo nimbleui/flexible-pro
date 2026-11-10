@@ -77,7 +77,11 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('发布快照存储', () => {
+// 每个用例都用 vi.resetModules() + 动态 import 重编译整条模块链；默认并行下
+// 与其它 109 个文件争抢 CPU 时，首例可能超过 vitest 默认的 5000ms 而超时，并让
+// 依赖它 seed 的后续用例级联失败（见 docs/13-version-control.md:1476 的既有登记）。
+// 仅对本 suite 放宽超时，不改动任何用例、断言或模块加载方式，也不影响其它测试文件。
+describe('发布快照存储', { timeout: 20_000 }, () => {
   it('发布生成递增版本并移动指针，快照里的页面是当前资产的副本', async () => {
     seed()
     const store = await import('../src/projects/release-store')
