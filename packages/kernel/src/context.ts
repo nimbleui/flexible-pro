@@ -59,12 +59,16 @@ export interface ProvideOptions {
  * 保留名单存在的意义不是防住同 realm 的恶意代码（它做不到），
  * 而是防止普通插件无意间覆盖 `canvas`、`history` 这类内核语义服务。
  *
- * 名单比契约层的 15 个服务名更宽，两处差异都是有意的：
- * - `http`、`storage`、`telemetry` 等尚未实现的名字先占住，避免将来加入平台能力时
- *   撞上「第三方插件早已提供同名服务」的破坏性变更；
- * - `expression`、`keybinding` 不列入，这两类允许插件替换自己的实现；
- * - `toast`、`navigation` 同样不列入：它们是宿主 UI 能力的适配位，插件提供更好看的
- *   提示实现或接管跳转是正当用法，不像 `canvas`、`history` 那样承载内核语义。
+ * 名单只收录已有真实提供者的服务名。曾把 `designer`、`storage`、`audit`、`policy`、
+ * `quota`、`secrets`、`flags`、`telemetry` 等尚未实现的名字先占住，但它们既没有
+ * `provide` 也没有 `get` / 消费者、且不在契约层 `SERVICE_NAMES` 中，只会让
+ * `plugin.invoke` 的保留名拦截与 devtools 快照凭空多出一批永不命中的名字，故已清除。
+ * 未来加入平台能力时，随真实提供者一并登记即可。
+ *
+ * 与契约层的差异同样是有意的：`expression`、`keybinding` 不列入，这两类允许插件
+ * 替换自己的实现；`toast`、`navigation` 也不列入：它们是宿主 UI 能力的适配位，
+ * 插件提供更好看的提示实现或接管跳转是正当用法，不像 `canvas`、`history` 那样
+ * 承载内核语义。
  */
 export const RESERVED_SERVICES: ReadonlySet<string> = new Set([
   'material',
@@ -77,17 +81,9 @@ export const RESERVED_SERVICES: ReadonlySet<string> = new Set([
   'document',
   'history',
   'selection',
-  'designer',
   'canvas',
   'snap',
   'http',
-  'storage',
-  'audit',
-  'policy',
-  'quota',
-  'secrets',
-  'flags',
-  'telemetry',
   'loader',
   'contribution',
   'modules',
