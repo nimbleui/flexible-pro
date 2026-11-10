@@ -1,15 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import type {
-  CanvasRealm,
   CanvasService,
   CommandService,
   DocumentService,
-  EditorRealm,
   HistoryService,
-  VersionHostService,
-  VersionPanelSection,
 } from '@lc/contracts'
 import type { ExpressionEngine, FunctionRegistration, FunctionSchema } from '@lc/schema'
 import { ContextScope, LcIcon, LcSlot, useAppContext } from '@lc/vue'
@@ -25,66 +21,29 @@ import { loadSchemaWithApis } from '../apis/api-load'
 import { requestDefaultsOf } from '../apis/api-config'
 import { getPage, savePageSchema } from '../pages/page-store'
 import { visibleInProject } from '../projects/project-model'
-import { projectPath } from '../projects/project-path'
 import { toastService } from '../toast'
+import { useDesignerRealm } from './composables/use-designer-realm'
+import { useDesignerRail } from './composables/use-designer-rail'
+import { useDesignerTabs } from './composables/use-designer-tabs'
+import { useDesignerCommands } from './composables/use-designer-commands'
 
 const appCtx = useAppContext()
 const route = useRoute()
-const router = useRouter()
 const projectId = String(route.params.projectId)
 const documentId = String(route.params.documentId)
 const page = visibleInProject(getPage(documentId), projectId)
 /** 标题只存在页面记录里：Realm 契约不回带它，工具栏与提示文案都用这一个值 */
 const pageTitle = page?.title ?? documentId
 
-/**
- * 预览走同应用内的项目内路径，不用 `window.open`：两个视图共用同一个文档
- * Realm，设计到一半、还没点保存时也能立刻看到真实渲染；整页导航会重建应用并丢掉这份
- * 内存态，预览就只剩页面记录里已保存的内容。
- */
-function openPreview(): void {
-  void router.push(projectPath(projectId, `preview/${encodeURIComponent(documentId)}`))
-}
-
-/**
- * 注入画布的宿主路由作用域。
- *
- * 画布只负责页面数据（data/page），路由值由宿主提供；这样同一个画布模块
- * 既能被设计器装载，也能被预览/运行时装载，而不用自己依赖 vue-router。
- */
-const routeScope = computed<Record<string, unknown>>(() => {
-  const params = { ...route.params }
-  const query = { ...route.query }
-  return {
-    $params: params,
-    $query: query,
-    $route: {
-      path: route.path,
-      fullPath: route.fullPath,
-      name: typeof route.name === 'string' ? route.name : null,
-      hash: route.hash,
-      params,
-      query,
-    },
-  }
+const { editor, canvas, routeScope, openPreview } = useDesignerRealm({
+  appCtx,
+  documentId,
+  projectId,
+  pageTitle,
+  // 项目接口在进 Realm 前展开；保存时由 page-store 剥回去，落盘的文档只留绑定
+  schema: loadSchemaWithApis(page?.schema, projectId),
+  requestDefaults: requestDefaultsOf(projectId),
 })
-
-// 重复进入同一文档复用已开的 Realm：workspace 对重复 documentId 直接抛错
-const editor: EditorRealm =
-  appCtx.workspace.getEditor(documentId) ??
-  appCtx.workspace.createEditorRealm({
-    documentId,
-    title: pageTitle,
-    // 项目接口在进 Realm 前展开；保存时由 page-store 剥回去，落盘的文档只留绑定
-    schema: loadSchemaWithApis(page?.schema, projectId),
-    requestDefaults: requestDefaultsOf(projectId),
-  })
-
-// 一篇文档可以有多个画布视图，所以画布 Realm 随视图创建、随视图释放
-const canvas: CanvasRealm = editor.createCanvasRealm()
-
-// 调试入口跟随视图：__lc.canvas 始终指向当前活动画布，production 下 __lc 未挂载即为 no-op
-if (window.__lc) window.__lc.canvas = canvas
 
 /** 工具栏订阅的画布 / 命令 / 历史服务；就绪前保持 null，按钮按不可用处理 */
 const canvasService = shallowRef<CanvasService | null>(null)
@@ -170,162 +129,12 @@ function watchPageFunctions(
   disposables.push(documentService.onDidChange(sync))
 }
 
-/** 物料面板里的「自定义函数」「页面数据」是纯入口物料，点击后执行这两条命令打开弹框 */
-function registerDialogCommands(): void {
-  const service = commandService.value
-  if (!service) return
-
-  disposables.push(
-    service.register({
-      id: 'pageFunction.openDialog',
-      title: '添加自定义函数',
-      run: () => {
-        pageFunctionDialogOpen.value = true
-      },
-    }),
-    service.register({
-      id: 'pageData.openDialog',
-      title: '编辑页面数据',
-      run: () => {
-        pageDataDialogOpen.value = true
-      },
-    }),
-  )
-}
-
-/**
- * 打开版本面板并聚焦指定分区。
- *
- * 命令只广播意图，不直接操作面板内部状态：面板由插槽懒加载，命令执行时它可能还没
- * 挂载。`selectBottomTab` 负责展开 dock 与切页签，`version:open` 由面板自己订阅。
- */
-function openVersionPanel(section: VersionPanelSection, previewTarget?: string): void {
-  selectBottomTab('version')
-  appCtx.emit('version:open', { section, previewTarget })
-}
-
-/**
- * 注册版本命令与快捷键。
- *
- * 只有 `version.commit` 直接执行写操作：它没有参数、内容不变时不产生提交，是唯一
- * 适合从命令面板 / 快捷键无确认触发的动作。其余命令打开对应分区让用户选目标，
- * 因为切分支、合并、发布、回滚都需要参数或不可逆确认，盲目执行等于埋误操作。
- * 快捷键刻意不用 `Mod+S`：灰度期保留浏览器与既有保存路径的语义，不抢用户习惯。
- */
-function registerVersionCommands(): void {
-  const service = commandService.value
-  if (!service) return
-
-  const host = appCtx.get<VersionHostService>('version')
-  const open = (section: VersionPanelSection): void => openVersionPanel(section)
-
-  disposables.push(
-    service.register({
-      id: 'version.commit',
-      title: '提交版本',
-      run: async () => {
-        if (!host || host.mode === 'off') {
-          toastService.show('版本控制未启用（VITE_LC_VERSION_MODE=off）', 'error')
-          return
-        }
-
-        try {
-          const session = await host.session(projectId)
-          if (!session) {
-            toastService.show('版本库会话不可用', 'error')
-            return
-          }
-
-          const created = await session.commit({ message: '命令提交' })
-          toastService.show(
-            created ? `已提交 ${created.id.slice(0, 8)}` : '内容未变化，未产生新提交',
-            'success',
-          )
-        } catch (cause) {
-          toastService.show(cause instanceof Error ? cause.message : String(cause), 'error')
-        }
-      },
-    }),
-  )
-
-  const navigationCommands: ReadonlyArray<{
-    id: string
-    title: string
-    section: VersionPanelSection
-  }> = [
-    { id: 'version.openHistory', title: '打开版本历史', section: 'history' },
-    { id: 'version.checkout', title: '切换版本分支', section: 'branches' },
-    { id: 'version.merge', title: '合并版本', section: 'conflicts' },
-    { id: 'version.publish', title: '发布版本', section: 'releases' },
-    { id: 'version.rollback', title: '回滚版本', section: 'releases' },
-  ]
-
-  for (const entry of navigationCommands) {
-    disposables.push(
-      service.register({
-        id: entry.id,
-        title: entry.title,
-        run: () => open(entry.section),
-      }),
-    )
-  }
-
-  disposables.push(
-    appCtx.keybinding.register({
-      id: 'version.openHistory.key',
-      key: 'Mod+Alt+H',
-      command: 'version.openHistory',
-    }),
-    appCtx.keybinding.register({
-      id: 'version.commit.key',
-      key: 'Mod+Alt+S',
-      command: 'version.commit',
-    }),
-  )
-}
-
 /** 视口变化刷新缩放读数；命令 / 历史变化刷新撤销与重做的可用态 */
 function subscribeRefreshSignals(canvasApi: CanvasService): void {
   disposables.push(canvasApi.viewport.onDidChange(bump))
   if (commandService.value) disposables.push(commandService.value.onDidChange(bump))
   if (historyService.value) disposables.push(historyService.value.onDidChange(bump))
 }
-
-onMounted(async () => {
-  await appCtx.runtime.whenIdle()
-  // 等待期间用户可能已经离开：此时 Realm 已释放，不能再访问服务
-  if (unmounted) return
-
-  canvasService.value = canvas.context.require<CanvasService>('canvas')
-  commandService.value = canvas.context.get<CommandService>('command') ?? null
-  historyService.value = editor.context.get<HistoryService>('history') ?? null
-
-  const document = editor.context.require<DocumentService>('document')
-  documentService.value = document
-  // 热更新复用了已有 Realm 时起始版本可能不是 0：两边对齐才不会一进来就显示未保存
-  savedVersion.value = document.model.version
-  docVersion.value = savedVersion.value
-
-  disposables.push(
-    document.onDidChange((model) => {
-      docVersion.value = model.version
-    }),
-  )
-
-  watchPageFunctions(document, editor.context.require<ExpressionEngine>('expression'))
-  registerDialogCommands()
-  registerVersionCommands()
-  subscribeRefreshSignals(canvasService.value)
-
-  // 底部页签条跟着贡献走：安装 / 卸载面板插件不必刷新页面就能增减页签
-  disposables.push(
-    appCtx.contribution.onDidChange(() => {
-      contributionVersion.value += 1
-    }),
-  )
-
-  ready.value = true
-})
 
 function commandEnabled(id: string): boolean {
   const command = commandService.value?.get(id)
@@ -364,6 +173,90 @@ function runCommand(id: string): void {
   void commandService.value?.execute(id)
 }
 
+const {
+  OVERLAY_TITLE,
+  railItems,
+  leftPanelOpen,
+  overlayOpen,
+  dockExpanded,
+  railPressed,
+  onRailClick,
+} = useDesignerRail({ runCommand })
+
+const {
+  rightTabs,
+  activeRightTab,
+  contributionVersion,
+  bottomTabs,
+  activeBottomPanel,
+  selectBottomTab,
+  onRightTabKeydown,
+  onBottomTabKeydown,
+} = useDesignerTabs({ appCtx, dockExpanded })
+
+const { registerDialogCommands, registerVersionCommands } = useDesignerCommands({
+  appCtx,
+  projectId,
+  commandService,
+  disposables,
+  pageFunctionDialogOpen,
+  pageDataDialogOpen,
+  selectBottomTab,
+})
+
+type DeviceKind = 'desktop' | 'tablet' | 'mobile'
+
+/** 预览设备档位；顺序即切换器展示顺序，与 DeviceKind 全集一致 */
+const devices: ReadonlyArray<{
+  /** 档位 id，写入 activeDevice 供模板比较 */
+  id: DeviceKind
+  /** 档位展示名 */
+  label: string
+}> = [
+  { id: 'desktop', label: '桌面' },
+  { id: 'tablet', label: '平板' },
+  { id: 'mobile', label: '手机' },
+]
+
+/** 模板直接写回 activeDevice（@click="activeDevice = device.id"），折叠表与状态保留在视图 */
+const activeDevice = ref<DeviceKind>('desktop')
+
+onMounted(async () => {
+  await appCtx.runtime.whenIdle()
+  // 等待期间用户可能已经离开：此时 Realm 已释放，不能再访问服务
+  if (unmounted) return
+
+  canvasService.value = canvas.context.require<CanvasService>('canvas')
+  commandService.value = canvas.context.get<CommandService>('command') ?? null
+  historyService.value = editor.context.get<HistoryService>('history') ?? null
+
+  const document = editor.context.require<DocumentService>('document')
+  documentService.value = document
+  // 热更新复用了已有 Realm 时起始版本可能不是 0：两边对齐才不会一进来就显示未保存
+  savedVersion.value = document.model.version
+  docVersion.value = savedVersion.value
+
+  disposables.push(
+    document.onDidChange((model) => {
+      docVersion.value = model.version
+    }),
+  )
+
+  watchPageFunctions(document, editor.context.require<ExpressionEngine>('expression'))
+  registerDialogCommands()
+  registerVersionCommands()
+  subscribeRefreshSignals(canvasService.value)
+
+  // 底部页签条跟着贡献走：安装 / 卸载面板插件不必刷新页面就能增减页签
+  disposables.push(
+    appCtx.contribution.onDidChange(() => {
+      contributionVersion.value += 1
+    }),
+  )
+
+  ready.value = true
+})
+
 /**
  * 把画布内存里的文档写回页面记录。
  *
@@ -383,207 +276,6 @@ function save(): void {
   } catch (cause) {
     toastService.show(cause instanceof Error ? cause.message : String(cause), 'error')
   }
-}
-
-/** 浮动面板的标题；rail 项与浮层头部共用同一个字符串，不在两处各写一遍 */
-const OVERLAY_TITLE = '页面大纲'
-
-/** rail 上可开关的界面；面板可见性归外壳，内容归贡献该槽的插件 */
-type RailTarget = 'leftPanel' | 'overlayPanel' | 'dock'
-
-interface DesignerRailItem {
-  /** 稳定 id，用于 key 与 aria 定位 */
-  id: string
-  /** 图标下方的短标签 */
-  label: string
-  /** 共享图标注册表里的图标名 */
-  icon: string
-  /**
-   * 点击行为；undefined 渲染成禁用态，提示尚未接入。
-   *
-   * 命令型复用宿主已注册的命令（页面数据 / 自定义函数弹框），不新造一套开关状态。
-   */
-  action?: { kind: 'toggle'; target: RailTarget } | { kind: 'command'; commandId: string }
-}
-
-// rail 是工作区入口集合：组件库常驻左栏，页面大纲浮在画布上，底部面板开关停靠区
-const railItems: readonly DesignerRailItem[] = [
-  {
-    id: 'components',
-    label: '组件库',
-    icon: 'library',
-    action: { kind: 'toggle', target: 'leftPanel' },
-  },
-  {
-    id: 'outline',
-    label: OVERLAY_TITLE,
-    icon: 'outline',
-    action: { kind: 'toggle', target: 'overlayPanel' },
-  },
-  {
-    id: 'dataSource',
-    label: '数据源',
-    icon: 'database',
-    action: { kind: 'command', commandId: 'pageData.openDialog' },
-  },
-  {
-    id: 'functions',
-    label: '方法管理',
-    icon: 'function',
-    action: { kind: 'command', commandId: 'pageFunction.openDialog' },
-  },
-  {
-    id: 'dock',
-    label: '底部面板',
-    icon: 'list',
-    action: { kind: 'toggle', target: 'dock' },
-  },
-  {
-    id: 'versions',
-    label: '版本管理',
-    icon: 'version',
-    action: { kind: 'command', commandId: 'version.openHistory' },
-  },
-  { id: 'settings', label: '设置', icon: 'sliders' },
-]
-
-/** 左侧常驻面板、浮动大纲面板与底部停靠区的可见性；三者互不排斥，可以同屏 */
-const leftPanelOpen = ref(true)
-const overlayOpen = ref(false)
-const dockExpanded = ref(true)
-
-/** rail 项的按下态；命令型按钮没有可保持的状态，返回 undefined 让 Vue 不写 aria-pressed */
-function railPressed(item: DesignerRailItem): boolean | undefined {
-  const action = item.action
-  if (!action || action.kind === 'command') return undefined
-  if (action.target === 'leftPanel') return leftPanelOpen.value
-  if (action.target === 'overlayPanel') return overlayOpen.value
-  return dockExpanded.value
-}
-
-function onRailClick(item: DesignerRailItem): void {
-  const action = item.action
-  if (!action) return
-
-  if (action.kind === 'command') {
-    runCommand(action.commandId)
-    return
-  }
-
-  if (action.target === 'leftPanel') leftPanelOpen.value = !leftPanelOpen.value
-  else if (action.target === 'overlayPanel') overlayOpen.value = !overlayOpen.value
-  else dockExpanded.value = !dockExpanded.value
-}
-
-type DeviceKind = 'desktop' | 'tablet' | 'mobile'
-
-/** 预览设备档位；顺序即切换器展示顺序，与 DeviceKind 全集一致 */
-const devices: ReadonlyArray<{
-  /** 档位 id，写入 activeDevice 供模板比较 */
-  id: DeviceKind
-  /** 档位展示名 */
-  label: string
-}> = [
-  { id: 'desktop', label: '桌面' },
-  { id: 'tablet', label: '平板' },
-  { id: 'mobile', label: '手机' },
-]
-
-const activeDevice = ref<DeviceKind>('desktop')
-
-/**
- * 右侧面板页签；id 与 activeRightTab 取值一致，四个页签全集固定，不做动态注册。
- *
- * 页签是外壳的产品边界，内容一律来自各自的插槽：属性、样式、事件、高级各占一个槽，
- * 换掉或增装某个面板不必动外壳，也不必担心它把另外三个挤走。
- */
-interface RightTab {
-  /** 页签 id，同时是 v-show 的判定值 */
-  id: 'config' | 'style' | 'event' | 'advanced'
-  /** 页签文案，也用于 aria-label 与键盘导航朗读 */
-  label: string
-}
-
-const rightTabs: readonly RightTab[] = [
-  { id: 'config', label: '页面配置' },
-  { id: 'style', label: '样式' },
-  { id: 'event', label: '事件' },
-  { id: 'advanced', label: '高级' },
-]
-
-const activeRightTab = ref<RightTab['id']>('config')
-
-/** 页签键盘导航：方向键在页签间循环，Home / End 跳到首尾 */
-function onTabKeydown(
-  event: KeyboardEvent,
-  index: number,
-  count: number,
-  select: (next: number) => void,
-): void {
-  if (
-    event.key !== 'ArrowRight' &&
-    event.key !== 'ArrowLeft' &&
-    event.key !== 'Home' &&
-    event.key !== 'End'
-  ) {
-    return
-  }
-
-  event.preventDefault()
-
-  const last = count - 1
-  let next = index
-  if (event.key === 'ArrowRight') next = index === last ? 0 : index + 1
-  else if (event.key === 'ArrowLeft') next = index === 0 ? last : index - 1
-  else if (event.key === 'Home') next = 0
-  else next = last
-
-  select(next)
-  const tablist = (event.currentTarget as HTMLElement | null)?.closest('[role="tablist"]')
-  tablist?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus()
-}
-
-function onRightTabKeydown(event: KeyboardEvent, index: number): void {
-  onTabKeydown(event, index, rightTabs.length, (next) => {
-    activeRightTab.value = rightTabs[next].id
-  })
-}
-
-/**
- * 底部停靠区页签；直接来自 `designer.bottomPanel` 的贡献列表。
- *
- * 页签条原先由事件流插件自己画，多一个面板就得改它的源码；改由外壳按贡献生成后，
- * 装几个面板就有几个页签，卸载即消失。id 用面板 id，与 `LcSlot` 的 `active` 同一口径。
- */
-const contributionVersion = ref(0)
-
-const bottomTabs = computed<readonly { id: string; label: string; icon?: string }[]>(() => {
-  contributionVersion.value
-  return appCtx.contribution
-    .listSlot('designer.bottomPanel')
-    .map((item) => ({ id: item.value.id, label: item.value.title, icon: item.value.icon }))
-})
-
-const activeBottomTab = ref('eventflow')
-
-/** 面板被卸载时回落到第一个页签：active 指向不存在的面板会让整块停靠区空白 */
-const activeBottomPanel = computed<string | undefined>(() =>
-  bottomTabs.value.some((tab) => tab.id === activeBottomTab.value)
-    ? activeBottomTab.value
-    : bottomTabs.value[0]?.id,
-)
-
-/** 停靠区折叠时点页签顺手展开：页签决定「看哪个面板」，折叠按钮决定「看不看这块区域」 */
-function selectBottomTab(id: string): void {
-  activeBottomTab.value = id
-  dockExpanded.value = true
-}
-
-function onBottomTabKeydown(event: KeyboardEvent, index: number): void {
-  onTabKeydown(event, index, bottomTabs.value.length, (next) => {
-    const tab = bottomTabs.value[next]
-    if (tab) selectBottomTab(tab.id)
-  })
 }
 
 const devtoolsOpen = shallowRef(false)
