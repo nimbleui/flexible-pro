@@ -1,8 +1,9 @@
 /**
  * 架构版本与兼容性工具。
  *
- * PageSchema.version 与 SCHEMA_VERSION 必须一致；加载旧文档时通过
- * migrateDocument 迁移，而不是在渲染器里散落 if 判断。
+ * PageSchema.version 与 SCHEMA_VERSION 一致是约定：版本不同应由显式迁移链处理，
+ * 而不是在渲染器里散落 if 判断。`migrate.ts` 里已实现 fail-closed 的 `migrateDocument`，
+ * 但当前没有读档入口接入它——在接入之前，读到版本不一致的文档不会自动迁移。
  */
 
 /** 当前驱动支持的架构版本 */
