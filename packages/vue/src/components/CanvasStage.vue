@@ -63,7 +63,11 @@ const dataVersion = ref(0)
 // 插槽声明来自物料注册表，同样不是响应式源：改自定义组件的插槽后要能重排内容
 const slotVersion = ref(0)
 
-const components = reactive(new Map<string, Component | null>())
+/** 已解析成功的材料组件；解析失败不写入，避免把「暂时拿不到」变成永久终态 */
+const components = reactive(new Map<string, Component>())
+
+/** 解析完成但没拿到组件的名字：只用于渲染错误占位，不参与解析短路 */
+const missing = reactive(new Set<string>())
 
 // 只做并发去重，不参与渲染，因此故意不放进响应式系统
 const loading = new Set<string>()
@@ -89,7 +93,7 @@ const tree = computed<RenderNode[]>(() => {
   })
 })
 
-/** 已解析的材料组件；null 表示解析完成但该组件不存在，渲染占位框 */
+/** 已解析的材料组件；null 表示尚未解析成功（加载中或暂时缺组件），渲染占位框 */
 function materialOf(name: string): Component | null {
   return components.get(name) ?? null
 }
@@ -122,7 +126,13 @@ function renderNode(item: RenderNode, origin: Point): ReturnType<typeof h> {
     [
       component
         ? h(component, item.props, named)
-        : h('div', { class: 'lc-node__placeholder' }, item.node.componentName),
+        : missing.has(name)
+          ? h(
+              'div',
+              { class: 'lc-node__placeholder lc-node__placeholder--error', role: 'alert' },
+              `组件「${name}」未找到`,
+            )
+          : h('div', { class: 'lc-node__placeholder' }, item.node.componentName),
       children,
     ],
   )
@@ -164,6 +174,9 @@ const NodeTree = defineComponent({
  * 为文档里出现的组件名异步解析材料组件。
  *
  * 已缓存或正在解析的名字直接跳过，所以文档逐帧变化也不会重复请求同一材料。
+ * 解析失败只记进 `missing`，不写 `components`：这样后续文档变化或物料注册变化
+ * 触发本函数时会重新解析，与 `renderer` 服务「失败结果不留缓存」的约定一致，
+ * 节点不会因为一次失败就永久空白。
  */
 function syncComponents(): void {
   for (const node of Object.values(document.model.schema.nodes)) {
@@ -174,7 +187,19 @@ function syncComponents(): void {
       .resolveMaterial(name)
       .then((component) => {
         // 契约层返回 unknown（不依赖 Vue），宿主在此收窄为 Component
-        components.set(name, component ? markRaw(component as Component) : null)
+        if (component) {
+          components.set(name, markRaw(component as Component))
+          missing.delete(name)
+          return
+        }
+        // 只在首次失败时记诊断，避免文档逐帧变化时刷屏
+        if (!missing.has(name)) {
+          missing.add(name)
+          props.context.diagnostics.report(new Error(`物料 "${name}" 未解析到组件`), {
+            scope: 'canvas',
+            name,
+          })
+        }
       })
       .finally(() => loading.delete(name))
   }
@@ -326,6 +351,9 @@ onMounted(() => {
     disposables.push(
       material.onDidChange(() => {
         slotVersion.value += 1
+        // renderer 在物料注册变化时会清空解析缓存，这里同步重查一次，
+        // 让此前解析失败的节点在物料补齐后自愈，而不是一直停在错误占位
+        syncComponents()
       }),
     )
   }
@@ -405,5 +433,11 @@ onUnmounted(() => {
   color: var(--lc-text-secondary);
   font-size: 12px;
   background: var(--lc-surface);
+}
+
+.lc-node__placeholder--error {
+  border-color: var(--lc-danger);
+  color: var(--lc-danger);
+  background: var(--lc-danger-surface);
 }
 </style>
