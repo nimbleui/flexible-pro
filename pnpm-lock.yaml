@@ -669,6 +669,21 @@ importers:
         specifier: ^3.5.0
         version: 3.5.44(typescript@5.9.3)
 
+  packages/plugins/plugin-panel-version:
+    dependencies:
+      '@lc/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
+      '@lc/schema':
+        specifier: workspace:*
+        version: link:../../schema
+      '@lc/vue':
+        specifier: workspace:*
+        version: link:../../vue
+      vue:
+        specifier: ^3.5.0
+        version: 3.5.44(typescript@5.9.3)
+
   packages/presets/preset-canvas:
     dependencies:
       '@lc/contracts':
