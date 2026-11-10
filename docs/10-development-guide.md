@@ -305,7 +305,7 @@ __lc.context.contribution.list('canvasFeatures') // 画布能力装配了什么
 3. **预览期间 version 每帧自增**（`service-document/src/index.ts:70-76`）：所有靠 version 失效的消费者（大纲、属性、状态栏、覆盖层）每帧重来一次。拖大文档时这是主要开销来源。
 4. **loader 并发激活可能重复装配插件**（`service-loader/src/index.ts:326-329`）：`activated` 表在 `load()` 之后写入；修法（登记 pending Promise）注释里已给出但未做。
 5. **`ensureActivated` 拼错事件名无反馈**（同上 `:329`）。
-6. **`Registry` 与 `Service` 两处冗余**：`kernel/src/service.ts:9` 的 `abstract class Service` 全仓 0 使用（仍被 `kernel/src/index.ts:27` 导出）；`useService` / `useRegistryList`（`vue/src/context.ts:33-87`）已导出但无消费者。按「删除该抽象是否让实现变差」判据，四处都应删除或在文档中标注为公共 API 承诺。
+6. **`Registry` 与 `Service` 两处冗余**：`kernel/src/service.ts:9` 的 `abstract class Service` 全仓 0 使用（仍被 `kernel/src/index.ts:27` 导出）；`useService`（`vue/src/context.ts:33-48`）已导出但无消费者。注意 `useRegistryList`（`vue/src/context.ts:56-87`）**有 2 处消费者**（`views/ComponentListView.vue:23`、`views/ComponentBlueprintView.vue:125`），删掉它会让宿主编译失败。按「删除该抽象是否让实现变差」判据，前两处可删或标注为公共 API 承诺。
 7. **业务事件无消费者**：`document:change`、`selection:change`、`canvas:gestureEnd`、`plugin:activated/failed` 在仓库内没有任何 `ctx.on`，内部刷新实际走各自的 `onDidChange`（见 [02 §4](./02-runtime-flow.md#4-两套通道业务事件-vs-服务通知)）。保留是对的（外部订阅面），但要防止误以为「监听事件就能刷新 UI」。
 8. **hover 描边硬编码颜色**（`canvas-selection/src/overlay.ts:95`）与 token 规范不一致；无 `prefers-color-scheme` / `prefers-reduced-motion` 适配。
 9. **`.vue` 无自动化测试**：35 个 spec 全是纯逻辑；新增的 `renderTreeExpression.spec.ts` 覆盖了「真实表达式引擎接入渲染树」这条接线，但仍然不挂载组件。面板与舞台的行为回归依赖人工浏览器验证。沙箱侧同理：协议与客户端行为由回环 transport 覆盖，**跨 realm 的隔离强度只能在浏览器里验**（本仓源码用无扩展名相对导入，Node ESM 加载不了，所以 CI 里没有真 worker 线程的用例）。
