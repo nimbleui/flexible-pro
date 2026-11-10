@@ -49,13 +49,13 @@ const BODYLESS_METHODS: readonly string[] = ['GET', 'HEAD']
 /**
  * 已取到的凭据缓存。
  *
- * 键里带**合并后的登录地址**：换环境等于换登录域名，旧 token 不该跟着过去。
  * 它是模块级的，因为一次页面加载里十几个数据源共用同一个登录接口——不去重的话，
- * 每次 token 过期都会把登录接口打一遍 N 次。
+ * 每次 token 过期都会把登录接口打一遍 N 次。键由 {@link tokenCacheKey} 给出：
+ * 只看登录地址不够，两个项目共用同一地址却配了不同凭据来源时会拿到彼此的 token。
  */
 const tokenCache = new Map<string, string>()
-/** 同一时刻只允许一次取票在途；并发请求等同它，而不是各自去登录 */
-let pendingToken: { key: string; promise: Promise<string> } | undefined
+/** 按缓存键分槽：不同地址/配置的并发各自登录，同键并发共享一次在途请求 */
+const pendingToken = new Map<string, Promise<string>>()
 
 /**
  * 把 query 参数并进地址。
@@ -124,6 +124,21 @@ function pickByPath(body: unknown, path: string): unknown {
   return getAtPath(body, pointer)
 }
 
+/**
+ * 凭据缓存键：合并后的登录地址 + 凭据来源配置指纹。
+ *
+ * 只看地址不够：两个项目共用同一登录 URL、却配了不同的登录请求体或 tokenPath 时，
+ * 旧实现会直接复用前一个项目的 token，等于把 A 项目的凭据发给 B 项目的接口。
+ * `RequestDefaults` 本身已按项目与环境解析好，把 auth 折进键即可区分作用域，
+ * 不需要额外把 projectId 穿进传输层。
+ */
+function tokenCacheKey(defaults: RequestDefaults): string {
+  const auth = defaults.auth
+  if (!auth) throw new Error('[host] 未配置凭据来源')
+
+  return JSON.stringify([resolveRequest(auth.request, defaults).url, auth])
+}
+
 /** 取一次凭据：走同一个传输层，所以登录接口也享受域名拼接与错误处理 */
 async function fetchToken(
   defaults: RequestDefaults,
@@ -133,14 +148,15 @@ async function fetchToken(
   const auth = defaults.auth
   if (!auth) throw new Error('[host] 未配置凭据来源')
 
-  const login = resolveRequest(auth.request, defaults)
-  const key = login.url
+  const key = tokenCacheKey(defaults)
   const cached = tokenCache.get(key)
   if (cached !== undefined) return cached
 
-  // 并发只刷一次：第二个调用者等同一个在途请求，而不是再去登录一遍
-  if (pendingToken && pendingToken.key === key) return pendingToken.promise
+  // 同键并发只刷一次；不同键各自在途，不再互相顶掉
+  const inflight = pendingToken.get(key)
+  if (inflight) return inflight
 
+  const login = resolveRequest(auth.request, defaults)
   const promise = (async () => {
     const result = await sendRequest(login.config, { url: login.url }, { signal, fetchImpl })
     if (!result.ok) {
@@ -156,10 +172,11 @@ async function fetchToken(
 
     return token
   })().finally(() => {
-    if (pendingToken?.key === key) pendingToken = undefined
+    // 只删自己的槽：dropTokens 后同名 key 重登会写入新任务，旧任务不能把它删掉
+    if (pendingToken.get(key) === promise) pendingToken.delete(key)
   })
 
-  pendingToken = { key, promise }
+  pendingToken.set(key, promise)
 
   return promise
 }
@@ -220,7 +237,7 @@ export async function sendRequest(
   // 401 只处理一次：丢缓存 → 重新取票 → 重发。第二次再 401 就如实报失败，否则凭据
   // 一直无效的请求会在服务端与客户端之间无限打转。
   if (defaults && auth && first.status === 401) {
-    tokenCache.delete(resolveRequest(auth.request, defaults).url)
+    tokenCache.delete(tokenCacheKey(defaults))
     try {
       const token = await fetchToken(defaults, options.signal, fetchImpl)
       const retry = await perform(
@@ -367,7 +384,7 @@ export const httpService: HttpService = {
   },
   dropTokens() {
     tokenCache.clear()
-    pendingToken = undefined
+    pendingToken.clear()
   },
 }
 

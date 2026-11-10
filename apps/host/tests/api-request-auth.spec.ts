@@ -143,6 +143,58 @@ describe('取票与注入', () => {
     expect(result.error).toContain('登录接口取凭据失败')
     expect(result.error).toContain('HTTP 500')
   })
+
+  it('同一登录地址但凭据配置不同，不复用彼此的 token', async () => {
+    const { fetchMock, calls } = makeFetch({
+      [LOGIN_PATH]: () => jsonResponse({ data: { token: 'A', accessToken: 'B' } }),
+      '/users': () => jsonResponse([]),
+    })
+    const options = { fetchImpl: fetchMock }
+    const spec = { method: 'GET' as const, path: '/users' }
+
+    await sendApiRequest(spec, defaultsWithAuth(), options)
+    const second = await sendApiRequest(
+      spec,
+      defaultsWithAuth({
+        auth: {
+          request: { method: 'POST', path: LOGIN_PATH },
+          tokenPath: 'data.accessToken',
+        },
+      }),
+      options,
+    )
+
+    expect(calls.filter((call) => call.url === LOGIN_PATH)).toHaveLength(2)
+    expect(second.ok).toBe(true)
+    expect(new Headers(calls[calls.length - 1]?.init?.headers).get('authorization')).toBe(
+      'Bearer B',
+    )
+  })
+
+  it('不同凭据配置的并发各自登录，在途任务互不顶掉', async () => {
+    const { fetchMock, calls } = makeFetch({
+      [LOGIN_PATH]: () => jsonResponse({ data: { token: 'A', accessToken: 'B' } }),
+      '/users': () => jsonResponse([]),
+    })
+    const options = { fetchImpl: fetchMock }
+    const spec = { method: 'GET' as const, path: '/users' }
+
+    await Promise.all([
+      sendApiRequest(spec, defaultsWithAuth(), options),
+      sendApiRequest(
+        spec,
+        defaultsWithAuth({
+          auth: {
+            request: { method: 'POST', path: LOGIN_PATH },
+            tokenPath: 'data.accessToken',
+          },
+        }),
+        options,
+      ),
+    ])
+
+    expect(calls.filter((call) => call.url === LOGIN_PATH)).toHaveLength(2)
+  })
 })
 
 describe('401 重取一次', () => {
