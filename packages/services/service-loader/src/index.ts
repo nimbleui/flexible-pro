@@ -240,6 +240,8 @@ export default definePlugin({
 
     /** 插件名 → 已激活实例记录，同时也是「已激活」的唯一判据 */
     const activated = new Map<string, PluginRecord>()
+    /** 插件名 → 在途激活；在 await pkg.load() 之前登记，并发触发时共享同一个 Promise */
+    const pending = new Map<string, Promise<void>>()
     const listeners = new Set<() => void>()
 
     function notify(): void {
@@ -249,7 +251,9 @@ export default definePlugin({
     /**
      * 加载并激活一个插件。
      *
-     * 幂等：已在 activated 表里直接返回，重复的激活事件不会二次 ctx.plugin。
+     * 并发安全：在 `await pkg.load()` 之前登记同一个 Promise，并行触发同一插件时后到的
+     * 调用直接复用，不会二次 ctx.plugin。撤销登记后回来的任务靠 packages 表判活，
+     * 不会把已撤销的插件挂回失效的作用域。
      * 没有 main 的纯声明式插件不激活，也不会被记进 activated，所以每次激活事件
      * 都会走到这里再快速返回。
      *
@@ -263,27 +267,40 @@ export default definePlugin({
       // 纯声明式插件没有 main：模块由渲染器按贡献懒加载，不激活 apply
       if (!manifest.main) return
 
-      try {
-        const module = await pkg.load()
-        const definition = extractDefinition(module)
-        if (!definition) {
-          throw new Error(`[loader] 插件 "${manifest.name}" 未导出插件定义`)
-        }
-        if (definition.name !== manifest.name) {
-          throw new Error(
-            `[loader] manifest.name "${manifest.name}" 与 definition.name "${definition.name}" 不一致`,
-          )
-        }
+      const inflight = pending.get(manifest.name)
+      if (inflight) return inflight
 
-        const record = ctx.plugin(definition as PluginDefinition)
-        activated.set(manifest.name, record)
-        ctx.emit('plugin:activated', { plugin: manifest.name, instanceId: record.id })
-      } catch (error) {
-        ctx.diagnostics.report(error, { scope: 'loader', plugin: manifest.name })
-        ctx.emit('plugin:failed', { plugin: manifest.name, error })
-      } finally {
-        notify()
-      }
+      // 包一层微任务，保证 pkg.load() 同步抛错时 finally 也在 pending.set 之后执行
+      const task = Promise.resolve().then(async () => {
+        try {
+          const module = await pkg.load()
+          // 加载期间可能已被撤销登记或应用已销毁，此时不能再装配
+          if (!packages.has(manifest.name) || ctx.signal.aborted) return
+          const definition = extractDefinition(module)
+          if (!definition) {
+            throw new Error(`[loader] 插件 "${manifest.name}" 未导出插件定义`)
+          }
+          if (definition.name !== manifest.name) {
+            throw new Error(
+              `[loader] manifest.name "${manifest.name}" 与 definition.name "${definition.name}" 不一致`,
+            )
+          }
+
+          const record = ctx.plugin(definition as PluginDefinition)
+          activated.set(manifest.name, record)
+          ctx.emit('plugin:activated', { plugin: manifest.name, instanceId: record.id })
+        } catch (error) {
+          ctx.diagnostics.report(error, { scope: 'loader', plugin: manifest.name })
+          ctx.emit('plugin:failed', { plugin: manifest.name, error })
+        } finally {
+          // 只删自己的登记：撤销后重新登记同名插件会写入新任务，旧任务不能把它删掉
+          if (pending.get(manifest.name) === task) pending.delete(manifest.name)
+          notify()
+        }
+      })
+
+      pending.set(manifest.name, task)
+      return task
     }
 
     const service: LoaderService = {
@@ -344,6 +361,8 @@ export default definePlugin({
             }
             registrations.delete(manifest.name)
 
+            // 摘掉在途任务：回来后靠 packages 表判活，同名插件重新登记也能重新激活
+            pending.delete(manifest.name)
             const record = activated.get(manifest.name)
             if (record) ctx.root.runtime.unload(record.id)
             activated.delete(manifest.name)
@@ -366,9 +385,7 @@ export default definePlugin({
       /**
        * 触发一个激活事件。
        *
-       * 多个插件并行加载；已激活过的插件由 activated 表跳过。
-       * 注意该表在 `load()` 之后才写入，所以同一插件被并发激活时两个调用都会
-       * 通过检查，可能重复装配——需要严格去重时应改为登记 pending Promise。
+       * 多个插件并行加载；同一插件的并发触发由 activate 的 pending 表合并为一次装配。
        * 未匹配到任何插件时静默返回，事件名拼错不会有反馈。
        *
        * @param event 与 manifest.activationEvents 全等匹配的字符串
