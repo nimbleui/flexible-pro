@@ -22,3 +22,13 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm format:check
+
+      # 构建校验：apps/host/vite.config.ts 在 command === 'build' 且未设置
+      # VITE_DESIGNER_ENTRY 时会直接抛错，因此 CI 必须显式给出确定的占位地址。
+      # 该值只用于让 CI 产出可构建产物；生产部署必须覆盖为部署环境里 designer
+      # 远程的 remoteEntry.js 完整地址，否则运行时会指向这个占位地址。
+      # 放在 format:check 之后，避免新生成的 dist/ 产物进入格式检查范围。
+      - name: Build (MF host + remote)
+        env:
+          VITE_DESIGNER_ENTRY: http://localhost:5174/remoteEntry.js
+        run: pnpm build
