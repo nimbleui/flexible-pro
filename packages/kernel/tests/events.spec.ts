@@ -33,6 +33,33 @@ describe('EventBus', () => {
     consoleError.mockRestore()
   })
 
+  it('emit 接住 async 监听器的 rejection 并计入监视器', async () => {
+    const bus = new EventBus()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const records: EventDispatchRecord[] = []
+    const later = vi.fn()
+    bus.monitor((record) => records.push(record))
+
+    bus.add('tick', async () => {
+      throw new Error('async boom')
+    })
+    bus.add('tick', later)
+    bus.emit('tick')
+    // rejection 在微任务里落地，等一轮宏任务确保监视器记录已经写完
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(later).toHaveBeenCalledTimes(1)
+    expect(consoleError).toHaveBeenCalledWith('[lc] 事件监听器执行失败', expect.any(Error))
+    expect(records).toHaveLength(2)
+    // emit 不等 async 监听器：同步监听器当场记录，rejected Promise 落地后才补记一条。
+    // 因此不假定下标顺序，只校验「恰好一条带错误、一条不带」。
+    const failed = records.filter((record) => record.error !== undefined)
+    expect(failed).toHaveLength(1)
+    expect(failed[0]?.error).toBeInstanceOf(Error)
+    expect(records.filter((record) => record.error === undefined)).toHaveLength(1)
+    consoleError.mockRestore()
+  })
+
   it('prepend 优先于 priority，同组按 priority 降序', () => {
     const bus = new EventBus()
     const order: string[] = []

@@ -28,7 +28,8 @@ export interface EventDispatchRecord {
   /**
    * 监听器自身耗时（毫秒）。
    *
-   * `emit` 不等返回值，因此只含同步部分；其余四种模式等到 Promise 落地。
+   * 同步监听器只含同步部分；`emit` 遇到 async 监听器会等其 Promise 落地后再记一条，
+   * 此时含异步等待时间。其余四种模式一律等到 Promise 落地。
    * 无人监听时固定为 0。
    */
   duration: number
@@ -151,7 +152,12 @@ export class EventBus {
     return { dispose: () => this.monitors.delete(listener) }
   }
 
-  /** 同步广播；单个监听器抛错不会中断其余监听器。 */
+  /**
+   * 同步广播；单个监听器抛错不会中断其余监听器。
+   *
+   * emit 不等返回值，但 async 监听器仍会返回 Promise：与其余四种分发模式一样，
+   * 落地后的 rejection 必须在这里接住，否则会变成全局 unhandledrejection。
+   */
   emit(name: string, ...args: unknown[]): void {
     const list = this.snapshot(name)
     const track = this.tracker(name, 'emit', list.length)
@@ -159,14 +165,32 @@ export class EventBus {
 
     for (const entry of list) {
       const startedAt = track ? performance.now() : 0
+      let result: unknown
       try {
-        invoke(entry.listener)(...args)
+        result = invoke(entry.listener)(...args)
       } catch (error) {
         reportError(error)
         track?.(entry, performance.now() - startedAt, error)
         continue
       }
-      track?.(entry, performance.now() - startedAt)
+
+      // 只识别 thenable，不 await：emit 的同步语义不变，但要把异步失败计入同一套错误隔离
+      if (
+        result !== null &&
+        typeof result === 'object' &&
+        'then' in result &&
+        typeof result.then === 'function'
+      ) {
+        void Promise.resolve(result).then(
+          () => track?.(entry, performance.now() - startedAt),
+          (error: unknown) => {
+            reportError(error)
+            track?.(entry, performance.now() - startedAt, error)
+          },
+        )
+      } else {
+        track?.(entry, performance.now() - startedAt)
+      }
     }
   }
 

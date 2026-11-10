@@ -439,7 +439,18 @@ export class PluginRuntime {
       record.state = 'active'
       this.internal.emit('plugin', record)
     } catch (error) {
-      this.fail(record, error, 'apply')
+      // 与成功路径同一把守卫：异步 apply 期间本轮可能已被停用并开启新一轮装配。
+      // 迟到的失败只上报，不能再 deactivate——那会中止新控制器、回收新 Context 并写回 failed。
+      if (record.state === 'applying' && !abort.signal.aborted) {
+        this.fail(record, error, 'apply')
+        return
+      }
+      this.internal.emit('error', {
+        cause: error,
+        pluginId: record.id,
+        pluginName: record.name,
+        phase: 'apply',
+      })
     }
   }
 
