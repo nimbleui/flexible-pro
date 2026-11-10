@@ -148,6 +148,8 @@ export default definePlugin({
           .then((module) => {
             const component = extractComponent(module, name)
             if (!component) {
+              // 成功解析但缺导出也要删缓存：否则 undefined 会一直占位，物料永远无法重试
+              if (resolved.get(name) === task) resolved.delete(name)
               ctx.diagnostics.report(new Error(`物料 "${name}" 未导出组件`), {
                 scope: 'material',
                 moduleKey: entry.moduleKey,
@@ -157,8 +159,8 @@ export default definePlugin({
             return { entry, component }
           })
           .catch((error: unknown) => {
-            // 加载失败不缓存，允许下次渲染重试
-            resolved.delete(name)
+            // 加载失败不缓存，允许下次渲染重试；只删自己的登记，别误删后来重发的任务
+            if (resolved.get(name) === task) resolved.delete(name)
             ctx.diagnostics.report(error, {
               scope: 'material',
               name,
