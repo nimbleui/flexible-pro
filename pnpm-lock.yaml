@@ -869,6 +869,15 @@ importers:
         specifier: workspace:*
         version: link:../../schema
 
+  packages/services/service-version:
+    dependencies:
+      '@lc/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
+      '@lc/shared':
+        specifier: workspace:*
+        version: link:../../shared
+
   packages/services/service-workspace:
     dependencies:
       '@lc/contracts':
