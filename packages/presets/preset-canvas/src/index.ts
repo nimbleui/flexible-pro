@@ -48,6 +48,9 @@ async function mountFeature(
       default?: PluginDefinition
     }>(moduleKey(feature.plugin, feature.value.module))
 
+    // 加载期间 CanvasRealm 可能已关闭；此时不能再往已回收的上下文挂插件
+    if (ctx.signal.aborted) return
+
     if (!module.default) {
       ctx.diagnostics.report(new Error(`画布能力 "${feature.value.id}" 未导出插件定义`), {
         scope: 'preset-canvas',

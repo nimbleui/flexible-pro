@@ -30,6 +30,9 @@ const props = defineProps<{
 
 const ctx = useAppContext()
 
+/** 组件是否已卸载；ctx 是应用级的，模块异步返回后要靠组件自身判活 */
+let alive = true
+
 // 贡献注册表不是响应式源，用自增计数把 onDidChange 桥接进 Vue 依赖
 const version = ref(0)
 
@@ -45,7 +48,10 @@ const loading = new Set<string>()
 const off = ctx.contribution.onDidChange(() => {
   version.value += 1
 })
-onUnmounted(off.dispose)
+onUnmounted(() => {
+  alive = false
+  off.dispose()
+})
 
 /** 插槽内单个面板的渲染项 */
 interface SlotEntry {
@@ -112,6 +118,8 @@ async function ensurePanel(plugin: string, panelId: string, moduleName: string):
       /** 面板组件必须由模块默认导出；缺失时按失败处理并显示提示 */
       default?: Component
     }>(moduleKey(plugin, moduleName))
+    // 模块加载期间插槽可能已卸载，不能再写回已失效的响应式状态
+    if (!alive) return
     if (!module.default) {
       failures.set(key, '面板模块未导出默认组件')
       return

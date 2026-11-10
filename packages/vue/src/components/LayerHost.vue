@@ -47,8 +47,9 @@ const layerVersion = ref(0)
 /** 当前吸附服务；未安装 canvas-snap 时为 undefined，frame.snap 退化为 null */
 let snap = ctx.get<SnapService>('snap')
 
-/** 已订阅 over 的 snap 实例，避免服务替换后重复注册同一个 refresh */
-let boundSnap: SnapService | null = null
+/** 已订阅 over 的 snap 实例与订阅句柄；服务替换时先释放旧句柄再重绑 */
+let boundSnap: SnapService | undefined
+let snapSub: { dispose(): void } | null = null
 const disposables: Array<{
   /** 释放该条订阅；卸载时按注册逆序调用，重复调用由注册方保证幂等 */
   dispose(): void
@@ -121,6 +122,8 @@ async function ensureLayer(layer: CanvasLayer): Promise<void> {
       /** 图层组件必须由模块默认导出；缺失时降级为一条失败提示，不抛错 */
       default?: Component
     }
+    // 图层模块加载期间画布 Realm 可能已关闭，不能再往响应式表里写组件
+    if (ctx.signal.aborted) return
     if (!module.default) {
       failures.set(layer.id, '图层模块未导出默认组件')
       return
@@ -145,12 +148,15 @@ function syncLayers(): void {
   for (const layer of canvas.layers.list()) void ensureLayer(layer)
 }
 
-/** 订阅吸附变化；同一实例只订一次，服务被替换掉才重新绑定。 */
+/** 订阅吸附变化；同一实例只订一次，服务被替换时先释放旧订阅再重绑。 */
 function bindSnapChange(): void {
-  if (!snap || boundSnap === snap) return
+  if (boundSnap === snap) return
   boundSnap = snap
+  snapSub?.dispose()
+  snapSub = null
+  if (!snap) return
   // snap 结果更新不经过 viewport/selection，单独订阅
-  disposables.push(snap.onDidChange(refresh))
+  snapSub = snap.onDidChange(refresh)
 }
 
 onMounted(() => {
@@ -165,7 +171,10 @@ onMounted(() => {
     // snap 是可选服务，可能在画布装配后才出现，靠服务注册表变化补绑
     ctx.services.onDidChange((name) => {
       if (name !== 'snap') return
-      snap = ctx.get<SnapService>('snap')
+      const next = ctx.get<SnapService>('snap')
+      // 其他 Realm 提供同名服务时值没变，不必让全部覆盖层整批重渲染
+      if (next === snap) return
+      snap = next
       bindSnapChange()
       refresh()
     }),
@@ -177,6 +186,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  snapSub?.dispose()
+  snapSub = null
   // 逆序释放，与注册顺序相反：先断订阅，再解绑更早注册的监听
   for (const disposable of disposables.reverse()) disposable.dispose()
   disposables.length = 0

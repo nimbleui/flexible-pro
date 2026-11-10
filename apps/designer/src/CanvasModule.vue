@@ -29,6 +29,8 @@ async function openCanvas(): Promise<void> {
     installCanvasCapabilities(props.appContext)
     props.canvasContext.plugin(presetCanvas)
     await props.appContext.runtime.whenIdle()
+    // 等空闲期间宿主可能已切文档并卸载本组件；不能再点亮已失效的 Realm
+    if (props.canvasContext.signal.aborted) return
     ready.value = true
   } catch (error) {
     console.error('[designer-canvas] 画布能力装载失败', error)

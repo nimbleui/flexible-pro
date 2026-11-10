@@ -251,6 +251,8 @@ onUnmounted(() => {
   window.removeEventListener('pointermove', onWindowPointerMove)
   window.removeEventListener('pointerup', onWindowPointerUp)
   window.removeEventListener('keydown', onKeyDown)
+  // 路由切走不经过「中止」按钮；不显式停会让调试循环继续读写已卸载的工作副本
+  debug.stop()
 })
 </script>
 
