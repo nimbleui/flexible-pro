@@ -4,13 +4,26 @@ import type { Context, Disposable } from '@lc/kernel'
 import type { Registry } from '@lc/contracts'
 
 /**
+ * 低代码 Context 的全局注入键名。
+ *
+ * 带命名空间与结构版本：宿主与远程各自打包一份 @lc/vue 时，两边的
+ * `Symbol.for(LC_CONTEXT_KEY)` 必须落到 global symbol registry 的同一项上，
+ * 所以键名只能在一份源码里定义并由双方共用。无命名空间的裸键还可能被同页
+ * 第二个宿主实例、第二个远程或第三方脚本占用；`v1` 表示 Context 形状版本，
+ * 结构不兼容时递增版本，让新旧副本取到不同键，而不是静默拿到残缺的 Context。
+ *
+ * 宿主与远程一律通过本常量或 `LC_CONTEXT` 取值，不要各自硬编码该字符串。
+ */
+export const LC_CONTEXT_KEY = '@lc/context/v1'
+
+/**
  * 低代码 Context 的 Vue 注入键。
  *
  * 必须用 `Symbol.for`：宿主与远程模块各自打包一份 @lc/vue 时，`Symbol()` 会产生
  * 两个互不相等的键，远程侧登记的画布覆盖层组件便注入不到宿主 provide 的上下文。
  */
 export const LC_CONTEXT: InjectionKey<Context> = Symbol.for(
-  'lc-context',
+  LC_CONTEXT_KEY,
 ) as InjectionKey<Context>
 
 /**
@@ -22,11 +35,36 @@ export function provideContext(app: App, context: Context): void {
   app.provide(LC_CONTEXT, context)
 }
 
-/** 取当前低代码 Context；未注入时直接抛错，避免静默拿到 undefined。 */
+/**
+ * Context 形状的最小校验面。
+ *
+ * 只检查所有覆盖层 / 面板组件都会调用的三个方法，不做完整运行时类型校验：
+ * 目的是在宿主 v1 与远程 v2 结构不兼容、或第三方脚本往同名键里塞了无关对象时，
+ * 让错误在注入点就明确报出，而不是等到 `ctx.get` / `ctx.provide` 处变成
+ * 无法定位的 undefined 或 TypeError。
+ */
+function hasContextShape(value: unknown): value is Context {
+  if (typeof value !== 'object' || value === null) return false
+  return (
+    'get' in value &&
+    typeof value.get === 'function' &&
+    'provide' in value &&
+    typeof value.provide === 'function' &&
+    'require' in value &&
+    typeof value.require === 'function'
+  )
+}
+
+/**
+ * 取当前低代码 Context；未注入或注入值形状不兼容时直接抛错，避免静默拿到 undefined。
+ */
 export function useAppContext(): Context {
-  const context = inject(LC_CONTEXT, null)
-  if (!context) {
-    throw new Error('[lc] 未找到低代码 Context，请在根应用调用 provideContext')
+  const context: unknown = inject(LC_CONTEXT, null)
+  if (!hasContextShape(context)) {
+    throw new Error(
+      `[lc] 未找到兼容的低代码 Context（键 ${LC_CONTEXT_KEY}）：请在根应用调用 ` +
+        'provideContext，并确认宿主与远程使用同一 @lc/vue 版本',
+    )
   }
   return context
 }

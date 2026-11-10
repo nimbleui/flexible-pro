@@ -9,6 +9,7 @@
 
 export {
   LC_CONTEXT,
+  LC_CONTEXT_KEY,
   provideContext,
   useAppContext,
   useRegistryList,
