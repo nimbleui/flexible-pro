@@ -12,6 +12,7 @@ import {
 } from './release-model'
 import { currentAssetLists } from './project-assets'
 import { getProject, projects, setPublishedRevision } from './project-store'
+import { emitVersionActivity } from './version-activity'
 import { activeEnvironmentOf } from '../apis/api-config'
 
 /**
@@ -178,6 +179,7 @@ export function publishProject(projectId: string): ProjectRelease {
   // 先落快照再移指针：反过来的话，指针更新失败会留下一个「线上指向不存在的版本」
   commit(pruneReleases([...state.value, release]))
   setPublishedRevision(projectId, release.revision)
+  emitVersionActivity({ kind: 'publish', projectId, revision: release.revision })
   return release
 }
 

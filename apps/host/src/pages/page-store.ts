@@ -7,6 +7,7 @@ import { createBlankPageSchema, isPageRecord, normalizePageTitle } from './page-
 import { createBuiltinPageSeeds } from './page-seed'
 import { createPersistentId } from '@lc/shared'
 import { visibleInProject } from '../projects/project-model'
+import { emitVersionActivity } from '../projects/version-activity'
 
 /**
  * 页面存储。
@@ -145,6 +146,8 @@ export function savePageSchema(id: string, schema: PageSchema, projectId: string
   }
 
   commit(state.value.map((item) => (item.id === id ? saved : item)))
+  // 版本库是旁路：信号在写入落盘之后发出，且版本库故障不会回抛到这里
+  emitVersionActivity({ kind: 'save', projectId, docId: id })
   return saved
 }
 

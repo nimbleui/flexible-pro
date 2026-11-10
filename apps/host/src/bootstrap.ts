@@ -10,6 +10,7 @@ import { navigationService } from './navigation'
 import { httpService } from './apis/api-request'
 import { toastService } from './toast'
 import { flowService } from './workflows/flow-service'
+import { installVersionHost } from './projects/version-host'
 import { manifest as agilePlusMaterialsManifest } from '@agile-plus/materials/manifest'
 import { manifest as materialsBasicManifest } from '@lc/plugin-materials-basic/manifest'
 import { manifest as advancedPanelManifest } from '@lc/plugin-panel-advanced/manifest'
@@ -21,6 +22,7 @@ import { manifest as nodeEventPanelManifest } from '@lc/plugin-panel-node-event/
 import { manifest as outlinePanelManifest } from '@lc/plugin-panel-outline/manifest'
 import { manifest as propertiesPanelManifest } from '@lc/plugin-panel-properties/manifest'
 import { manifest as stylePanelManifest } from '@lc/plugin-panel-style/manifest'
+import { manifest as versionPanelManifest } from '@lc/plugin-panel-version/manifest'
 
 declare global {
   interface Window {
@@ -56,6 +58,8 @@ const GRANTS: Record<string, readonly string[]> = {
   'service-canvas-core': ['canvas'],
   // `http` 在保留名单里，宿主自己提供也要按规矩授权：这条与 `toast`、`navigation` 不同
   'host-http': ['http'],
+  // `version` 同样在保留名单里：宿主自己提供也要按规矩授权
+  'host-version': ['version'],
 }
 
 /**
@@ -87,6 +91,7 @@ const BUILTIN_PACKAGES = [
   { manifest: codePanelManifest, load: () => import('@lc/plugin-panel-code') },
   { manifest: dataPanelManifest, load: () => import('@lc/plugin-panel-data') },
   { manifest: eventFlowPanelManifest, load: () => import('@lc/plugin-panel-eventflow') },
+  { manifest: versionPanelManifest, load: () => import('@lc/plugin-panel-version') },
 ] as const
 
 /**
@@ -189,10 +194,11 @@ function exposeDebugHandle(result: HostBootstrap): void {
 
 /**
  * 启动主应用外壳：
- * 1. createApp → 安装 preset-designer（modules / loader / material / command / renderer / workspace）
- *    与宿主 UI 能力（toast / navigation）
- * 2. loader 登记宿主侧插件包的 manifest 与模块
- * 3. 注册应用级命令与快捷键
+ * 1. createApp → 安装 preset-designer（modules / loader / material / command / renderer / workspace）、
+ *    宿主 UI 能力（toast / navigation）与版本宿主服务（version）
+ * 2. 等待运行时空闲：保证内置服务与 `version` 都已提供，视图 setup 才读得到
+ * 3. loader 登记宿主侧插件包的 manifest 与模块
+ * 4. 注册应用级命令与快捷键
  *
  * 不创建文档 Realm：打开哪篇文档由路由决定，见 `views/DesignerView.vue`。
  *
@@ -207,6 +213,9 @@ export async function bootstrapHost(): Promise<HostBootstrap> {
   context.plugin(presetDesigner)
   installHostShellUi(context)
   installHttpService(context)
+  // 版本服务必须在 whenIdle 之前提供：视图 setup 会同步 get('version')，
+  // 装晚了面板与状态栏会把「还没注入」误判成「宿主未接入」。
+  installVersionHost(context)
   await context.runtime.whenIdle()
 
   // 全局函数是应用级能力：启动时注册一次，管理页修改后由订阅重新注册

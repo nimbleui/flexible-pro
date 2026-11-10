@@ -8,6 +8,8 @@ import type {
   DocumentService,
   EditorRealm,
   HistoryService,
+  VersionHostService,
+  VersionPanelSection,
 } from '@lc/contracts'
 import type { ExpressionEngine, FunctionRegistration, FunctionSchema } from '@lc/schema'
 import { ContextScope, LcIcon, LcSlot, useAppContext } from '@lc/vue'
@@ -191,6 +193,97 @@ function registerDialogCommands(): void {
   )
 }
 
+/**
+ * 打开版本面板并聚焦指定分区。
+ *
+ * 命令只广播意图，不直接操作面板内部状态：面板由插槽懒加载，命令执行时它可能还没
+ * 挂载。`selectBottomTab` 负责展开 dock 与切页签，`version:open` 由面板自己订阅。
+ */
+function openVersionPanel(section: VersionPanelSection, previewTarget?: string): void {
+  selectBottomTab('version')
+  appCtx.emit('version:open', { section, previewTarget })
+}
+
+/**
+ * 注册版本命令与快捷键。
+ *
+ * 只有 `version.commit` 直接执行写操作：它没有参数、内容不变时不产生提交，是唯一
+ * 适合从命令面板 / 快捷键无确认触发的动作。其余命令打开对应分区让用户选目标，
+ * 因为切分支、合并、发布、回滚都需要参数或不可逆确认，盲目执行等于埋误操作。
+ * 快捷键刻意不用 `Mod+S`：灰度期保留浏览器与既有保存路径的语义，不抢用户习惯。
+ */
+function registerVersionCommands(): void {
+  const service = commandService.value
+  if (!service) return
+
+  const host = appCtx.get<VersionHostService>('version')
+  const open = (section: VersionPanelSection): void => openVersionPanel(section)
+
+  disposables.push(
+    service.register({
+      id: 'version.commit',
+      title: '提交版本',
+      run: async () => {
+        if (!host || host.mode === 'off') {
+          toastService.show('版本控制未启用（VITE_LC_VERSION_MODE=off）', 'error')
+          return
+        }
+
+        try {
+          const session = await host.session(projectId)
+          if (!session) {
+            toastService.show('版本库会话不可用', 'error')
+            return
+          }
+
+          const created = await session.commit({ message: '命令提交' })
+          toastService.show(
+            created ? `已提交 ${created.id.slice(0, 8)}` : '内容未变化，未产生新提交',
+            'success',
+          )
+        } catch (cause) {
+          toastService.show(cause instanceof Error ? cause.message : String(cause), 'error')
+        }
+      },
+    }),
+  )
+
+  const navigationCommands: ReadonlyArray<{
+    id: string
+    title: string
+    section: VersionPanelSection
+  }> = [
+    { id: 'version.openHistory', title: '打开版本历史', section: 'history' },
+    { id: 'version.checkout', title: '切换版本分支', section: 'branches' },
+    { id: 'version.merge', title: '合并版本', section: 'conflicts' },
+    { id: 'version.publish', title: '发布版本', section: 'releases' },
+    { id: 'version.rollback', title: '回滚版本', section: 'releases' },
+  ]
+
+  for (const entry of navigationCommands) {
+    disposables.push(
+      service.register({
+        id: entry.id,
+        title: entry.title,
+        run: () => open(entry.section),
+      }),
+    )
+  }
+
+  disposables.push(
+    appCtx.keybinding.register({
+      id: 'version.openHistory.key',
+      key: 'Mod+Alt+H',
+      command: 'version.openHistory',
+    }),
+    appCtx.keybinding.register({
+      id: 'version.commit.key',
+      key: 'Mod+Alt+S',
+      command: 'version.commit',
+    }),
+  )
+}
+
 /** 视口变化刷新缩放读数；命令 / 历史变化刷新撤销与重做的可用态 */
 function subscribeRefreshSignals(canvasApi: CanvasService): void {
   disposables.push(canvasApi.viewport.onDidChange(bump))
@@ -221,6 +314,7 @@ onMounted(async () => {
 
   watchPageFunctions(document, editor.context.require<ExpressionEngine>('expression'))
   registerDialogCommands()
+  registerVersionCommands()
   subscribeRefreshSignals(canvasService.value)
 
   // 底部页签条跟着贡献走：安装 / 卸载面板插件不必刷新页面就能增减页签
@@ -344,7 +438,12 @@ const railItems: readonly DesignerRailItem[] = [
     icon: 'list',
     action: { kind: 'toggle', target: 'dock' },
   },
-  { id: 'versions', label: '版本管理', icon: 'version' },
+  {
+    id: 'versions',
+    label: '版本管理',
+    icon: 'version',
+    action: { kind: 'command', commandId: 'version.openHistory' },
+  },
   { id: 'settings', label: '设置', icon: 'sliders' },
 ]
 
@@ -722,7 +821,7 @@ const devtoolsOpen = shallowRef(false)
               <LcSlot
                 name="designer.bottomPanel"
                 :active="activeBottomPanel"
-                :context="{ documentId }"
+                :context="{ documentId, projectId }"
               >
                 <template #empty>
                   <div class="lc-dock__empty">
@@ -822,7 +921,7 @@ const devtoolsOpen = shallowRef(false)
         />
       </div>
 
-      <StatusBar :canvas-context="canvas.context" />
+      <StatusBar :canvas-context="canvas.context" :project-id="projectId" />
     </div>
 
     <!-- 命令面板需要文档级服务（选中/文档），因此挂在编辑器作用域内而不是外壳里 -->
