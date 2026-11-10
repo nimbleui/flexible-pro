@@ -110,10 +110,12 @@ async function ensurePanel(plugin: string, panelId: string, moduleName: string):
   if (components.has(key) || loading.has(key)) return
   loading.add(key)
 
-  // 打开面板前确保插件行为已激活；纯声明式插件没有 main，会直接返回
-  void ctx.loader.ensureActivated(`onPanel:${panelId}`)
-
   try {
+    // 必须等插件行为激活完成再加载面板模块：apply 期注册的服务是面板组件的前提，
+    // 并发触发会让模块先于这些服务就绪。纯声明式插件没有 main，会直接返回。
+    // 放在既有 try 内，让 finally 在激活异常时也能回收 loading，不新增 try/catch。
+    await ctx.loader.ensureActivated(`onPanel:${panelId}`)
+
     const module = await ctx.modules.load<{
       /** 面板组件必须由模块默认导出；缺失时按失败处理并显示提示 */
       default?: Component
