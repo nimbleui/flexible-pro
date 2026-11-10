@@ -1,5 +1,6 @@
 import type { DocumentModel } from '@lc/schema'
 import type { Point } from './geometry'
+import type { VersionOpenPayload } from './services/version'
 
 /** 文档变更通知载荷 */
 export interface DocumentChangePayload {
@@ -69,5 +70,7 @@ declare module '@lc/kernel' {
     'canvas:drop': (payload: CanvasDropPayload) => boolean | void
     /** 切换命令面板 */
     'palette:toggle': () => void
+    /** 打开版本面板并聚焦指定分区；命令只广播意图，具体动作由面板执行 */
+    'version:open': (payload: VersionOpenPayload) => void
   }
 }

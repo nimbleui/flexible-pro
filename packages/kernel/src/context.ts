@@ -92,6 +92,7 @@ export const RESERVED_SERVICES: ReadonlySet<string> = new Set([
   'contribution',
   'modules',
   'workspace',
+  'version',
 ])
 
 /**

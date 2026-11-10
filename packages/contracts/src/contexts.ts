@@ -21,6 +21,7 @@ import type { SetterService } from './services/setter'
 import type { StateService } from './services/state'
 import type { ToastService } from './services/toast'
 import type { WorkspaceService } from './services/workspace'
+import type { VersionHostService } from './services/version'
 
 /**
  * 把平台服务挂到内核 Context 上。
@@ -65,6 +66,13 @@ declare module '@lc/kernel' {
     navigation?: NavigationService
     /** 流程图仓库；由宿主的流程存储提供，没有流程编排能力时不存在 */
     flow?: FlowService
+    /**
+     * 宿主版本服务；由宿主按灰度档位装配。
+     *
+     * 声明为可选：未装版本宿主的宿主（纯逻辑测试、其它应用外壳）不该谎报能力，
+     * 面板与状态栏按 undefined 显示「版本控制未接入」。
+     */
+    version?: VersionHostService
 
     /** 文档服务；EditorContext 中必选 */
     document?: DocumentService
@@ -150,6 +158,7 @@ export const SERVICE_NAMES = [
   'navigation',
   'http',
   'flow',
+  'version',
   'canvas',
   'snap',
 ] as const
