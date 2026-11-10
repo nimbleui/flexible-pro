@@ -8,7 +8,7 @@ import type {
 import { defineCanvasPlugin } from '@lc/contracts'
 import type { NodeSchema, Rect } from '@lc/schema'
 import { childPath, nodePath } from '@lc/schema'
-import { createId } from '@lc/shared'
+import { createPersistentId } from '@lc/shared'
 import { DEFAULT_DROP_HEIGHT, DEFAULT_DROP_WIDTH, DROP_PREVIEW_SETTING } from './constants'
 import DropOverlay from './overlay'
 import { resolveSlotTarget } from './slot-target'
@@ -52,7 +52,9 @@ function nodeRotation(node: NodeSchema): number {
 /**
  * 由物料 snippet 生成待插入节点。
  *
- * 新 id 由 createId 分配；落点尺寸与层级分别见 `dropRect` 与 `nextDropZIndex`。
+ * 新 id 用 createPersistentId 分配：它是 `nodes` 字典的键、会随页面落盘，
+ * 进程内自增的 createId 在刷新后重新计数会撞掉已有节点。
+ * 落点尺寸与层级分别见 `dropRect` 与 `nextDropZIndex`。
  * snippet 的子引用一律清空：物料里的后代节点不在本次插入范围内，留着就是悬空引用。
  */
 function buildDropNode(
@@ -65,7 +67,7 @@ function buildDropNode(
 
   return {
     ...(snippet ?? { componentName: entry.name }),
-    id: createId('node'),
+    id: createPersistentId('node'),
     componentName: entry.name,
     children: undefined,
     slots: undefined,

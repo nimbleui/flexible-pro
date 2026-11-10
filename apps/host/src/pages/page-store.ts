@@ -5,6 +5,7 @@ import { stripApiBindings } from '@lc/schema'
 import type { PageRecord } from './page-model'
 import { createBlankPageSchema, isPageRecord, normalizePageTitle } from './page-model'
 import { createBuiltinPageSeeds } from './page-seed'
+import { createPersistentId } from '@lc/shared'
 import { visibleInProject } from '../projects/project-model'
 
 /**
@@ -20,9 +21,9 @@ import { visibleInProject } from '../projects/project-model'
 const STORAGE_KEY = 'lc.pages.v1'
 const listeners = new Set<() => void>()
 
-/** 生成稳定 id；只要求跨刷新唯一，路由与 EditorRealm 的 key 用的就是它 */
+/** 生成规则收敛到 @lc/shared；路由与 EditorRealm 的 key 用的就是它 */
 function createPageId(): string {
-  return `page-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  return createPersistentId('page')
 }
 
 /**

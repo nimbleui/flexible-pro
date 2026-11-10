@@ -12,7 +12,7 @@ import {
   flowBindingSummary,
   listFlowBindingOptions,
 } from '@lc/schema'
-import { createId } from '@lc/shared'
+import { createPersistentId } from '@lc/shared'
 import { useAppContext } from '@lc/vue'
 import type { ChainStep, EventRow } from '../utils/event-bindings'
 import {
@@ -150,13 +150,13 @@ export function useNodeEventBindings() {
   }
 
   /**
-   * createId 的序号只保证进程内递增，持久化文档里可能已有同名前缀的键；
-   * 对现有键去重后再返回，避免新连接或新动作覆盖旧数据。
+   * 新 id 自带跨端熵，但仍对文档内现有键查重：导入旧数据或测试夹具时，
+   * 不能让新连接或新动作覆盖已有条目。
    */
   function nextId(prefix: string, taken: readonly string[]): string {
     const used = new Set(taken)
-    let id = createId(prefix)
-    while (used.has(id)) id = createId(prefix)
+    let id = createPersistentId(prefix)
+    while (used.has(id)) id = createPersistentId(prefix)
     return id
   }
 

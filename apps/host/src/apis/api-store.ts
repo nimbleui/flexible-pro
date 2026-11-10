@@ -4,6 +4,7 @@ import type { ProjectApi } from '@lc/schema'
 import { resolveProjectId, visibleInProject } from '../projects/project-model'
 import { pages } from '../pages/page-store'
 import type { ApiEditableFields, ApiInput } from './api-model'
+import { createPersistentId } from '@lc/shared'
 import { isProjectApi, normalizeApiInput } from './api-model'
 
 /**
@@ -30,9 +31,9 @@ export interface ApiReference {
   bindingIds: string[]
 }
 
-/** 生成稳定 id；页面绑定引用的就是它，改名不影响 */
+/** 生成规则收敛到 @lc/shared；页面绑定引用的就是它，改名不影响 */
 function createApiId(): string {
-  return `api-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  return createPersistentId('api')
 }
 
 function readStorage(): ProjectApi[] {

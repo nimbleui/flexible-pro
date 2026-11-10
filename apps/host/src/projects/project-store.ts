@@ -8,6 +8,7 @@ import {
   isProject,
   normalizeProjectInput,
 } from './project-model'
+import { createPersistentId } from '@lc/shared'
 import { currentAssetLists } from './project-assets'
 
 /**
@@ -23,9 +24,9 @@ import { currentAssetLists } from './project-assets'
 const STORAGE_KEY = 'lc.projects.v1'
 const listeners = new Set<() => void>()
 
-/** 生成稳定 id；只要求跨刷新唯一，资产归属引用的就是它 */
+/** 生成规则收敛到 @lc/shared；资产归属引用的就是它 */
 function createProjectId(): string {
-  return `project-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  return createPersistentId('project')
 }
 
 /**

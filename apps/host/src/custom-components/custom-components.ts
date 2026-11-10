@@ -1,6 +1,7 @@
 import { shallowRef } from 'vue'
 import type { Disposable } from '@lc/kernel'
 import type { MaterialEntry, MaterialService, ModuleService } from '@lc/contracts'
+import { createPersistentId } from '@lc/shared'
 import { moduleKey } from '@lc/contracts'
 import type {
   ComponentSchema,
@@ -464,9 +465,9 @@ function commit(next: readonly CustomComponent[]): void {
   notify()
 }
 
-/** 生成稳定 id；只要求跨刷新唯一，不参与物料解析 */
+/** 生成规则收敛到 @lc/shared；不参与物料解析 */
 function createComponentId(): string {
-  return `cc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  return createPersistentId('cc')
 }
 
 /**

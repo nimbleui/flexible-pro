@@ -9,7 +9,7 @@ import type {
 import type { ExpressionEngine, FunctionDescriptor, NodeSchema, SchemaPatch } from '@lc/schema'
 import type { ScopeSymbol } from '@lc/expression/editor'
 import { buildPageSymbols } from '@lc/expression/editor'
-import { createId } from '@lc/shared'
+import { createPersistentId } from '@lc/shared'
 import { useAppContext } from '@lc/vue'
 
 /**
@@ -107,13 +107,13 @@ export function useEventFlowStore(): EventFlowStore {
   }
 
   /**
-   * createId 的序号只保证进程内递增，持久化文档里可能已有同名前缀的 id；
-   * 这里对现有键做一次去重，避免新动作/新连接覆盖旧数据。
+   * 新 id 自带跨端熵，但仍对文档内现有键查重：导入旧数据或测试夹具时，
+   * 不能让新动作/新连接覆盖已有条目。
    */
   function nextId(prefix: string, taken: readonly string[]): string {
     const used = new Set(taken)
-    let id = createId(prefix)
-    while (used.has(id)) id = createId(prefix)
+    let id = createPersistentId(prefix)
+    while (used.has(id)) id = createPersistentId(prefix)
     return id
   }
 

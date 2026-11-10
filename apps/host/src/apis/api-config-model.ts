@@ -1,3 +1,4 @@
+import { createPersistentId } from '@lc/shared'
 import type { HttpRequestAuth, RequestDefaults, RequestEnvironment } from '@lc/schema'
 
 /**
@@ -121,9 +122,9 @@ function normalizeAuth(auth: HttpRequestAuth | undefined): HttpRequestAuth | und
   }
 }
 
-/** 生成稳定 id；环境改名不影响引用它的项目配置 */
+/** 生成规则收敛到 @lc/shared；环境改名不影响引用它的项目配置 */
 export function createEnvironmentId(): string {
-  return `env-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  return createPersistentId('env')
 }
 
 /**

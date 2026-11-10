@@ -1,6 +1,7 @@
 import { shallowRef } from 'vue'
 import type { Disposable } from '@lc/kernel'
 import type { ExpressionEngine, ValueTypeSchema } from '@lc/schema'
+import { createPersistentId } from '@lc/shared'
 
 /**
  * 全局自定义函数。
@@ -133,9 +134,9 @@ function commit(next: readonly GlobalFunction[]): void {
   notify()
 }
 
-/** 生成稳定 id；只要求跨刷新唯一，不参与表达式求值 */
+/** 生成规则收敛到 @lc/shared；不参与表达式求值 */
 function createFunctionId(): string {
-  return `fn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  return createPersistentId('fn')
 }
 
 function normalizeOptional(text: string | undefined): string | undefined {

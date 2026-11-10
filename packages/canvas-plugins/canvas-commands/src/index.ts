@@ -7,7 +7,7 @@ import type {
 import { defineCanvasPlugin, transformableIds } from '@lc/contracts'
 import type { NodeFlagChange, OrderMode } from '@lc/schema'
 import { changeOrders, groupNodes, setNodeFlags, ungroupNodes } from '@lc/schema'
-import { createId } from '@lc/shared'
+import { createPersistentId } from '@lc/shared'
 import { copySubtrees, deleteSelection, insertSubtrees, nudgeSelection } from './operations'
 import type { SubtreeSet } from './operations'
 
@@ -76,7 +76,7 @@ export default defineCanvasPlugin({
       if (ids.length === 0) return
       const result = insertSubtrees(schema(), copySubtrees(schema(), ids), {
         offset: PASTE_OFFSET,
-        createId: () => createId('node'),
+        createId: () => createPersistentId('node'),
       })
       if (commit(result.patches, label)) canvas.selection.set(result.newRootIds)
     }
@@ -100,7 +100,7 @@ export default defineCanvasPlugin({
       if (!clipboard) return
       const result = insertSubtrees(schema(), clipboard, {
         offset: PASTE_OFFSET,
-        createId: () => createId('node'),
+        createId: () => createPersistentId('node'),
       })
       if (commit(result.patches, '粘贴节点')) canvas.selection.set(result.newRootIds)
     }
@@ -126,7 +126,9 @@ export default defineCanvasPlugin({
     }
 
     function groupSelected(): void {
-      const result = groupNodes(schema(), editableIds(), { createId: () => createId('node') })
+      const result = groupNodes(schema(), editableIds(), {
+        createId: () => createPersistentId('node'),
+      })
       if (!result) return
       if (commit(result.patches, '组合节点')) canvas.selection.set([result.groupId])
     }

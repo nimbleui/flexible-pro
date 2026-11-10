@@ -9,6 +9,7 @@ import {
   hasBlockingIssue,
   validateFlow,
 } from '@lc/schema'
+import { createPersistentId } from '@lc/shared'
 import { resolveProjectId } from '../projects/project-model'
 import { createSeedFlow } from './flow-template'
 
@@ -158,9 +159,9 @@ function commit(next: readonly FlowDefinition[]): void {
   notify()
 }
 
-/** 生成稳定 id；只要求跨刷新唯一，事件绑定引用的就是它 */
+/** 生成规则收敛到 @lc/shared；事件绑定引用的就是它 */
 function createFlowId(): string {
-  return `flow-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  return createPersistentId('flow')
 }
 
 /**
