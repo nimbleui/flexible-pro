@@ -210,6 +210,26 @@ function dragMaterialName(event: DragEvent): string | null {
 }
 
 /**
+ * 一次拖拽会话内的舞台 rect 与上次预览值。
+ *
+ * dragover 触发频率很高：rect 只在会话首次读取，指针没动就完全不碰 containerAt 与
+ * settings.set（后者同值也会广播）。离开或投放时清空，下一次拖拽重新测量，
+ * 舞台位置发生变化不会被永久缓存。
+ */
+let dragRect: DOMRect | null = null
+let lastPreview: {
+  materialName: string
+  screen: Point
+  world: Point
+  containerId: ReturnType<typeof canvas.hitTest.containerAt>
+} | null = null
+
+function clearPreviewState(): void {
+  dragRect = null
+  lastPreview = null
+}
+
+/**
  * 落点坐标；两个坐标系同源于本次 drop 事件，供 canvas-drop 直接写进节点布局。
  *
  * @returns screen 为舞台本地屏幕坐标（供覆盖层与容器命中），world 为换算后的世界坐标
@@ -218,8 +238,8 @@ function dragMaterialName(event: DragEvent): string | null {
 function dropPoint(event: DragEvent): { screen: Point; world: Point } | null {
   const element = rootRef.value
   if (!element) return null
-  const rect = element.getBoundingClientRect()
-  const screen = { x: event.clientX - rect.left, y: event.clientY - rect.top }
+  if (!dragRect) dragRect = element.getBoundingClientRect()
+  const screen = { x: event.clientX - dragRect.left, y: event.clientY - dragRect.top }
   return { screen, world: canvas.viewport.screenToWorld(screen) }
 }
 
@@ -240,17 +260,26 @@ function onDragOver(event: DragEvent): void {
 
   const point = dropPoint(event)
   if (!point) return
-  setDropPreview({
-    materialName,
-    ...point,
-    containerId: canvas.hitTest.containerAt(point.screen),
-  })
+  const previous = lastPreview
+  if (
+    previous &&
+    previous.materialName === materialName &&
+    previous.screen.x === point.screen.x &&
+    previous.screen.y === point.screen.y
+  ) {
+    return
+  }
+
+  const containerId = canvas.hitTest.containerAt(point.screen)
+  lastPreview = { materialName, ...point, containerId }
+  setDropPreview(lastPreview)
 }
 
 function onDragLeave(event: DragEvent): void {
   const element = rootRef.value
   const related = event.relatedTarget
   if (element && related instanceof Node && element.contains(related)) return
+  clearPreviewState()
   setDropPreview(null)
 }
 
@@ -260,6 +289,7 @@ function onDrop(event: DragEvent): void {
 
   event.preventDefault()
   const point = dropPoint(event)
+  clearPreviewState()
   setDropPreview(null)
   if (!point) return
 
@@ -268,6 +298,7 @@ function onDrop(event: DragEvent): void {
 }
 
 function clearDropPreview(): void {
+  clearPreviewState()
   setDropPreview(null)
 }
 
