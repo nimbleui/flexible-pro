@@ -73,12 +73,18 @@ export default defineEditorPlugin<DocumentPluginConfig>({
      * version 每次提交都自增，包括 record=false 的手势预览：靠 version 做缓存失效
      * 的消费者因此每帧都会重来一次，这是预览期间保持画面跟手的必要代价。
      * dirty 只在正式提交时置 true，预览不会把文档标记成未保存。
+     *
+     * version 同时兼任两个角色：`apply` / `restore` 的提交版本号，以及渲染帧的失效信号。
+     * notify() 先通知本地订阅者、再 emit('document:change') 广播到事件总线，覆盖层、
+     * 大纲与属性面板都靠它重绘；宿主保存链路也用它对齐「已保存版本」。因此预览期每帧
+     * 也必须自增，不要改成「按 record 决定是否自增」——那会让手势期间画面停在上一次提交。
+     * 旧的 `versioned` 形参两处调用恒传 true，保留它只会误导后来者以为存在不自增的提交模式。
      */
-    function commitSchema(next: PageSchema, dirty: boolean, versioned: boolean): void {
+    function commitSchema(next: PageSchema, dirty: boolean): void {
       model = {
         ...model,
         schema: next,
-        version: versioned ? model.version + 1 : model.version,
+        version: model.version + 1,
         dirty,
       }
       notify()
@@ -108,7 +114,7 @@ export default defineEditorPlugin<DocumentPluginConfig>({
         const current = model.schema
         const after = applySchemaPatches(current, patches)
 
-        commitSchema(after, record ? true : model.dirty, true)
+        commitSchema(after, record ? true : model.dirty)
 
         if (record) {
           // 历史服务在 Realm 中晚于文档装载，这里按需解析避免循环依赖
@@ -128,7 +134,7 @@ export default defineEditorPlugin<DocumentPluginConfig>({
        * 因此覆盖层与面板会照常重绘。
        */
       restore(next: PageSchema): void {
-        commitSchema(next, model.dirty, true)
+        commitSchema(next, model.dirty)
       },
 
       /** 校验当前 schema；结果只返回给调用方，不拦截任何已发生的写入 */
