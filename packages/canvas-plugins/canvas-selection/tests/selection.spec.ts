@@ -151,16 +151,14 @@ describe('按下画幅根', () => {
   it('不预选中根节点，把位移让给框选', () => {
     const harness = createContext({ root: 'board', selection: ['card'] })
 
-    const result = harness
-      .handler(POINTER)
-      .handle(
-        pointerEvent({
-          targetNodeId: 'board',
-          screen: { x: 20, y: 20 },
-          world: { x: 20, y: 20 },
-        }),
-        harness.context,
-      )
+    const result = harness.handler(POINTER).handle(
+      pointerEvent({
+        targetNodeId: 'board',
+        screen: { x: 20, y: 20 },
+        world: { x: 20, y: 20 },
+      }),
+      harness.context,
+    )
 
     expect(result).toBe('handled')
     expect(harness.selectionSets).toEqual([])
@@ -170,25 +168,21 @@ describe('按下画幅根', () => {
   it('按下后拖动即框选命中的子节点', () => {
     const harness = createContext({ root: 'board', hits: ['card'] })
 
-    harness
-      .handler(POINTER)
-      .handle(
-        pointerEvent({
-          targetNodeId: 'board',
-          screen: { x: 10, y: 10 },
-          world: { x: 10, y: 10 },
-        }),
-        harness.context,
-      )
-    harness
-      .gesture()
-      .onMove(
-        pointerEvent({
-          type: 'pointermove',
-          screen: { x: 90, y: 90 },
-          world: { x: 90, y: 90 },
-        }),
-      )
+    harness.handler(POINTER).handle(
+      pointerEvent({
+        targetNodeId: 'board',
+        screen: { x: 10, y: 10 },
+        world: { x: 10, y: 10 },
+      }),
+      harness.context,
+    )
+    harness.gesture().onMove(
+      pointerEvent({
+        type: 'pointermove',
+        screen: { x: 90, y: 90 },
+        world: { x: 90, y: 90 },
+      }),
+    )
 
     expect(harness.setting(MARQUEE_SETTING)).toEqual({ x: 10, y: 10, width: 80, height: 80 })
     expect(harness.currentIds()).toEqual(['card'])
@@ -209,15 +203,13 @@ describe('按下画幅根', () => {
       }),
       harness.context,
     )
-    harness
-      .gesture()
-      .onMove(
-        pointerEvent({
-          type: 'pointermove',
-          screen: { x: 50, y: 50 },
-          world: { x: 50, y: 50 },
-        }),
-      )
+    harness.gesture().onMove(
+      pointerEvent({
+        type: 'pointermove',
+        screen: { x: 50, y: 50 },
+        world: { x: 50, y: 50 },
+      }),
+    )
 
     expect(harness.clears()).toBe(0)
     // 原选中集被保留并并入框选结果；命中集里含画幅根本身（inRect 不排斥它），
@@ -228,16 +220,14 @@ describe('按下画幅根', () => {
   it('零位移抬手后的 click 才把页面选进选中集', () => {
     const harness = createContext({ root: 'board' })
 
-    harness
-      .handler(POINTER)
-      .handle(
-        pointerEvent({
-          targetNodeId: 'board',
-          screen: { x: 30, y: 30 },
-          world: { x: 30, y: 30 },
-        }),
-        harness.context,
-      )
+    harness.handler(POINTER).handle(
+      pointerEvent({
+        targetNodeId: 'board',
+        screen: { x: 30, y: 30 },
+        world: { x: 30, y: 30 },
+      }),
+      harness.context,
+    )
     harness
       .handler(CLICK)
       .handle(
@@ -254,16 +244,14 @@ describe('按下普通节点', () => {
   it('仍然按下即选中并让位给拖拽插件', () => {
     const harness = createContext({ root: 'board' })
 
-    const result = harness
-      .handler(POINTER)
-      .handle(
-        pointerEvent({
-          targetNodeId: 'card',
-          screen: { x: 40, y: 40 },
-          world: { x: 40, y: 40 },
-        }),
-        harness.context,
-      )
+    const result = harness.handler(POINTER).handle(
+      pointerEvent({
+        targetNodeId: 'card',
+        screen: { x: 40, y: 40 },
+        world: { x: 40, y: 40 },
+      }),
+      harness.context,
+    )
 
     expect(result).toBe('pass')
     expect(harness.currentIds()).toEqual(['card'])
