@@ -147,9 +147,13 @@ export function nodePath(nodeId: string, suffix = ''): string {
 }
 
 /**
- * 文档补丁的类型收窄工具：确认 patch 的目标是节点表内路径。
+ * 文档补丁的路径收窄工具，供调用方按需使用：确认 patch 的目标是节点表内路径。
  *
- * 事务提交前用它拒绝「补丁写到 components/actions」这类越权路径。
+ * 它不参与写入校验，事务提交前也没有调用方用它做越权拦截。合法的补丁并非只写
+ * `nodes`：`arrayFieldPatch` 写 `/datasources` 这类顶层字段，`actionPath` 写
+ * `/actions/<id>/...`，`connectionPath` 写 `/connections/<id>/...`，这些路径都不满足
+ * 本判断但都是有效补丁。因此不要把本函数接到 `document.apply` 或事务预览 / 提交上，
+ * 否则会打断动作条件编辑与页面数据弹框。
  */
 export function isNodePatch(patch: SchemaPatch): boolean {
   const segments = parsePath(patch.path)

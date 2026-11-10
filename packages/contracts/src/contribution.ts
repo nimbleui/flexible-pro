@@ -25,7 +25,7 @@ export interface PanelContribution {
   order?: number
   /** 面板组件模块声明值，打开面板时才加载 */
   module: string
-  /** 显示条件；骨架阶段保留字段，宿主暂未求值 */
+  /** 显示条件；实验性扩展点，宿主未校验 / 未求值（骨架阶段仅保留字段） */
   when?: string
   /** 同 id 冲突时的优先级 @default 0 */
   priority?: number
@@ -49,7 +49,7 @@ export interface ToolbarContribution {
   icon?: string
   /** 排序，越小越靠前 @default 0 */
   order?: number
-  /** 显示条件；骨架阶段保留字段，宿主暂未求值 */
+  /** 显示条件；实验性扩展点，宿主未校验 / 未求值（骨架阶段仅保留字段） */
   when?: string
 }
 
@@ -63,7 +63,7 @@ export interface ContributionValueMap {
   toolbar: ToolbarContribution
   /** 画布能力 */
   canvasFeatures: CanvasFeatureContribution
-  /** 画布预设 */
+  /** 画布预设；实验性扩展点，宿主未校验 / 未求值（契约留位，无贡献者也不读） */
   canvasProfiles: CanvasProfileContribution
 }
 

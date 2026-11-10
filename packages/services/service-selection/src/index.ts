@@ -48,7 +48,7 @@ export default defineEditorPlugin({
         update(next)
       },
 
-      /** 追加会把这些 id 移到集合末尾，因此也改变 primary */
+      /** 追加新 id 到末尾；重复 id 按首次出现位置保留 */
       add(next) {
         update([...ids, ...next])
       },

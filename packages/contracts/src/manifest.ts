@@ -6,11 +6,17 @@ import type { PanelContribution, ToolbarContribution } from './contribution'
 import type { Permission } from './permissions'
 import type { MaterialContribution } from './services/material'
 
-/** 插件认证等级，决定可见范围与默认隔离层 */
+/**
+ * 插件认证等级。
+ *
+ * 实验性类型：当前宿主未校验 / 未求值，不实际决定可见范围与默认隔离层。
+ */
 export type CertificationTier = 'platform' | 'verified' | 'community'
 
 /**
  * 插件执行位置。
+ *
+ * 实验性类型：当前宿主未校验 / 未求值，不实际切换执行位置。
  * - `inline`：与宿主同 realm，仅 platform / 通过 UI 评审的 verified 可用
  * - `iframe` / `worker` / `server`：非内联执行，不能贡献需要内联渲染的物料或画布插件
  */
@@ -26,7 +32,7 @@ export interface Contributions {
   toolbar?: ToolbarContribution[]
   /** 画布能力 */
   canvasFeatures?: CanvasFeatureContribution[]
-  /** 画布预设 */
+  /** 画布预设；实验性扩展点，宿主未校验 / 未求值（契约留位，无贡献者也不读） */
   canvasProfiles?: CanvasProfileContribution[]
 }
 
@@ -56,13 +62,13 @@ export interface PluginManifest {
   activationEvents?: string[]
   /** 声明的服务名，构建期与运行时 provide 校验 */
   provides?: string[]
-  /** 申请的能力，安装时展示并由宿主强制执行 */
+  /** 申请的能力；实验性字段，宿主未校验 / 未强制执行（骨架阶段契约先行） */
   permissions?: Permission[]
-  /** 认证等级 @default 'community' */
+  /** 认证等级；实验性字段，宿主未校验 / 未求值 @default 'community' */
   certification?: CertificationTier
-  /** 执行位置 @default 'inline' */
+  /** 执行位置；实验性字段，宿主未校验 / 未求值 @default 'inline' */
   executionProfile?: ExecutionProfile
-  /** UI 评审结论；executionProfile 为 inline 时生产环境必填 */
+  /** UI 评审结论；实验性字段，宿主未校验 / 未求值（inline 必填仅在契约中约定） */
   uiReview?: 'inline' | 'sandboxed'
   /** 声明式贡献 */
   contributes?: Contributions
