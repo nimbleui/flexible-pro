@@ -118,6 +118,12 @@ type SlotName = (typeof SLOT)[keyof typeof SLOT]
 
 `packages/contracts/src/services/*`。
 
+### 版本服务（`version.ts`，方案 13 的 P1 / P3 / P4 落地）
+
+`packages/contracts/src/services/version.ts` 定义内容寻址版本库的数据模型（`SectionObject` / `DocumentObject` / `Commit` / `Ref` / `BranchMeta` / `EntityChange` / `DiffResult` 等）、P1 能力集 `VersionServiceCore`（提交、历史、diff、分支、检出、单文档恢复、脏状态刷新）、P3 能力集 `VersionServiceMerge`（`mergePreview` / `merge`）与 `VersionStore`（对象 / 提交 / ref / 分支元数据的读写）。`VersionService = VersionServiceCore & VersionServiceMerge` 是 `createVersionService()` 当前返回类型；按阶段组合而不是提前写满接口，避免 `Not implemented` 伪实现。P3 另导出 `MergePlan` / `MergeConflict` / `MergeResolution` / `MergeResult` / `DanglingRef` / `MergeValidate` 等类型，其中 `MergeValidate` 是注入既有 `validateDocument` / `validateFlow` 的钩子：内核不另写一套 schema 规则，未注入时 `MergePlan.validation` 为 `skipped`，不谎报校验通过。`VersionStore.putObject` 与 `putCommit` 都是内容寻址写入，契约要求**同地址不同内容一律 fail-closed**：`createdAt` 不参与提交寻址，同父同树同消息同作者的两次提交会撞同一 id，静默覆盖等于改写既有历史。两个适配器共用 `commitConflictMessage()` 出同一条诊断，避免同一份数据在单测里失败、在浏览器里悄悄坏掉。实现在 `@lc/service-version`，纯 Core 无 Vue / DOM；`IdbVersionStore` 是唯一使用浏览器 API 的适配器。服务名 `'version'` 已加入 `RESERVED_SERVICES` 占位，防止第三方插件抢注。
+
+P4 在同一文件补了宿主面板桥接：`VersionMode`（从 `@lc/service-version` 上移到契约层，面板 / 状态栏 / 宿主共用一份联合）、`VersionHostService`（按 `projectId` 惰性取 `VersionService`、变化通知、宿主发布快照摘要与发布 / 回滚薄桥接）、`VersionPanelSection` / `VersionOpenPayload` / `VersionReleaseSummary`。`contexts.ts` 把 `version` 声明为**可选应用级服务**并加入 `SERVICE_NAMES`，`events.ts` 加 `version:open`，保留服务授权来自 `GRANTS['host-version']`。这样 `plugin-panel-version` 与 `StatusBar` 只依赖 `@lc/contracts`，不反向 import `apps/host`；注入的是应用 Context，不是 Realm 级。`MergeValidate` 的 P4 实现落在宿主 `version-validation.ts`。`VersionServiceOptions.workingTreeReplaceable`（缺省 `true`）声明宿主的 `writeWorkingTree` 是否真正替换工作区：宿主在资产替换 API 落地前传 `false`，内核据此把 `checkout` 当只读查看（不持久化 HEAD、期间拒绝 `commit`）、并拒绝 `restoreDoc` 与 `merge`，错误码为 `read-only-view`。拦在写入路径而不是 UI，理由与受保护分支相同——否则一次保存就会把切出前的草稿记到刚检出的分支上。`VersionHead` 相应带出三个字段供 UI 置灰按钮并说明原因：`workingTreeReplaceable`（宿主写权限，等于同名 option）、`viewOnly`（只读查看态，此时 `commit` 被拒）、`draftBranch`（工作区实际归属的分支）。判据一律由内核给出，UI 不得自行从 `branch` 推导——两条分支指向同一提交时只比分支会漏判。发布与环境绑定属于 P5，届时再扩展服务面。
+
 ### `Registry<T>`（`registry.ts:10-21`）
 
 `register(item): Disposable` / `get(key)` / `list()` / `readonly version: number` / `onDidChange`。头注释说明复用它的理由（物料、setter、数据源、动作、命令同一模式），并允许实现按自身主键取值（**物料用 `name`，命令用 `id`**）。`version` 明确是给 Vue 适配层做重渲染触发的，不深度代理条目。
