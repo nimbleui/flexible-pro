@@ -23,13 +23,13 @@ AppContext（createApp 根，1 个）
 
 ### 2.1 入口
 
-| #   | 位置                            | 动作                                                                                                                                                                                                                                                            |
-| --- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `apps/host/index.html:10`       | `<script type="module" src="/src/main.ts">`，挂载点 `#app`                                                                                                                                                                                                      |
-| 2   | `apps/host/src/main.ts:10`      | `await bootstrapHost()` —— **Vue 应用在内核就绪之后才创建**                                                                                                                                                                                                     |
-| 3   | `apps/host/src/bootstrap.ts:72` | `installContextServices()`：把 15 个服务名装成 `Context.prototype` 上的 getter（`packages/kernel/src/context.ts:617`）；declaration merging 只是类型，运行时靠这一步才让 `ctx.canvas` 取得到值                                                                  |
-| 4   | `bootstrap.ts:74`               | `createApp({ id: 'host', grants: GRANTS })` → `packages/kernel/src/app.ts:26`：建根 `Context`、`PluginRuntime`，并逐条 `runtime.grant()`（GRANTS 表 `bootstrap.ts:28-40`，画布插件的授权由远程自签，见 [12](./12-module-federation.md#4-授权远程自签画布插件)） |
-| 5   | `bootstrap.ts:76`               | `context.plugin(presetDesigner)` → `Context.plugin`（`context.ts:451`）→ `PluginRuntime.load`（`runtime.ts:109`）→ `schedule`（`:274`，微任务批）→ `activate`（`:302`）→ `definition.apply`（`:357`）                                                           |
+| #   | 位置                             | 动作                                                                                                                                                                                                                                                            |
+| --- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `apps/host/index.html:10`        | `<script type="module" src="/src/main.ts">`，挂载点 `#app`                                                                                                                                                                                                      |
+| 2   | `apps/host/src/main.ts:10`       | `await bootstrapHost()` —— **Vue 应用在内核就绪之后才创建**                                                                                                                                                                                                     |
+| 3   | `apps/host/src/bootstrap.ts:209` | `installContextServices()`：把 `SERVICE_NAMES` 的 23 个服务名装成 `Context.prototype` 上的 getter（`packages/kernel/src/context.ts:617`）；declaration merging 只是类型，运行时靠这一步才让 `ctx.canvas` 取得到值                                               |
+| 4   | `bootstrap.ts:211`               | `createApp({ id: 'host', grants: GRANTS })` → `packages/kernel/src/app.ts:26`：建根 `Context`、`PluginRuntime`，并逐条 `runtime.grant()`（GRANTS 表 `bootstrap.ts:44-63`，画布插件的授权由远程自签，见 [12](./12-module-federation.md#4-授权远程自签画布插件)） |
+| 5   | `bootstrap.ts:213`               | `context.plugin(presetDesigner)` → `Context.plugin`（`context.ts:451`）→ `PluginRuntime.load`（`runtime.ts:109`）→ `schedule`（`:274`，微任务批）→ `activate`（`:302`）→ `definition.apply`（`:357`）                                                           |
 
 ### 2.2 preset-designer：安装应用级服务
 
@@ -42,11 +42,11 @@ modulesPlugin → loaderPlugin → materialPlugin → commandPlugin → expressi
 
 书写顺序是「被依赖者先声明」，**真正的执行顺序由内核依赖检查决定**：`PluginRuntime.activate` 在 `runtime.ts:316` 检查 `inject.required`，缺失即置 `pending` 并在服务出现时由 `onServiceChange`（`:383`）重新调度。`inject` 声明见各服务包（如 `service-loader/src/index.ts:185` 的 `inject: ['modules']`）。
 
-九个 apply 完成后，`bootstrap.ts:77` 调 `await context.runtime.whenIdle()`（`runtime.ts:172`，循环等待在途激活任务集清空）。至此 `loader` / `contribution` / `modules` 等一定可用——**不依赖任何外部延时**。注意 `whenIdle` 只等在途的激活任务，**不为停在 `pending` 的插件等待**：await 之后仍缺某个服务，说明该插件的 `inject` 声明没被满足，而不是时序不够。
+九个 apply 完成后，`bootstrap.ts:219` 调 `await context.runtime.whenIdle()`（`runtime.ts:172`，循环等待在途激活任务集清空）。至此 `loader` / `contribution` / `modules` 等一定可用——**不依赖任何外部延时**。注意 `whenIdle` 只等在途的激活任务，**不为停在 `pending` 的插件等待**：await 之后仍缺某个服务，说明该插件的 `inject` 声明没被满足，而不是时序不够。
 
-### 2.3 登记宿主侧 4 个内置插件包
+### 2.3 登记宿主侧 12 个内置插件包
 
-`bootstrap.ts:79-80`：`context.require<LoaderService>('loader')`，对 `BUILTIN_PACKAGES`（`bootstrap.ts:43-49`，每项是 `{ manifest, load: () => import('…') }`）逐个 `loader.register(pkg)`。宿主只登记物料与三个面板；15 个画布能力包由远程在 `apps/designer/src/canvas-plugins.ts:24-46` 登记，形状完全相同，只是 `load` 闭包落在远程自己的模块图里。
+`bootstrap.ts:233`（`registerBuiltinPackages`，`:116-118`）：`context.require<LoaderService>('loader')`，对 `BUILTIN_PACKAGES`（`apps/host/src/bootstrap.ts:74-95`，12 项，每项是 `{ manifest, load: () => import('…') }`）逐个 `loader.register(pkg)`。这 12 项是 1 个外部物料包（`@agile-plus/materials`）+ 1 个内置物料包 + 10 个面板包（含版本面板 `plugin-panel-version`），不是「物料与三个面板」；15 个画布能力包由远程在 `apps/designer/src/canvas-plugins.ts:24-40` 的 `CANVAS_PACKAGES` 登记，形状完全相同，只是 `load` 闭包落在远程自己的模块图里。两侧登记完成后 `loader.scan()` 共 27 项。
 
 `service-loader/src/index.ts:256` 的 `register` 只做三件事，**不加载任何代码**：
 
@@ -58,31 +58,31 @@ modulesPlugin → loaderPlugin → materialPlugin → commandPlugin → expressi
 
 ### 2.4 打开文档：EditorRealm
 
-| #   | 位置                                | 动作                                                                                                                                                                            |
-| --- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `views/DesignerView.vue:66-72`      | `workspace.getEditor(id) ?? createEditorRealm({ documentId, title, schema })`，文档取自 `apps/host/src/pages/page-store.ts` 的页面记录（`PageRecord.schema`）                   |
-| 2   | `service-workspace/src/index.ts:74` | 同 `documentId` 已存在则抛错；`:78` `ctx.fork()` 得到 Realm 专属 service scope                                                                                                  |
-| 3   | `:79`                               | `realmCtx.plugin(documentPlugin, {id, schema, title, mode})` → `service-document/src/index.ts:146` 提供 `document`                                                              |
-| 4   | `:85`                               | `historyPlugin` → 提供 `history`（`:94`）。装配顺序固定 document → history → selection，因为 `service-history` 声明 `inject: ['document']`（`service-history/src/index.ts:26`） |
-| 5   | `:86`                               | `selectionPlugin` → 提供 `selection`（`service-selection/src/index.ts:76`）                                                                                                     |
-| 6   | `:145`                              | `active = realm`（最近创建者即当前编辑器）                                                                                                                                      |
-| 7   | `:148`                              | `ctx.effect(() => ({ dispose: () => realm.dispose() }))`：workspace 插件停用时级联关闭文档                                                                                      |
+| #   | 位置                                                                           | 动作                                                                                                                                                                            |
+| --- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `views/composables/use-designer-realm.ts` 的 `getEditor` / `createEditorRealm` | `workspace.getEditor(id) ?? createEditorRealm({ documentId, title, schema })`，文档取自 `apps/host/src/pages/page-store.ts` 的页面记录（`PageRecord.schema`）                   |
+| 2   | `service-workspace/src/index.ts:74`                                            | 同 `documentId` 已存在则抛错；`:78` `ctx.fork()` 得到 Realm 专属 service scope                                                                                                  |
+| 3   | `:79`                                                                          | `realmCtx.plugin(documentPlugin, {id, schema, title, mode})` → `service-document/src/index.ts:146` 提供 `document`                                                              |
+| 4   | `:85`                                                                          | `historyPlugin` → 提供 `history`（`:94`）。装配顺序固定 document → history → selection，因为 `service-history` 声明 `inject: ['document']`（`service-history/src/index.ts:26`） |
+| 5   | `:86`                                                                          | `selectionPlugin` → 提供 `selection`（`service-selection/src/index.ts:76`）                                                                                                     |
+| 6   | `:145`                                                                         | `active = realm`（最近创建者即当前编辑器）                                                                                                                                      |
+| 7   | `:148`                                                                         | `ctx.effect(() => ({ dispose: () => realm.dispose() }))`：workspace 插件停用时级联关闭文档                                                                                      |
 
-Realm 创建后不立刻渲染：`views/DesignerView.vue:194-197` 先 `await appCtx.runtime.whenIdle()` 作就绪门，再渲染需要 `require('canvas')` 的子树。
+Realm 创建后不立刻渲染：`views/DesignerView.vue` 的 `onMounted` 里先 `await appCtx.runtime.whenIdle()` 作就绪门，再渲染需要 `require('canvas')` 的子树。
 
 ### 2.5 建立画布：CanvasRealm + 15 个能力插件
 
-| #   | 位置                                      | 动作                                                                                                                                                                                                                                                                                     |
-| --- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `views/DesignerView.vue:75`               | `editor.createCanvasRealm()` → `service-workspace/src/index.ts:107`：`realmCtx.fork()` + `canvasCtx.plugin(canvasCorePlugin)`                                                                                                                                                            |
-| 2   | `service-canvas-core/src/index.ts:52-126` | 组装画布内核的全部工厂：`createViewport({minZoom:0.1,maxZoom:4})`、`createScheduler`、`createSettingsService`、`createLayerService`、`createContextMenuService`、`createScene({getRootRect})`、`createHitTest`、`createMeasure`、`createInteractionPipeline`、`createTransactionService` |
-| 3   | `:176-179`                                | 接入脏来源：`document.onDidChange → syncScene`、`viewport.onDidChange → scheduler.invalidateViewport`、`selection.onDidChange → scheduler.invalidateViewport`                                                                                                                            |
-| 4   | `:233`                                    | `ctx.provide('canvas', service, { apiVersion: '1.0' })`                                                                                                                                                                                                                                  |
-| 5   | `apps/designer/src/CanvasModule.vue:28`   | `canvas.context.plugin(presetCanvas)`——这一步已在远程侧执行，登记与自签授权见同目录 `canvas-plugins.ts:65-74`                                                                                                                                                                            |
-| 6   | `presets/preset-canvas/src/index.ts:16`   | `inject: ['canvas','contribution','modules']`                                                                                                                                                                                                                                            |
-| 7   | `:22-25`                                  | `contribution.list('canvasFeatures')` → 过滤 `defaultEnabled !== false` → 按 `order` 升序                                                                                                                                                                                                |
-| 8   | `:29`                                     | `modules.load(moduleKey(feature.plugin, feature.value.module))`                                                                                                                                                                                                                          |
-| 9   | `:41`                                     | `ctx.plugin(module.default, feature.value.config)`：每个 CanvasRealm 独立实例，配置来自 manifest 贡献（如 `canvas-snap` 的 `{ thresholdScreenPx: 6, gridSize: 8 }`）                                                                                                                     |
+| #   | 位置                                                             | 动作                                                                                                                                                                                                                                                                                     |
+| --- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `views/composables/use-designer-realm.ts` 的 `createCanvasRealm` | `editor.createCanvasRealm()` → `service-workspace/src/index.ts:107`：`realmCtx.fork()` + `canvasCtx.plugin(canvasCorePlugin)`                                                                                                                                                            |
+| 2   | `service-canvas-core/src/index.ts:52-126`                        | 组装画布内核的全部工厂：`createViewport({minZoom:0.1,maxZoom:4})`、`createScheduler`、`createSettingsService`、`createLayerService`、`createContextMenuService`、`createScene({getRootRect})`、`createHitTest`、`createMeasure`、`createInteractionPipeline`、`createTransactionService` |
+| 3   | `:176-179`                                                       | 接入脏来源：`document.onDidChange → syncScene`、`viewport.onDidChange → scheduler.invalidateViewport`、`selection.onDidChange → scheduler.invalidateViewport`                                                                                                                            |
+| 4   | `:233`                                                           | `ctx.provide('canvas', service, { apiVersion: '1.0' })`                                                                                                                                                                                                                                  |
+| 5   | `apps/designer/src/CanvasModule.vue:28`                          | `canvas.context.plugin(presetCanvas)`——这一步已在远程侧执行，登记与自签授权见同目录 `canvas-plugins.ts:65-74`                                                                                                                                                                            |
+| 6   | `presets/preset-canvas/src/index.ts:16`                          | `inject: ['canvas','contribution','modules']`                                                                                                                                                                                                                                            |
+| 7   | `:22-25`                                                         | `contribution.list('canvasFeatures')` → 过滤 `defaultEnabled !== false` → 按 `order` 升序                                                                                                                                                                                                |
+| 8   | `:29`                                                            | `modules.load(moduleKey(feature.plugin, feature.value.module))`                                                                                                                                                                                                                          |
+| 9   | `:41`                                                            | `ctx.plugin(module.default, feature.value.config)`：每个 CanvasRealm 独立实例，配置来自 manifest 贡献（如 `canvas-snap` 的 `{ thresholdScreenPx: 6, gridSize: 8 }`）                                                                                                                     |
 
 单个能力包加载失败不会中断装配：`:33` 与 `:43` 都只 `ctx.diagnostics.report(...)` 然后继续下一个。
 
@@ -97,33 +97,33 @@ Realm 创建后不立刻渲染：`views/DesignerView.vue:194-197` 先 `await app
 
 ### 2.6 应用级命令与调试入口
 
-- `bootstrap.ts:83-92`：注册 `app.commandPalette` 命令（run 内 `context.emit('palette:toggle')`）与 `Mod+K` 快捷键。命令面板是应用级 UI，所以命令也注册在应用级，快捷键只是入口。面板组件本身挂在设计器视图的编辑器作用域里（`views/DesignerView.vue:737`），因为要用文档级服务。
-- `bootstrap.ts:97`：`import.meta.env.MODE !== 'production'` 时挂 `window.__lc = { context }`。拆分后 `editor` / `canvas` 不再是启动期单例，改从 `__lc.context.workspace.listEditors()` 与 `getEditor(id)` 取当前 Realm；`__lc.canvas` 由设计器视图写入当前活动画布（`views/DesignerView.vue:78`、卸载时清空）。
+- `bootstrap.ts:172-183`（`registerAppShellCommands`，由 `:234` 调用）：注册 `app.commandPalette` 命令（run 内 `context.emit('palette:toggle')`）与 `Mod+K` 快捷键。命令面板是应用级 UI，所以命令也注册在应用级，快捷键只是入口。面板组件本身挂在设计器视图的编辑器作用域里（`views/DesignerView.vue` 模板中的 `<CommandPalette />`），因为要用文档级服务。
+- `bootstrap.ts:192`（`exposeDebugHandle`，由 `:237` 调用）：`import.meta.env.MODE !== 'production'` 时挂 `window.__lc = { context }`。拆分后 `editor` / `canvas` 不再是启动期单例，改从 `__lc.context.workspace.listEditors()` 与 `getEditor(id)` 取当前 Realm；`__lc.canvas` 由设计器视图写入当前活动画布（`views/composables/use-designer-realm.ts` 写入 `window.__lc.canvas`、`DesignerView.vue` 的 `onUnmounted` 清空）。
 - `apps/designer/src/CanvasModule.vue:29` 最后一次 `whenIdle()`，画布能力装配收敛。
 
 ### 2.7 首帧渲染
 
-| #   | 位置                       | 动作                                                                                                                                                                                        |
-| --- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `main.ts:11-14`            | `createApp(App, { editorContext: editor.context, canvasContext: canvas.context })`：Realm 上下文以 props 注入，宿主不查询全局单例                                                           |
-| 2   | `main.ts:15`               | `provideContext(app, context)` → `packages/vue/src/context.ts:14`，把根 Context 挂到 Vue provide                                                                                            |
-| 3   | `main.ts:16`               | `app.mount('#app')`；`main.ts:19-27` catch 启动异常并把错误写进 `#app`，避免出现白屏                                                                                                        |
-| 4   | `App.vue:23`               | `<ContextScope :context="editorContext">` 把作用域切到 EditorRealm                                                                                                                          |
-| 5   | `App.vue:31`               | `<ToolbarStock>`：`contribution.list('toolbar')` 过滤 `designer.toolbar`（`components/ToolbarStock.vue:32`），按钮只声明命令 id，点击时 `ctx.command.execute`                               |
-| 6   | `App.vue:40`               | `<LcSlot name="designer.leftPanel">` → `packages/vue/src/components/Slot.vue:61` `ctx.contribution.listSlot(name)`                                                                          |
-| 7   | `Slot.vue:95`              | 对每个面板 `ctx.loader.ensureActivated('onPanel:' + panelId)`（`service-loader/src/index.ts:333`；注意 `onCanvasFeature:*` 在 `:335` 被显式跳过）                                           |
-| 8   | `Slot.vue:98`              | `ctx.modules.load(moduleKey(plugin, module))` → `:105` `markRaw(module.default)` 缓存组件；`:106-108` 只重建到达的那一项，keyed `v-for` 因此不整槽重渲染                                    |
-| 9   | `Slot.vue:121-133`         | `PluginBoundary` 包裹 `<component :is>`；未到达时渲染骨架，失败时渲染错误文案                                                                                                               |
-| 10  | `App.vue:47`               | `<CanvasStage :context="canvasContext">`                                                                                                                                                    |
-| 11  | `CanvasStage.vue:76`       | `buildRenderTree({ schema, resolveValue })`（`packages/vue/src/render/tree.ts:50`）把 `PageSchema` 摊成渲染树                                                                               |
-| 12  | `CanvasStage.vue:157-169`  | `syncComponents()`：对文档里出现的每个 `componentName` 调 `renderer.resolveMaterial(name)`，缓存 `markRaw` 组件；`loading` 集合做并发去重                                                   |
-| 13  | `CanvasStage.vue:241`      | `onMounted` 里 `canvas.attach(element)`：注册舞台上唯一一套 DOM 监听并同步写入尺寸（见 `service-canvas-core` 的 ResizeObserver 路径）                                                       |
-| 14  | `CanvasStage.vue:242`      | `canvas.scheduler.onFrame(refreshMatrix)`：`:153` 把 `viewport.matrix` 拼成 `matrix(a,b,c,d,e,f)` 写进内容层 transform                                                                      |
-| 15  | `CanvasStage.vue:255`      | `centerRootAtCurrentZoom()`（定义在 `:163`）：首帧保持默认 100% 缩放，只把文档根矩形摆到视口中心；尺寸未测得时跳过，要看全貌用「适应画布」命令                                              |
-| 16  | `CanvasStage.vue:258`      | `element.focus()`：键盘事件挂在舞台元素上                                                                                                                                                   |
-| 17  | `DesignerView.vue:674-716` | 右栏四个页签各一个插槽：`designer.rightPanel`（属性）、`designer.stylePanel`（样式）、`designer.eventPanel`（事件）、`designer.advancedPanel`（高级），每个槽当前各一个贡献面板，`order:10` |
-| 18  | `App.vue:59-60`            | `<StatusBar>` 读视口/选中/脏/历史；`<CommandPalette>` 订阅 `palette:toggle`（`components/CommandPalette.vue:27`）                                                                           |
-| 19  | `LayerHost.vue:138-139`    | `syncLayers()` 对**已注册的全部图层**调用 `ensureLayer()` → `layer.load()`（`:112-117`），每帧 `refresh`（`:157` 订阅 `scheduler.onFrame`）                                                 |
+| #   | 位置                                                                    | 动作                                                                                                                                                                                        |
+| --- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `main.ts:11-14`                                                         | `createApp(App, { editorContext: editor.context, canvasContext: canvas.context })`：Realm 上下文以 props 注入，宿主不查询全局单例                                                           |
+| 2   | `main.ts:15`                                                            | `provideContext(app, context)` → `packages/vue/src/context.ts:14`，把根 Context 挂到 Vue provide                                                                                            |
+| 3   | `main.ts:16`                                                            | `app.mount('#app')`；`main.ts:19-27` catch 启动异常并把错误写进 `#app`，避免出现白屏                                                                                                        |
+| 4   | `App.vue:23`                                                            | `<ContextScope :context="editorContext">` 把作用域切到 EditorRealm                                                                                                                          |
+| 5   | `App.vue:31`                                                            | `<ToolbarStock>`：`contribution.list('toolbar')` 过滤 `designer.toolbar`（`components/ToolbarStock.vue:32`），按钮只声明命令 id，点击时 `ctx.command.execute`                               |
+| 6   | `App.vue:40`                                                            | `<LcSlot name="designer.leftPanel">` → `packages/vue/src/components/Slot.vue:61` `ctx.contribution.listSlot(name)`                                                                          |
+| 7   | `Slot.vue:95`                                                           | 对每个面板 `ctx.loader.ensureActivated('onPanel:' + panelId)`（`service-loader/src/index.ts:333`；注意 `onCanvasFeature:*` 在 `:335` 被显式跳过）                                           |
+| 8   | `Slot.vue:98`                                                           | `ctx.modules.load(moduleKey(plugin, module))` → `:105` `markRaw(module.default)` 缓存组件；`:106-108` 只重建到达的那一项，keyed `v-for` 因此不整槽重渲染                                    |
+| 9   | `Slot.vue:121-133`                                                      | `PluginBoundary` 包裹 `<component :is>`；未到达时渲染骨架，失败时渲染错误文案                                                                                                               |
+| 10  | `App.vue:47`                                                            | `<CanvasStage :context="canvasContext">`                                                                                                                                                    |
+| 11  | `CanvasStage.vue:76`                                                    | `buildRenderTree({ schema, resolveValue })`（`packages/vue/src/render/tree.ts:50`）把 `PageSchema` 摊成渲染树                                                                               |
+| 12  | `CanvasStage.vue:157-169`                                               | `syncComponents()`：对文档里出现的每个 `componentName` 调 `renderer.resolveMaterial(name)`，缓存 `markRaw` 组件；`loading` 集合做并发去重                                                   |
+| 13  | `CanvasStage.vue:241`                                                   | `onMounted` 里 `canvas.attach(element)`：注册舞台上唯一一套 DOM 监听并同步写入尺寸（见 `service-canvas-core` 的 ResizeObserver 路径）                                                       |
+| 14  | `CanvasStage.vue:242`                                                   | `canvas.scheduler.onFrame(refreshMatrix)`：`:153` 把 `viewport.matrix` 拼成 `matrix(a,b,c,d,e,f)` 写进内容层 transform                                                                      |
+| 15  | `CanvasStage.vue:255`                                                   | `centerRootAtCurrentZoom()`（定义在 `:163`）：首帧保持默认 100% 缩放，只把文档根矩形摆到视口中心；尺寸未测得时跳过，要看全貌用「适应画布」命令                                              |
+| 16  | `CanvasStage.vue:258`                                                   | `element.focus()`：键盘事件挂在舞台元素上                                                                                                                                                   |
+| 17  | `use-designer-tabs.ts` 的 `rightTabs` / `DesignerView.vue` 右栏 `aside` | 右栏四个页签各一个插槽：`designer.rightPanel`（属性）、`designer.stylePanel`（样式）、`designer.eventPanel`（事件）、`designer.advancedPanel`（高级），每个槽当前各一个贡献面板，`order:10` |
+| 18  | `App.vue:59-60`                                                         | `<StatusBar>` 读视口/选中/脏/历史；`<CommandPalette>` 订阅 `palette:toggle`（`components/CommandPalette.vue:27`）                                                                           |
+| 19  | `LayerHost.vue:138-139`                                                 | `syncLayers()` 对**已注册的全部图层**调用 `ensureLayer()` → `layer.load()`（`:112-117`），每帧 `refresh`（`:157` 订阅 `scheduler.onFrame`）                                                 |
 
 ## 3. 三条典型数据流
 
@@ -219,7 +219,7 @@ CanvasStage drop（:220）
 | `canvas:gestureEnd`                  | `service-canvas-core/src/index.ts:125`     | 无 —— 预留给埋点/协作                                                                      |
 | `canvas:drop`                        | `CanvasStage.vue:230`（bail）              | `canvas-drop/src/index.ts:56`                                                              |
 | `plugin:activated` / `plugin:failed` | `service-loader/src/index.ts:237` / `:240` | 无                                                                                         |
-| `palette:toggle`                     | `bootstrap.ts:86`、`App.vue:9`             | `CommandPalette.vue:27`                                                                    |
+| `palette:toggle`                     | `bootstrap.ts:176`、`App.vue:9`            | `CommandPalette.vue:27`                                                                    |
 
 `EventBus` 提供 5 种发射模式：`emit`（同步、逐监听器错误隔离）、`parallel`、`serial`、`bail`（首个非 undefined 生效）、`waterfall`（前一个返回值作为下一个输入），排序规则 `prepend` 优先于 `priority`（`packages/kernel/src/events.ts:132-229`，比较器在 `:264`）。其中 **`waterfall` 是唯一不做错误隔离的模式**（`:213`）：任一监听器抛错会中断整条管线并让 Promise reject。另有一条只读观测通道：`EventBus.monitor`（`:126`，逐监听器产出事件名、分发模式、归属插件 id、耗时与错误；无监视器时热路径不取时间戳）与 `Diagnostics.onChange`（`context.ts:196`），二者都不参与生命周期决策，详见 [04 插件内核](./04-plugin-kernel.md) 的观测面一节。
 

@@ -1,27 +1,31 @@
 # 07 服务层 `packages/services/*`
 
-12 个包，每个导出一个匿名 `definePlugin` / `defineEditorPlugin`。**没有 token、没有命名常量**：服务身份就是 `ctx.provide(name, impl, { apiVersion: '1.0' })` 里的那个字符串，全部集中在 `RESERVED_SERVICES`（`packages/kernel/src/context.ts:67-92`）与 `SERVICE_NAMES`（`packages/contracts/src/contexts.ts:99-115`）两处名单里。
+16 个包：15 个导出匿名 `definePlugin` / `defineEditorPlugin`，第 16 个 `@lc/service-version` 是**纯 Core 库**（不导出插件、不 `ctx.provide`），由宿主 `apps/host/src/projects/version-host.ts` 的 `installVersionHost` 装配成应用级 `version` 服务，落地范围与剩余提案见 [13](./13-version-control.md)。**没有 token、没有命名常量**：服务身份就是 `ctx.provide(name, impl, { apiVersion: '1.0' })` 里的那个字符串，集中声明在 `RESERVED_SERVICES`（`packages/kernel/src/context.ts`，当前 18 项）与 `SERVICE_NAMES`（`packages/contracts/src/contexts.ts`，当前 23 项）两处名单里。
 
 ## 总览
 
-| 服务                      | 包                  | 层级            | `inject`                                 | `provide` 位置                           |
-| ------------------------- | ------------------- | --------------- | ---------------------------------------- | ---------------------------------------- |
-| `modules`                 | service-modules     | 应用            | —                                        | `index.ts:103`                           |
-| `loader` + `contribution` | service-loader      | 应用            | `modules`                                | `:190`（contribution）、`:354`（loader） |
-| `material`                | service-material    | 应用            | `modules`、`contribution`                | `:175`                                   |
-| `command`                 | service-command     | 应用            | —                                        | `:91`                                    |
-| `expression`              | service-expression  | 应用            | —（`provides: ['expression']`）          | `:86`                                    |
-| `setter`                  | service-setter      | 应用            | —                                        | `:84`                                    |
-| `keybinding`              | service-keybinding  | 应用            | —（`provides: ['keybinding']`）          | `:76`                                    |
-| `document`                | service-document    | **EditorRealm** | —（`defineEditorPlugin`）                | `:147`                                   |
-| `history`                 | service-history     | EditorRealm     | `document`                               | `:94`                                    |
-| `selection`               | service-selection   | EditorRealm     | —                                        | `:76`                                    |
-| `canvas`                  | service-canvas-core | **CanvasRealm** | `document`、`selection`（`ctx.require`） | `:233`                                   |
-| `workspace`               | service-workspace   | 应用            | —（内部装配上面四个 Realm 服务）         | `:176`                                   |
+| 服务                              | 包                                                               | 层级            | `inject`                                            | `provide` 位置                                      |
+| --------------------------------- | ---------------------------------------------------------------- | --------------- | --------------------------------------------------- | --------------------------------------------------- |
+| `modules`                         | service-modules                                                  | 应用            | —                                                   | `index.ts:103`                                      |
+| `loader` + `contribution`         | service-loader                                                   | 应用            | `modules`                                           | `:190`（contribution）、`:354`（loader）            |
+| `material`                        | service-material                                                 | 应用            | `modules`、`contribution`                           | `:175`                                              |
+| `command`                         | service-command                                                  | 应用            | —                                                   | `:91`                                               |
+| `expression`                      | service-expression                                               | 应用            | —（`provides: ['expression']`）                     | `:86`                                               |
+| `setter`                          | service-setter                                                   | 应用            | —                                                   | `:84`                                               |
+| `keybinding`                      | service-keybinding                                               | 应用            | —（`provides: ['keybinding']`）                     | `:76`                                               |
+| `document`                        | service-document                                                 | **EditorRealm** | —（`defineEditorPlugin`）                           | `:147`                                              |
+| `history`                         | service-history                                                  | EditorRealm     | `document`                                          | `:94`                                               |
+| `selection`                       | service-selection                                                | EditorRealm     | —                                                   | `:76`                                               |
+| `canvas`                          | service-canvas-core                                              | **CanvasRealm** | `document`、`selection`（`ctx.require`）            | `:233`                                              |
+| `workspace`                       | service-workspace                                                | 应用            | —（内部装配上面四个 Realm 服务）                    | `:176`                                              |
+| `dataSource`                      | service-datasource                                               | EditorRealm     | `document`                                          | `index.ts:284`                                      |
+| `pageState`                       | service-state                                                    | EditorRealm     | `document`                                          | `index.ts:142`                                      |
+| `action`                          | service-action                                                   | EditorRealm     | `document`、`expression`、`pageState`、`dataSource` | `index.ts:203`                                      |
+| `version`（宿主装配，非本表插件） | `@lc/service-version` + `apps/host/src/projects/version-host.ts` | 应用            | —                                                   | `installVersionHost` 里 `ctx.provide('version', …)` |
 
 Realm 级服务在 `Context` 类型上是**可选属性**（`contexts.ts:48-57`），因为 AppContext 没有它们；Realm 内通过 `EditorContext` / `CanvasContext` 收窄为必选。
 
-`expression` 与 `keybinding` **不在 `RESERVED_SERVICES` 名单里**（`context.ts:67-92` 未列），因此提供它们不需要 `ServiceGrant`；其余 11 个内置服务都需要宿主在 `apps/designer/src/bootstrap.ts:41-54` 预置授权。
+`expression` 与 `keybinding` **不在 `RESERVED_SERVICES` 名单里**，因此提供它们不需要 `ServiceGrant`；其余承载内核语义的服务都需要宿主在 `apps/host/src/bootstrap.ts:44-63` 的 `GRANTS` 预置授权（`host-http` / `host-version` 也在其中），画布插件的 `snap` 授权由远程 `apps/designer/src/canvas-plugins.ts` 的 `CANVAS_GRANTS` 自签。仓库里不存在 `apps/designer/src/bootstrap.ts`：该目录只有 `canvas-plugins.ts` 与 `CanvasModule.vue`。
 
 ---
 
@@ -189,10 +193,10 @@ ctx.provide('expression', engine, { apiVersion: '1.1' }) // :86
 ```ts
 model: DocumentModel { id, title, schema, version, dirty }   // :57
 notify(): 本地监听先收到，再向事件总线广播（:64-68）           // 同一轮里监听方早于事件消费者
-commitSchema(next, dirty, versioned)                          // :70-85
+commitSchema(next, dirty)                          // :70-91
 ```
 
-`commitSchema` 的注释是理解预览行为的关键（`:70-76`）：**`version` 每次提交都自增，包括 `record: false` 的手势预览**——靠 version 做缓存失效的消费者因此每帧都会重来一次，这是预览期间保持画面跟手的必要代价；**`dirty` 只在正式提交时置 `true`**，预览不会把文档标记成未保存。
+`commitSchema` 的注释是理解预览行为的关键（`:70-82`）：**`version` 每次提交都自增，包括 `record: false` 的手势预览**——靠 version 做缓存失效的消费者因此每帧都会重来一次，这是预览期间保持画面跟手的必要代价；**`dirty` 只在正式提交时置 `true`**，预览不会把文档标记成未保存。`version` 同时兼任「`apply` / `restore` 的提交版本号」与「渲染帧失效信号」，宿主保存链路也用它对齐已保存版本，因此**不要改成按 `record` 决定是否自增**；P1 已删掉恒传 `true` 的 `versioned` 形参，签名收敛为 `commitSchema(next: PageSchema, dirty: boolean)`（`:83`），两处调用（`apply` `:117`、`restore` `:137`）同步去掉实参，行为不变。
 
 ### `apply(patches, options)`（`:102-121`）
 
@@ -201,7 +205,7 @@ mode === 'preview' → 抛「只读文档不允许写入」（:103-105）
 record = options.record ?? true        // 默认写历史
 before = model.schema                  // 拷贝式 patch ⇒ 旧引用可安全作为历史快照
 after  = applySchemaPatches(before, patches)
-commitSchema(after, record ? true : model.dirty, true)
+commitSchema(after, record ? true : model.dirty)
 if (record) ctx.get<HistoryService>('history')?.record({ label: options.label ?? '编辑文档', before, after })
 ```
 
@@ -241,7 +245,7 @@ let ids: readonly string[] = [] // :15  整体替换而不是就地修改：引�
 3. 相同则直接返回，不通知、不发事件。
 4. 否则替换引用 → 本地监听 → `ctx.emit('selection:change', ids)`。
 
-API 语义（`:47-68`）：`set` 覆盖；**`add` 会把新 id 移到集合末尾，因此也改变 `primary`**；`remove` 过滤；`toggle`（Shift 点选用：已选则取消，未选则追加成为主选中）；`clear`。`ids` getter 返回内部数组引用，调用方不得 push/splice（`:37`）。
+API 语义（`:47-68`）：`set` 覆盖；**`add` 追加新 id 到末尾（新增时会改变 `primary`）；重复 id 按首次出现位置保留，不会被移到末尾**（P1 已按 `update` 里 `[...new Set(next)]` 的语义把 `:51` 源码注释改准）；`remove` 过滤；`toggle`（Shift 点选用：已选则取消，未选则追加成为主选中）；`clear`。`ids` getter 返回内部数组引用，调用方不得 push/splice（`:37`）。
 
 职责边界由契约注释固定（`packages/contracts/src/services/selection.ts:3-8`）：**本服务只保存选中，不负责点击/框选交互**（那是 `canvas-selection` 插件），视觉由覆盖层读取本服务绘制。
 

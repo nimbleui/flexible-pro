@@ -50,7 +50,7 @@
 2. **调试可直读**。`window.__lc.context.get('canvas')` 与 `ctx.canvas`（由 `installServiceAccessors` 生成的 getter，`context.ts:617-630`）都是同一个名字，不需要反查 token。
 3. **零依赖**。内核 `dependencies` 为空（`packages/kernel/package.json`），字符串名是自描述的，不引入 reflect-metadata 之类的运行时。
 
-**代价**：拼错服务名没有编译期保护。平台的缓解手段是把名字集中到 `SERVICE_NAMES`（`packages/contracts/src/contexts.ts:99-115`）并给 15 个名字装上类型化 getter；`require()` 缺失时抛带服务名的错误（`context.ts:309`）。类型层面则靠 `EditorContext` / `CanvasContext` 收窄（`:85-96`）——**类型糖不改变运行时**，只让写错的 `ctx.document` 在编辑器里变红。
+**代价**：拼错服务名没有编译期保护。平台的缓解手段是把名字集中到 `SERVICE_NAMES`（`packages/contracts/src/contexts.ts`，当前 23 个名字）并给这些名字装上类型化 getter；`require()` 缺失时抛带服务名的错误（`context.ts:309`）。类型层面则靠 `EditorContext` / `CanvasContext` 收窄（`:85-96`）——**类型糖不改变运行时**，只让写错的 `ctx.document` 在编辑器里变红。
 
 ---
 
@@ -79,7 +79,7 @@
 
 **为什么值得**：一个写入口同时给出四样东西——历史记录（`before/after` 现成）、预览/提交分界（`record` 标志）、协作与迁移的可重放单元（patch 可序列化）、以及「旧对象不会被就地改动」这条不变量。历史栈因此可以只存引用而不深拷贝（`service-history/src/index.ts:51-53` 的注释正是这么论证的）。
 
-**代价**：每次提交都重建整棵 schema 对象图。文档规模大时内存与 GC 压力线性上升，因此 `service-history/src/index.ts:18-22` 明确写下退路：「骨架阶段优先保证行为正确；大文档可替换为 patch 逆向记录，contracts 中的接口不变」，且当前**不设栈深上限**（`:53`）。
+**代价**：不是「每次提交重建整棵对象图」。`packages/schema/src/patch.ts:63-97` 的 `applyAt`（`applyPatches` 的路径递归）只克隆 patch 路径上的容器（`{ ...current }` / `[...current]`），其余分支保持引用共享，`:97` 的注释写明「便于 Vue 侧做浅比较」；`packages/services/service-version/src/tracker.ts:46-48` 的 `createSectionTracker` 正是靠 `===` 判等来低成本识别「哪些顶层 section 变了」。因此每次提交的内存增量是 **O(路径深度)** 而不是 O(整份文档)，历史栈里 `before` / `after` 也只是两个引用（`service-history/src/index.ts:51-53`）。真正待治理的是 **notify 频率与栈深**：`service-history/src/index.ts:18-23` 写下「骨架阶段优先保证行为正确；大文档可替换为 patch 逆向记录，contracts 中的接口不变」的退路，且当前**不设栈深上限**（`:53`）。按错误描述引入深拷贝 / immer 会直接破坏引用判等，不是治理方向。
 
 ---
 
@@ -93,7 +93,7 @@
 - 实现细节：`preview` 以 `patch.path` 去重（`:96-99`），提交时 `apply([...pending.values()], { record: true, label, before: base })`（`:103-127`）。`:108-109` 明确写出**不能先 `restore(base)` 再重放**——那会把手势期间别处的写入（属性面板改了同一节点的其它字段、拖入的新节点）整体抹掉，而且不产生任何错误；只有 `pending` 为空时才纯回退 `restore(base)`（`:123-125`）。`cancel` 只 `restore(base)` 且不写历史但仍触发 `onEnd`（`:129-134`）。
 - `begin` 在已有活动事务时抛错（`:76-79`），`contracts/src/services/canvas.ts:153-160` 把这条约束写进了接口注释。
 
-**为什么值得**：`base` 直接引用当时的 schema 引用即可作为历史的 `before`（依赖第 5 条的拷贝式不变量），既省一次深拷贝，又保证撤销一次能准确回到手势前；因为提交只写最终 patch 而不回滚整份文档，手势期间别处的写入不会被顺手抹掉。用户视角的「一次拖拽」与历史记录的「一条」严格对齐。
+**为什么值得**：`base` 直接引用当时的 schema 引用即可作为历史的 `before`（依赖第 5 条的结构共享不变量），既省一次深拷贝，又保证撤销一次能准确回到手势前；因为提交只写最终 patch 而不回滚整份文档，手势期间别处的写入不会被顺手抹掉。用户视角的「一次拖拽」与历史记录的「一条」严格对齐。
 
 **代价**：单事务意味着两个手势不能并存。当前是「抛错 + 插件放弃手势」的策略，而不是排队或抢占；多指/双画笔类交互要落地时必须先改这条约束。另有一处路径级独占：与本事务同 `path` 的并发写入会被本事务最后一次预览覆盖，撤销回到 `base` 时这条限制同样成立（`transaction.ts:110-111`）。另一份代价在第 5 条：`version` 每次提交都自增，包括 `record: false` 的预览（`service-document/src/index.ts:70-76`），所以预览期间靠 version 失效缓存的消费者每帧都会重来一次——注释判定这是「保持画面跟手的必要代价」。
 
@@ -124,7 +124,7 @@
 
 - 内核的 `Events` 是空接口（`types.ts:127-133`），`installServiceAccessors(names)` 由调用方给名单（`context.ts:617-630`，注释写明「内核不内置任何业务服务名」）。
 - 服务名与事件名的唯一扩展点在 `packages/contracts/src/contexts.ts:25-58` 与 `packages/contracts/src/events.ts:52-72`，两处注释都明确「插件不得各自 `declare module`」（`contexts.ts:20-23`、`events.ts:49-51`）。
-- `RESERVED_SERVICES` 与 `apiVersion` 校验也在内核（`context.ts:67-92`、`:331-336`），但名单内容是平台语义而非业务语义。
+- `RESERVED_SERVICES` 与 `apiVersion` 校验也在内核（`context.ts:56-92`、`:331-336`），但名单内容是平台语义而非业务语义；名单只收录已有真实提供者的服务名。
 
 **为什么值得**：事件名和服务名散落是插件平台最常见的腐化起点。集中声明让「平台能力清单」变成一个可 grep 的文件，也让内核可以独立测试——`packages/kernel/tests/` 的 5 个 spec（含新增的 `diagnostics.spec.ts`）不需要任何业务包即可跑通。
 
@@ -136,11 +136,11 @@
 
 **命题**：`canvas`、`document`、`history` 这类承载内核语义的服务名，必须由平台签发的 `ServiceGrant` 才能提供，且必须声明 `apiVersion`。
 
-**证据**：`context.ts:331-336` 两条抛错；`runtime.grant`/`hasGrant`（`runtime.ts:71-94`）；宿主侧的预置授权表 `apps/designer/src/bootstrap.ts:41-54`。
+**证据**：`context.ts:331-336` 两条抛错；`runtime.grant`/`hasGrant`（`runtime.ts:71-94`）；宿主侧的预置授权表 `apps/host/src/bootstrap.ts` 的 `GRANTS`（`:44-63`）。画布插件的授权由远程 `apps/designer/src/canvas-plugins.ts` 的 `CANVAS_GRANTS` 自签——仓库里不存在 `apps/designer/src/bootstrap.ts`。
 
 **为什么这样定位**：注释给出了非常克制的理由（`context.ts:56-66`）——「保留名单存在的意义不是防住同 realm 的恶意代码（它做不到），而是防止普通插件无意间覆盖 `canvas`、`history` 这类内核语义服务」。这是整个仓库里对安全边界最诚实的一句表述：同 realm 的 JS 无法被名单挡住，名单解决的是**事故**而不是**攻击**。真正的攻击面隔离（iframe/worker）在设计稿 Part III，代码未实现。
 
-**代价**：内置服务在开发期也要显式登记 GRANTS，否则启动即抛错。`apps/host/src/bootstrap.ts:18-27` 的注释承认这是「保证没有控制面时也能跑通内置能力，同时保留保留服务需要授权的约束」。
+**代价**：内置服务在开发期也要显式登记 GRANTS，否则启动即抛错。`apps/host/src/bootstrap.ts:34-43` 的注释承认这是「保证没有控制面时也能跑通内置能力，同时保留保留服务需要授权的约束」；表中 `host-http` / `host-version` 两项说明 `http` 与 `version` 现在也由宿主自己提供，但仍要按规矩授权。
 
 ---
 
@@ -157,7 +157,7 @@
 
 **为什么值得**：覆盖层组件、面板组件、物料组件都是「模块默认导出一个组件」这种弱约定，换成其他框架只需要替换宿主适配层，服务与画布内核不动。
 
-**代价**：类型安全在边界处断一次。`markRaw` 与 `as Component` 属于必要的收窄断言；平台把它限制在 3 个宿主组件内，而不是散落到插件里。
+**代价**：类型安全在边界处断一次。`markRaw` 与 `as Component` 属于必要的收窄断言；生产代码里共 **4 处**，全部在 `@lc/vue` 的宿主组件内（`CanvasStage.vue:177`、`PageRuntime.vue:255`、`SchemaPreview.vue:191`、`Slot.vue:129`），没有散落到插件里。`as CanvasContext` 则是 **2 处**（`service-canvas-core/src/index.ts:122`、`service-workspace/src/index.ts:136`），另有 3 处在测试的 `as unknown as CanvasContext` 里。实质约定（收窄只在宿主层）仍成立，只是数量比初稿多一处。
 
 ---
 
@@ -203,7 +203,7 @@
 
 - `packages/contracts/src/services/registry.ts:10` 的 `Registry<T>` 只被 material / command / setter 复用；contribution 用独立的排序规则（`order ↑ → priority ↓ → 插件名`，`service-loader/src/index.ts:48`）而没有硬套 Registry。
 - class 只集中在两处。内核共 8 个：`Context`、`ServiceObserver`、`Diagnostics`（`context.ts`）、`PluginRuntime`（`runtime.ts`）、`EventBus`（`events.ts`）、`EffectScope`（`effect.ts`）、`InternalBus`（`internal.ts`）、`Service`（`service.ts`）；其中 `ServiceObserver`/`Diagnostics`/`InternalBus` 存在只是因为要携带私有状态。全仓另一个 class 是 `@lc/devtools` 展示层的 `EventLog`（`packages/devtools/src/core/feed.ts:12`，带环形上限的日志缓冲）。画布内核 12 个文件全是 `create*` 工厂（见 `packages/canvas/src/index.ts:8-45` 的导出面），服务与插件层零 class。
-- `packages/kernel/src/service.ts:9` 有一个 `abstract class Service`（构造即 `provide`，注释自己限定「只适用于 class 形态的服务」）。**全仓 `extends Service` 出现 0 次**——12 个服务与 15 个画布插件全部走 `definePlugin` + `ctx.effect(() => ctx.provide(...))`；但它仍然挂在 `packages/kernel/src/index.ts:27` 的公开导出面上。
+- `packages/kernel/src/service.ts:9` 有一个 `abstract class Service`（构造即 `provide`，注释自己限定「只适用于 class 形态的服务」）。**全仓 `extends Service` 出现 0 次**——15 个服务插件与 15 个画布插件都走 `definePlugin` + `ctx.effect(() => ctx.provide(...))`，第 16 个 `service-*` 包 `@lc/service-version` 是纯 Core 库、根本不导出插件；但它仍然挂在 `packages/kernel/src/index.ts:27` 的公开导出面上。
 
 **为什么保留这份清单**：`service.ts` 是内核里唯一一处「实现了但没人用」的抽象。按 `cloud-gate-store` 规范的「删除该抽象是否让实现明显变差」判据，它应当被移除；本文把它登记在 [10 开发指南的已知边界](./10-development-guide.md#9-已知边界与技术债) 而不是继续默许。
 

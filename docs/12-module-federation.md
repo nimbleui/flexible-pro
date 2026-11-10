@@ -14,12 +14,12 @@ apps/designer  @lc/designer  MF Remote ：画布模块，只暴露 ./CanvasModul
 
 职责边界（谁持有什么）：
 
-| 归属 | 内容                                                                                                                                                            |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 宿主 | 插件内核 `createApp` 与 `preset-designer`、4 个业务插件包（物料 + 3 面板）、`GRANTS`、`EditorRealm` 与 `CanvasRealm` 的创建与释放、路由与外壳 UI、`window.__lc` |
-| 远程 | 15 个画布能力插件包 + `preset-canvas`、`CanvasStage` 渲染、画布能力插件的 `loader` 登记与 `canvas-snap` 授权签发                                                |
+| 归属 | 内容                                                                                                                                                                                                                                                                                           |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 宿主 | 插件内核 `createApp` 与 `preset-designer`、**12 个宿主侧内置插件包**（`apps/host/src/bootstrap.ts` 的 `BUILTIN_PACKAGES`：11 个 `@lc/plugin-*` + 1 个外部 `@agile-plus/materials`）、`GRANTS`、`installVersionHost`、`EditorRealm` 与 `CanvasRealm` 的创建与释放、路由与外壳 UI、`window.__lc` |
+| 远程 | 15 个画布能力插件包 + `preset-canvas`、`CanvasStage` 渲染、画布能力插件的 `loader` 登记与 `canvas-snap` 授权签发                                                                                                                                                                               |
 
-`service-canvas-core` 仍在宿主侧：`CanvasRealm` 由宿主的 workspace 服务创建（`packages/services/service-workspace/src/index.ts:108-110` 里 `createCanvasRealm()` 同步 `plugin(canvasCorePlugin)`）。远程装载的是**画布能力**，不是画布内核。
+`service-canvas-core` 仍在宿主侧：`CanvasRealm` 由宿主的 workspace 服务创建（`packages/services/service-workspace/src/index.ts:129-131` 里 `createCanvasRealm()` 同步 `plugin(canvasCorePlugin)`）。远程装载的是**画布能力**，不是画布内核。版本控制也归宿主：`@lc/service-version` 由 `apps/host/src/projects/version-host.ts` 装配、`plugin-panel-version` 在宿主登记，见 [13](./13-version-control.md)。
 
 ## 2. 跨边界的唯一契约
 
@@ -38,7 +38,7 @@ canvasContext: CanvasContext // 宿主创建的 CanvasRealm 上下文
 
 这是本次拆分里唯一不显然的部分。`loader.register({ manifest, load })` 只登记元数据与**一个加载函数**（`packages/services/service-loader/src/index.ts:256-290`），而 `load` 是闭包：
 
-- 远程把 15 个包的 `{ manifest, load: () => import('@lc/canvas-plugin-*') }` 表留在自己包里（`apps/designer/src/canvas-plugins.ts:24-46`）；
+- 远程把 15 个包的 `{ manifest, load: () => import('@lc/canvas-plugin-*') }` 表留在自己包里（`apps/designer/src/canvas-plugins.ts:24-40` 的 `CANVAS_PACKAGES`）；
 - 这些 `import()` 在远程自己的模块图里解析，chunk 由远程源提供；
 - 宿主的 `contribution` / `modules` 服务拿到的就是这个函数，`preset-canvas` 按 `canvasFeatures` 贡献逐个 `modules.load()`（`packages/presets/preset-canvas/src/index.ts:22-31`）。
 
@@ -46,7 +46,7 @@ canvasContext: CanvasContext // 宿主创建的 CanvasRealm 上下文
 
 三点必须同时成立，跨副本才不出事：
 
-1. **`LC_CONTEXT` 用 `Symbol.for`**（`packages/vue/src/context.ts:12`）。宿主与远程各打包一份 `@lc/vue`，`Symbol('lc-context')` 会产生两个不相等的键；远程侧的画布覆盖层组件全部依赖 `useAppContext()`（如 `packages/canvas-plugins/canvas-grid/src/overlay.ts:23`），键不同就注入不到上下文。这是本次唯一的平台代码改动。
+1. **`LC_CONTEXT` 用 `Symbol.for(LC_CONTEXT_KEY)`**（`packages/vue/src/context.ts:17` 的 `LC_CONTEXT_KEY = '@lc/context/v1'`、`:25-27` 的 `LC_CONTEXT`）。宿主与远程各打包一份 `@lc/vue`，`Symbol()` 会产生两个不相等的键；远程侧的画布覆盖层组件全部依赖 `useAppContext()`（如 `packages/canvas-plugins/canvas-grid/src/overlay.ts:23`），键不同就注入不到上下文。这是本次唯一的平台代码改动。
 2. **服务访问器装在宿主的 `Context.prototype` 上**（`packages/kernel/src/context.ts:617-630`）。所有 Context 实例都由宿主的 kernel 副本创建（根上下文、EditorRealm、CanvasRealm 都是），远程读取 `ctx.canvas` / `ctx.loader` 走的是宿主原型上的 getter，因此远程不必再调 `installContextServices()`。
 3. **Vue 单例**。两侧 `shared.vue` 都配 `singleton: true` + `eager: true`（`apps/designer/vite.config.ts:22-25`、`apps/host/vite.config.ts:27-30`），加上原有 `resolve.dedupe: ['vue']`。远程组件产出的 vnode 必须由同一个 Vue 运行时渲染。
 
@@ -54,7 +54,7 @@ canvasContext: CanvasContext // 宿主创建的 CanvasRealm 上下文
 
 ## 4. 授权：远程自签画布插件
 
-保留服务必须授权才能 `provide`（`packages/kernel/src/context.ts:573-585` 回落到 root runtime 的常驻授权表）。宿主只授予它认识的内置服务（`apps/host/src/bootstrap.ts:28-40`），`canvas-snap` 需要 `snap` 提供权，由远程在登记前自己签发（`apps/designer/src/canvas-plugins.ts:49-51、69-71`）：
+保留服务必须授权才能 `provide`（`packages/kernel/src/context.ts:573-585` 回落到 root runtime 的常驻授权表）。宿主只授予它认识的内置服务（`apps/host/src/bootstrap.ts:44-63` 的 `GRANTS`，含 `host-http` / `host-version`），`canvas-snap` 需要 `snap` 提供权，由远程在登记前自己签发（`apps/designer/src/canvas-plugins.ts:49-51、69-71`）：
 
 ```ts
 context.runtime.grant('canvas-snap', ['snap'])
@@ -68,12 +68,12 @@ context.runtime.grant('canvas-snap', ['snap'])
 
 ```text
 宿主 main.ts
-└ bootstrapHost()                            apps/host/src/bootstrap.ts:70
-  ├ installContextServices()                 :72
-  ├ createApp({ id: 'host', grants })        :74
-  ├ plugin(presetDesigner) + whenIdle()      :76-77
-  ├ loader.register(4 个宿主侧包)             :79-80
-  └ 注册 app.commandPalette + Mod+K          :83-92
+└ bootstrapHost()                            apps/host/src/bootstrap.ts:207
+  ├ installContextServices()                 :209
+  ├ createApp({ id: 'host', grants })        :211
+  ├ plugin(presetDesigner) + 宿主 UI/http/version + whenIdle()  :213-219
+  ├ loader.register(12 个宿主侧包)            :233
+  └ 注册 app.commandPalette + Mod+K          :172-183、:234
 
 路由 /projects/:pid/design/:documentId → ProjectShellView → DesignerView
 ├ workspace.getEditor ?? createEditorRealm   :66-72
@@ -88,14 +88,14 @@ context.runtime.grant('canvas-snap', ['snap'])
 └ ready → <CanvasStage :context>              :40
 ```
 
-**就绪门为什么必要**：`Context.plugin()` 只做登记，服务要到 runtime 的微任务批里才 `apply`（`packages/kernel/src/context.ts:442-452` 的注释）。拆分前 `bootstrapDesigner()` 在 `createApp` 之后统一 `await whenIdle()` 才渲染；拆分后 Realm 由路由创建，若不同步等待，`StatusBar` 在 setup 里 `canvasContext.require('canvas')` 就会抛「未找到服务」——这次实现真的踩过一次，门加在 `DesignerView.vue:194-197`。
+**就绪门为什么必要**：`Context.plugin()` 只做登记，服务要到 runtime 的微任务批里才 `apply`（`packages/kernel/src/context.ts:442-452` 的注释）。拆分前 `bootstrapDesigner()` 在 `createApp` 之后统一 `await whenIdle()` 才渲染；拆分后 Realm 由路由创建，若不同步等待，`StatusBar` 在 setup 里 `canvasContext.require('canvas')` 就会抛「未找到服务」——这次实现真的踩过一次，门加在 `DesignerView.vue` 的 `onMounted` 就绪门（`await appCtx.runtime.whenIdle()`）。
 
 ## 6. 运行与部署
 
 | 场景     | 命令                                                                          | 端口与地址                                                                                                                                  |
 | -------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | 开发     | `pnpm dev`（= `pnpm --parallel --filter @lc/host --filter @lc/designer dev`） | 宿主 5173、远程 5174，均监听 `0.0.0.0`；宿主按 `http://<本机 IPv4>:5174/remoteEntry.js` 拉远程，局域网设备用 `http://<本机 IPv4>:5173` 访问 |
-| 只起一个 | `pnpm dev:host` / `pnpm dev:canvas`                                           | 单起宿主时画布区域显示「画布模块不可用」提示（`DesignerView.vue:25-35` 的 `errorComponent`），不是白屏                                      |
+| 只起一个 | `pnpm dev:host` / `pnpm dev:canvas`                                           | 单起宿主时画布区域显示「画布模块不可用」提示（`apps/host/src/canvasRemote.ts` 的 `errorComponent`），不是白屏                               |
 | 构建     | `VITE_DESIGNER_ENTRY=<远程线上地址> pnpm build`（先远程后宿主，串行）         | 远程产出 `apps/designer/dist/`（`remoteEntry.js` + `mf-manifest.json` + `mf-stats.json` + `assets/`），宿主产出 `apps/host/dist/`           |
 | 预览     | `pnpm preview`                                                                | 两个 `vite preview` 并行，端口同 dev，同样监听 `0.0.0.0`                                                                                    |
 
@@ -111,20 +111,22 @@ context.runtime.grant('canvas-snap', ['snap'])
 1. **远程地址是构建期常量，共烧进三处**：`apps/host/dist/index.html`、`dist/assets/mf-entry-bootstrap-*.js`、`dist/assets/_virtual_mf-localSharedImportMap-*.js`。换远程域名必须**重新构建宿主**，只改反向代理指向改不动已烧进产物的字符串。
 2. **生产构建必须显式给 `VITE_DESIGNER_ENTRY`**。宿主在 `vite build` 下缺该变量直接抛错：旧行为会把**构建机**的第一个非回环 IPv4（实测 `http://10.143.189.88:5174/remoteEntry.js`）烧进公开产物，既泄内网地址又让产物随网卡不可复现。给定 URL 时三处同步替换（实测 `https://cdn.example.com/designer/remoteEntry.js`，无 IP 残留）。
 3. **远程目录可以整体搬到任意路径**：`mf-manifest.json` 的 `publicPath` 是 `auto`，15 个画布插件的懒加载 chunk 按 `remoteEntry.js` 自身地址解析，把 `apps/designer/dist/` 挂到 `https://<域名>/<任意路径>/` 下不需要重新构建远程。
-4. **远程静态托管必须回跨源头**：`remoteEntry.js` 与它带出的每个 chunk 都要带 `Access-Control-Allow-Origin`。`vite preview` 实测回 `Access-Control-Allow-Origin: *`；换成 nginx / CDN 要自己补，缺头的表现是画布区域显示「画布模块不可用」，不是白屏（`DesignerView.vue:25-35` 的 `errorComponent`），且不会自动重试。
+4. **远程静态托管必须回跨源头**：`remoteEntry.js` 与它带出的每个 chunk 都要带 `Access-Control-Allow-Origin`。`vite preview` 实测回 `Access-Control-Allow-Origin: *`；换成 nginx / CDN 要自己补，缺头的表现是画布区域显示「画布模块不可用」，不是白屏（`apps/host/src/canvasRemote.ts` 的 `errorComponent`），且不会自动重试。
 5. **Vue 只能有一份**：`shared.vue` 是 `singleton + eager`，宿主侧的 `loadShare-eager` chunk（128.40 kB）已经带上 Vue，部署时不要再让远程壳层额外加载一份，否则远程组件的 vnode 挂载即失效。
 
 ## 7. 验证记录
 
+下表是 Module Federation 拆分当时的实测记录；浏览器类与构建类条目保留当时观察值，**未在 2026-11-10 复核中重跑**。`pnpm test` 行已按当前基线更新；`pnpm build` 本轮未执行；CI 当时（`.github/workflows/ci.yml:21-24`）不含 build 步骤，现已在 `format:check` 之后补 `Build (MF host + remote)`（`:31-34`，`env.VITE_DESIGNER_ENTRY` 为占位地址）。
+
 | 检查                   | 结果                                                                                                                                                                                                                                                                                                                                                                   |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pnpm typecheck`       | 无错误（全仓 vue-tsc）                                                                                                                                                                                                                                                                                                                                                 |
-| `pnpm test`            | 35 个测试文件 / 303 条用例全部通过，与拆分前同一套件，未新增用例                                                                                                                                                                                                                                                                                                       |
+| `pnpm test`            | 110 个测试文件 / 1136 条用例，默认并行 `pnpm test` 实跑 EXIT=0；`release-store.spec.ts` 的 5s 超时抖动已由本轮把该 suite `timeout` 放宽到 `20_000` 治理（用例体与断言未改），`--no-file-parallelism` 仅作对照、不再是回归基线（见 README 基线；本次按路径静态清点 spec 文件数）。该行已按当前基线更新，不再是拆分当时的 35 / 303                                       |
 | `pnpm build`           | 远程与宿主均通过；远程 `dist/remoteEntry.js` 21.69 kB，宿主含 `loadShare-eager` 128.40 kB（Vue 作为 eager 共享）                                                                                                                                                                                                                                                       |
 | `npx prettier --check` | 通过                                                                                                                                                                                                                                                                                                                                                                   |
 | dev 双进程             | `remoteEntry.js` 与 `mf-manifest.json` 均 200，响应头 `Access-Control-Allow-Origin: *`                                                                                                                                                                                                                                                                                 |
 | dev 浏览器（结构）     | `/design/demo-doc` 渲染完整：远程贡献的工具栏按钮（缩小/放大/100%/适应画布 + 8 个对齐 + 6 个层级 + 隐藏/锁定）、大纲与物料面板、舞台节点、小地图覆盖层、状态栏「缩放 100% / 未选中 / 已同步」；console 无错误，`__lc.context.diagnostics.list()` 为空                                                                                                                  |
-| dev 浏览器（多文档）   | SPA 内切换 demo-doc → blank-doc → demo-doc：两次舞台均挂载，`listEditors()` 返回两条，`loader.scan()` 恒为 19 个包（4 宿主 + 15 画布），无重复登记异常                                                                                                                                                                                                                 |
+| dev 浏览器（多文档）   | SPA 内切换 demo-doc → blank-doc → demo-doc：两次舞台均挂载，`listEditors()` 返回两条，无重复登记异常。**数量已按当前源码更正**：`loader.scan()` 应为 27 个包（宿主 `BUILTIN_PACKAGES` 12 + 远程 `CANVAS_PACKAGES` 15）；原记的「19 个包（4 宿主 + 15 画布）」是拆分当时的观察值，本次未重跑浏览器验证                                                                  |
 | 生产 preview           | 构建产物在同一浏览器路径下结构一致，console 零消息                                                                                                                                                                                                                                                                                                                     |
 | dev 局域网（IP 访问）  | 两个 server 绑 `0.0.0.0`；`http://10.143.189.88:5173/design/demo-doc` 实测 74 个 `:5174` 资源全 200、`.lc-stage` 已挂载、83 个按钮、状态栏「缩放 51% / 未选中 / 已同步」、无「画布模块不可用」，console 无 error/warn；换 `http://192.168.0.88:5173` 同样通过（72 个远程资源，无失败）                                                                                 |
 | preview 局域网         | `pnpm preview` 亦绑 `0.0.0.0`，`remoteEntry.js` 响应头 `Access-Control-Allow-Origin: *`；经 IP 访问构建产物 37 个远程资源全 200，舞台与状态栏表现同 dev，console 零消息                                                                                                                                                                                                |
@@ -135,9 +137,9 @@ context.runtime.grant('canvas-snap', ['snap'])
 ## 8. 已知边界
 
 1. **远程不可达时只有提示，没有重试**：`errorComponent` 只给文案，不会自动重连，也没有降级到静态占位画布。
-2. **文档 Realm 只增不减**：`EditorRealm` 由路由创建、只在应用销毁时级联回收；页面列表会显示「已打开」，但没有关闭文档的入口。`CanvasRealm` 则随视图释放（`DesignerView.vue:75` 创建、`:123-129` 卸载时回收）。
+2. **文档 Realm 只增不减**：`EditorRealm` 由路由创建、只在应用销毁时级联回收；页面列表会显示「已打开」，但没有关闭文档的入口。`CanvasRealm` 则随视图释放（`views/composables/use-designer-realm.ts` 的 `createCanvasRealm` 创建、`DesignerView.vue` 的 `onUnmounted` 回收）。
 3. **画布内核仍在宿主**：`@lc/canvas` 与 `service-canvas-core` 通过 `service-workspace` 的依赖进入宿主 bundle。要做到「宿主完全不含画布代码」，得把 Realm 工厂也搬进远程，那会让 `workspace` 服务分裂成两侧——当前不划算。
-4. **`@lc/*` 平台包在两个 bundle 里各有一份**：`@lc/vue`、`@lc/contracts` 都双副本，只靠 `Symbol.for` + 字符串服务名 + 宿主原型访问器三点保证一致。若将来要共享整个内核层，需要给每个包配 MF `shared` 与真实版本号，属于另一件事。
+4. **`@lc/*` 平台包在两个 bundle 里各有一份**：`@lc/vue`、`@lc/contracts` 都双副本，只靠版本化 `Symbol.for` 注入键（键名带命名空间 + 版本、注入点有 `hasContextShape` 形状校验）、字符串服务名与宿主原型访问器保证一致。若将来要共享整个内核层，需要给每个包配 MF `shared` 与真实版本号，属于另一件事。
 5. **主题令牌由宿主提供**：`--lc-*` 定义在 `apps/host/src/styles/tokens.css`，远程的画布样式只消费变量。远程被别的宿主复用时，那个宿主必须自带同一套令牌。
 6. **`window.__lc` 只剩 `{ context, canvas? }`**：`editor` 字段没了（Realm 随路由创建），改从 `__lc.context.workspace.listEditors()` / `getEditor(id)` 取；`__lc.canvas` 由设计器视图写入当前活动画布，未进设计器时为 `undefined`，不参与任何运行时逻辑。
 

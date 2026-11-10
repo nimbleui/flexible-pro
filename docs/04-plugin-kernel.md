@@ -2,7 +2,7 @@
 
 内核不认识任何业务服务名、事件名和框架类型（理由见 [03 设计原理 §8](./03-design-principles.md#8-内核零依赖契约层集中扩展)）。它只实现四件事：**分层的服务作用域、依赖驱动的插件状态机、自动回收的副作用桶、类型化事件总线**。10 个源文件 + 5 个 spec，`packages/kernel/package.json` 无 dependencies。
 
-> 本文按工作区当前源码撰写，包含尚未提交的观测面（`retry`、`monitor`、装配耗时）。文中行号会随改动漂移，长期定位请用「文件 + 符号名」。
+> 本文按 `main` @ `60a7f5e`（2026-11-10）撰写；观测面（`retry`、`monitor`、装配耗时）已提交入库，**源码基线工作区干净**（指 `60a7f5e` 已提交的源码；本次文档与 P1 修订本身不纳入该判断）。文中行号会随改动漂移，长期定位请用「文件 + 符号名」。
 
 ## 1. 内核解决的四个问题
 
@@ -21,7 +21,7 @@
 | ----------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/index.ts`    | 41   | 唯一公共出口（barrel）；**不导出 `InternalBus`**                                                                                                                                  |
 | `src/types.ts`    | 145  | `Disposable`(`:9`)、`PluginState`(`:24`)、`Inject`、`ConfigSchema`、`PluginDefinition`(`:56`)、`PluginRecord`(`:74`)、`Events`（空接口）、`definePlugin`、`normalizeInject`       |
-| `src/context.ts`  | 630  | `Context`(`:212`)、`ServiceScope`/`ServiceEntry`、`ServiceGrant`、`RESERVED_SERVICES`(`:67`)、`ServiceObserver`(`:101`)、`Diagnostics`(`:146`)、`installServiceAccessors`(`:617`) |
+| `src/context.ts`  | 630  | `Context`(`:212`)、`ServiceScope`/`ServiceEntry`、`ServiceGrant`、`RESERVED_SERVICES`(`:73`)、`ServiceObserver`(`:101`)、`Diagnostics`(`:146`)、`installServiceAccessors`(`:617`) |
 | `src/runtime.ts`  | 458  | `PluginRuntime`(`:30`)：加载、调度、激活、停用、卸载、授权、晚绑定、重试                                                                                                          |
 | `src/app.ts`      | 59   | `createApp`(`:26`)：根 record + 根 Context + Runtime + 预置 grants                                                                                                                |
 | `src/events.ts`   | 268  | `EventBus`(`:80`)：5 种分发模式、监听排序、分发监视器                                                                                                                             |
@@ -174,10 +174,10 @@ load ──→ loading ──→ [schedule] ──→ applying ──→ active 
 
 **Disposable 的精细语义**：`provide` 的回收函数先比较 `this.scope.services.get(name) !== entry`（`:357`）——只删自己注册的那条，因此 `replace` 场景里被覆盖者的 dispose 不会误删后来者。
 
-**`RESERVED_SERVICES` 当前 24 项**（`context.ts:67-92`）：`material setter renderer dataSource command action document history selection designer canvas snap http storage audit policy quota secrets flags telemetry loader contribution modules workspace`。与契约层 15 个服务名的两处差异都是有意的：
+**`RESERVED_SERVICES` 当前 18 项**（`packages/kernel/src/context.ts:56-92` 的 `RESERVED_SERVICES`）：`material setter renderer dataSource pageState command action document history selection canvas snap http loader contribution modules workspace version`。名单**只收录已有真实提供者的服务名**：曾把 `designer`、`storage`、`audit`、`policy`、`quota`、`secrets`、`flags`、`telemetry` 等尚未实现的名字先占住，但它们既没有 `provide` 也没有 `get` / 消费者，且不在契约层 `SERVICE_NAMES` 中，只会让 `plugin.invoke` 的保留名拦截与 devtools 快照凭空多出一批永不命中的名字，P1 已清除；未来加入平台能力时，随真实提供者一并登记即可。与契约层 `SERVICE_NAMES`（当前 23 个名字）不完全重合是有意的：
 
-- `http`、`storage`、`telemetry` 等**尚未实现**的名字先占住，避免将来加平台能力时撞上「第三方插件早已提供同名服务」的破坏性变更；
-- `expression`、`keybinding` **不在名单内**，允许插件替换实现。它们由 `service-expression`/`service-keybinding` 无 grant 直接 provide，与契约层把两者声明为应用级必选并不矛盾（类型面必选，运行时不保留）。
+- `expression`、`keybinding` **不在名单内**，允许插件替换实现；`toast`、`navigation` 是宿主 UI 能力的适配位，插件提供更好看的提示实现或接管跳转是正当用法。它们由 `service-expression`/`service-keybinding` 无 grant 直接 provide，与契约层把两者声明为应用级必选并不矛盾（类型面必选，运行时不保留）。
+- `http` 与 `version` 则**已落地**——分别由宿主 `apps/host/src/bootstrap.ts` 的 `host-http` / `host-version` 提供，且同样要按规矩授权（见 [13](./13-version-control.md)）。
 
 名单的意义不是防住同 realm 的恶意代码（它做不到），而是把「无意间覆盖 `canvas`/`history`」变成启动即抛错，详见 [03 §9](./03-design-principles.md#9-保留服务--servicegrant防误用不防攻击)。
 

@@ -6,11 +6,11 @@
 
 `packages/vue/src/index.ts:10-24`：
 
-| 类别     | 导出                                                                             |
-| -------- | -------------------------------------------------------------------------------- |
-| Context  | `LC_CONTEXT`、`provideContext`、`useAppContext`、`useService`、`useRegistryList` |
-| 组件     | `LcSlot`、`ContextScope`、`PluginBoundary`、`CanvasStage`、`LayerHost`           |
-| 服务插件 | `rendererPlugin`（插件名 `service-renderer`）                                    |
+| 类别     | 导出                                                                                               |
+| -------- | -------------------------------------------------------------------------------------------------- |
+| Context  | `LC_CONTEXT`、`LC_CONTEXT_KEY`、`provideContext`、`useAppContext`、`useService`、`useRegistryList` |
+| 组件     | `LcSlot`、`ContextScope`、`PluginBoundary`、`CanvasStage`、`LayerHost`                             |
+| 服务插件 | `rendererPlugin`（插件名 `service-renderer`）                                                      |
 
 `package.json:19-21` 用 `peerDependencies` 声明 `vue ^3.5`，配合两个应用的 `resolve.dedupe: ['vue']`（`apps/host/vite.config.ts:34-37`、`apps/designer/vite.config.ts:31-33`）与 MF `shared.vue: { singleton: true, eager: true }` 保证 Vue 单例——多实例会直接击穿 `provide/inject`，并让远程组件的 vnode 在宿主应用里渲染失败。
 
@@ -18,19 +18,21 @@
 
 ### `LC_CONTEXT` 与两级注入
 
-`packages/vue/src/context.ts:12`：`const LC_CONTEXT: InjectionKey<Context> = Symbol.for('lc-context')`。必须是 `Symbol.for`：宿主与远程各打包一份 `@lc/vue`，`Symbol()` 产生的两个键互不相等，远程侧的画布覆盖层组件就注入不到上下文（详见 [12](./12-module-federation.md#3-画布能力如何跨边界进宿主内核)）。
+`packages/vue/src/context.ts:17` 导出常量 `LC_CONTEXT_KEY = '@lc/context/v1'`，`:25-27` 由 `Symbol.for(LC_CONTEXT_KEY)` 生成 `LC_CONTEXT: InjectionKey<Context>`。必须是 `Symbol.for`：宿主与远程各打包一份 `@lc/vue`，`Symbol()` 产生的两个键互不相等，远程侧的画布覆盖层组件就注入不到上下文（详见 [12](./12-module-federation.md#3-画布能力如何跨边界进宿主内核)）。键名带命名空间与 `v1` 结构版本：同页第二个宿主 / 远程或第三方脚本不会占用同名键，结构不兼容时递增版本让新旧副本取到不同键，而不是静默拿到残缺的 Context。
 
-- `provideContext(app, context)`（`:14-16`）**只在应用根调用一次**，注入的是 AppContext。
+`useAppContext()`（`:61-70`）另有一层轻量形状校验：`hasContextShape`（`:46-56`）只查 `get` / `provide` / `require` 三个方法，未注入或注入值形状不兼容时直接抛错并给出键名。目的是让宿主 v1 与远程 v2 结构不兼容、或第三方脚本往同名键里塞了无关对象时，错误在注入点就明确报出，而不是到 `ctx.get` 处变成无法定位的 `undefined` / `TypeError`。
+
+- `provideContext(app, context)`（`:34-36`）**只在应用根调用一次**，注入的是 AppContext。
 - `ContextScope.vue:6-16` 用**组件级 `provide`** 再注入一层。注释点明关键理由：「同一应用里可以按子树注入不同的 Realm，嵌套时子组件取到的是最近一层（画布作用域会再注入一次）」。
 
-所以 `views/DesignerView.vue:434` 的 `<ContextScope :context="editor.context">` 之下的面板调用 `useAppContext()`（`:19-25`，**未注入即抛错，不静默返回 undefined**）拿到的是 **EditorRealm 上下文**，于是 `ctx.get('document')` 才成立。这是多 Realm 支持的落地方式，而不是靠约定「只有一个编辑器」。
+所以 `views/DesignerView.vue` 模板中的 `<ContextScope :context="editor.context">` 之下的面板调用 `useAppContext()`（`:61-70`，**未注入即抛错，不静默返回 undefined**）拿到的是 **EditorRealm 上下文**，于是 `ctx.get('document')` 才成立。这是多 Realm 支持的落地方式，而不是靠约定「只有一个编辑器」。
 
 ### `useService` / `useRegistryList`
 
-- `useService(name)`（`:33-48`）返回 `Ref<Service | undefined>`：因为服务可能晚于组件出现（Realm 装载、晚绑定），所以用 `shallowRef` + `context.services.onDidChange` 只在 `changed === name` 时刷新（注释 `:39-40` 说明逐名订阅是为了避免累加无效监听），`onUnmounted` 自动解绑。
-- `useRegistryList(getRegistry)`（`:56-87`）用 `watchEffect` 重新订阅（服务实例被替换时先释放旧订阅再挂新的，`:62-64`），返回的 `computed` 同时读 `version.value` 与 `registry.version`（`:83-84`）建立双重依赖。
+- `useService(name)`（`:78-93`）返回 `Ref<Service | undefined>`：因为服务可能晚于组件出现（Realm 装载、晚绑定），所以用 `shallowRef` + `context.services.onDidChange` 只在 `changed === name` 时刷新（注释 `:84-85` 说明逐名订阅是为了避免累加无效监听），`onUnmounted` 自动解绑。
+- `useRegistryList(getRegistry)`（`:101-132`）用 `watchEffect` 重新订阅（服务实例被替换时先释放旧订阅再挂新的，`:107-108`），返回的 `computed` 同时读 `version.value` 与 `registry.version`（`:124-130`）建立双重依赖。
 
-**as-built 事实**：这两个 composable 目前**只有 `index.ts:12-15` 的再导出，仓库内没有任何消费者**。所有现存组件都走更朴素的版本计数桥（见下）。它们属于「已交付但未采用」的 API，见 [10 已知边界](./10-development-guide.md#9-已知边界与技术债)。
+**as-built 事实**：`useService` 目前**只有 `index.ts:10-17` 的再导出，仓库内没有任何消费者**，属于「已交付但未采用」的 API；`useRegistryList` **有 2 处消费者**（`apps/host/src/views/ComponentListView.vue:23`、`ComponentBlueprintView.vue:125`），删掉它会让宿主编译失败。其余现存组件走更朴素的版本计数桥（见下），见 [10 已知边界](./10-development-guide.md#9-已知边界与技术债)。
 
 ## 3. 三种响应式桥接范式（全仓实测）
 
@@ -63,7 +65,7 @@ watch(() => { version.value; return ctx.contribution.listSlot(props.name) }, ...
 1. 列表**先用缓存渲染**：`entries.value = items.map(... component: components.get(key))`，未命中的先出骨架。
 2. 对每项 `ensurePanel(plugin, panelId, module)`：
    - `key = ${plugin}/${panelId}`，`components.has(key) || loading.has(key)` 即跳过（`:90-92`）；`loading` 集合只做并发去重、不参与渲染（`:33-34`）。
-   - `ctx.loader.ensureActivated('onPanel:' + panelId)`（`:95`）——**先保证插件行为已激活**；纯声明式插件没有 `main`，直接返回。
+   - `await ctx.loader.ensureActivated` 在加载面板模块前先等插件行为激活完成（`:117`）——**先保证插件行为已激活**现在才真正成立：第一波把 `void ensureActivated` 改成 `await` 并移入既有 `try`，激活异常时 `finally` 也能回收 `loading`；纯声明式插件没有 `main`，直接返回。
    - `ctx.modules.load(moduleKey(plugin, module))`（`:98`）→ `markRaw(module.default)`（`:105`）。
    - **只重建 `entries` 里对应那一项**（`:106-108`），其余项保持原对象引用，keyed `v-for` 因此只重渲染到达的面板而不是整个插槽（注释 `:82-88` 明确「key 的拼接方式必须与 watch 内一致，否则面板会一直停在骨架」）。
    - 失败：写 `failures` + `ctx.diagnostics.report(error, { scope:'slot', plugin, panel, module })`（`:109-111`）。
@@ -234,7 +236,7 @@ ContextScope(editor.context)                            :376
 
 宿主侧不再直接引用 `CanvasStage`：舞台由远程模块 `apps/designer/src/CanvasModule.vue:40` 渲染，`CanvasStage` / `LayerHost` 仍是 `@lc/vue` 的导出，只是消费者换成了远程包。
 
-设计器外壳（`DesignerView.vue`）有活动栏：56px 的 `.lc-rail`（`apps/host/src/styles/app.css:769`）排 7 个入口，其中「组件库 / 页面大纲 / 事件链」开关各自的界面、「数据源 / 方法管理」执行宿主命令、「版本管理 / 设置」是禁用占位。左栏 248px（`:856`）与右栏 300px（`:863`）都是常驻 `aside`，左栏不再画标题，标题、页签与搜索由面板自己提供；页面大纲改走覆盖在画布上的浮层（`components/OverlayPanel.vue`）。插槽为空时用 `#empty` 具名插槽显示「暂无面板贡献」。
+设计器外壳（`DesignerView.vue`）有活动栏：56px 的 `.lc-rail`（`apps/host/src/styles/app.css:769`）排 7 个入口，其中「组件库 / 页面大纲 / 底部面板」开关各自的界面、「数据源 / 方法管理 / 版本管理」执行宿主命令（版本管理是 `version.openHistory`）、只有「设置」仍是禁用占位。`railItems`（`views/composables/use-designer-rail.ts` 的 `railItems`）里 `versions` 已带 `action: { kind: 'command', commandId: 'version.openHistory' }`（同文件 `versions` 项），**不再是禁用占位**；它由 [13](./13-version-control.md) 的 P4 落地，状态栏分支指示与版本面板同批接入。左栏 248px（`:856`）与右栏 300px（`:863`）都是常驻 `aside`，左栏不再画标题，标题、页签与搜索由面板自己提供；页面大纲改走覆盖在画布上的浮层（`components/OverlayPanel.vue`）。插槽为空时用 `#empty` 具名插槽显示「暂无面板贡献」。
 
 右栏的「页面配置 / 样式 / 事件 / 高级」四页是外壳固定的产品边界（`rightTabs`，不做动态注册），但每页内容都来自各自的插槽，外壳不内置任何一段表单；页签条支持方向键与 Home / End 循环导航（`onRightTabKeydown`）。样式 / 事件 / 高级三个槽的贡献者见 08 号文档 §3.5–3.7。
 
@@ -246,7 +248,7 @@ ContextScope(editor.context)                            :376
 | `StatusBar.vue`      | `canvas.viewport.state.zoom`、`selection.ids.length`、`document.model.dirty`（`:20-21`、`:56-69`）、`history.canUndo/canRedo`（`:71-78`） | setup 阶段同步订阅（`:26-35`，原因见上）；显示 `已同步/未保存`、`选中 N/未选中`、缩放百分比；**底部两个撤销/重做按钮用 `:disabled="!canUndo"` 表达可用性**（`:91-100`）——这是宿主里唯一直接操作历史的 UI 入口                |
 | `CommandPalette.vue` | `ctx.command.list()` + `ctx.keybinding.keyFor(id)`（`:61-79`）                                                                            | 订阅 `palette:toggle` 做开/合（`:27`）；查询词小写匹配 `title` 或 `id`（`:66-72`）；`watch(items)` 变化时把 `activeIndex` 归 0（`:81-83`）；打开时 `nextTick` 聚焦输入框（`:21-23`）；执行前关闭面板（`:85-88`）             |
 
-命令面板是**应用级**能力，所以它的命令注册在 `apps/host/src/bootstrap.ts:83-92` 而不是某个插件里；`Mod+K` 快捷键同样应用级。面板组件本身渲染在设计器视图的编辑器作用域内（`views/DesignerView.vue:129`），因为要用文档级服务。
+命令面板是**应用级**能力，所以它的命令注册在 `apps/host/src/bootstrap.ts:83-92` 而不是某个插件里；`Mod+K` 快捷键同样应用级。面板组件本身渲染在设计器视图的编辑器作用域内（`views/DesignerView.vue` 模板中的 `<CommandPalette />`），因为要用文档级服务。
 
 ### 演示文档
 
@@ -285,7 +287,7 @@ ContextScope(editor.context)                            :376
 
 **请求环境（域名、默认头、默认参数、凭据策略）存在接口侧而不是 `ProjectDefinition` 上**：给项目加一个只有取数读得懂的字段，会让「项目」变成杂物抽屉。一个项目可以并存「本地 / 测试 / 生产」多套，同一时刻只有一套生效；切环境只改这一处，所有相对路径与没写同名头的请求都跟着变——这正是「域名配在页面里」变成 N 处副本的反面。
 
-**两条边界是刻意的**：其一，环境值合并发生在**发请求前一刻**（`@lc/schema` 的 `mergeRequestDefaults`，被运行时取数与调试台共用），不进文档 schema，所以切环境不产生一次可撤销的编辑，token 也不会跟着文档导出、复制或进页面记录；其二，同名值**局部优先**——全局是兜底而不是覆盖，需要强制统一注入时就不该在接口里写这一项。配置面板里 `Authorization` 一类敏感头的值按密码框渲染（可勾「显示敏感值」），但存储仍是浏览器明文：这是没有后端的必然结果，`secrets` 服务名内核已预留，接上服务端之后由它接管。切换「编辑目标」与「设为当前」是两个动作，只有后者会调 `pushRequestDefaults` 把新值推给**本项目**已打开的 Realm 并触发重新取数——`listEditors()` 里可能挂着别的项目的 Realm，把 A 的 token 推给 B 是那种一发现就说明作用域错了的 bug。
+**两条边界是刻意的**：其一，环境值合并发生在**发请求前一刻**（`@lc/schema` 的 `mergeRequestDefaults`，被运行时取数与调试台共用），不进文档 schema，所以切环境不产生一次可撤销的编辑，token 也不会跟着文档导出、复制或进页面记录；其二，同名值**局部优先**——全局是兜底而不是覆盖，需要强制统一注入时就不该在接口里写这一项。配置面板里 `Authorization` 一类敏感头的值按密码框渲染（可勾「显示敏感值」），但存储仍是浏览器明文：这是没有后端的必然结果；内核保留名单里没有 `secrets` 服务（P1 已清除无提供者的保留名），凭据托管要等服务端能力落地时随真实提供者一并登记。切换「编辑目标」与「设为当前」是两个动作，只有后者会调 `pushRequestDefaults` 把新值推给**本项目**已打开的 Realm 并触发重新取数——`listEditors()` 里可能挂着别的项目的 Realm，把 A 的 token 推给 B 是那种一发现就说明作用域错了的 bug。
 
 **调试台用的是表单上当前的草稿而不是已保存的定义**，`apis/api-request.ts` 为此把入参收成 `ApiRequestFields`（`ProjectApi` 的请求侧子集，定义在 `@lc/schema`），不必为一次调试伪造 id 与时间戳；配置映射与默认值合并完全复用 `apiToRestConfig` + `mergeRequestDefaults`，所以「调试通、放进页面就挂」不会是两套规则造成的。剩下的差别只有两处刻意的：本模块自带一份 fetch 调用而不是 import `@lc/service-datasource` 的 `fetchRest`（宿主没声明那个依赖，语义漂移以运行时为准），以及结果不抛异常——状态码、响应头、耗时与失败原因要一起显示。响应可以一键写回 `sample` 与 `resultType`（`typeNodeFromSample`），这是接口管理相对「在页面里手抄一份数据源」的实际增量。
 

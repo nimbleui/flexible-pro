@@ -57,7 +57,7 @@ type ContributionPoint = keyof ContributionValueMap
 | `panels`         | 4      | `panel-outline`（浮层槽）、`panel-materials`（左槽）、`panel-properties`（右槽）、`panel-eventflow`（底槽） |
 | `toolbar`        | 20     | `canvas-align` 8、`canvas-commands` 8、`canvas-zoom` 4                                                      |
 | `canvasFeatures` | 15     | 15 个画布能力包各 1                                                                                         |
-| `canvasProfiles` | **0**  | 无贡献者，且 `preset-canvas` 也不读它——契约留位，代码未接                                                   |
+| `canvasProfiles` | **0**  | 无贡献者，且 `preset-canvas` 也不读它——实验性扩展点，宿主未校验 / 未求值（`manifest.ts:35` 注释）           |
 
 排序规则在实现里（`service-loader/src/index.ts:44-52`）：`order ↑ → priority ↓ → 插件名`，三者全同时依赖 `Array.sort` 稳定性落到登记先后。
 
@@ -98,7 +98,7 @@ type SlotName = (typeof SLOT)[keyof typeof SLOT]
 
 停靠区给面板一条确定高度：`.lc-dock__body` 用 `grid-template-rows: minmax(0, 1fr)` 而不是 `flex: 1`，前者只约束行轨、不必挑选手插槽内部的类名。这条约束是后加的——此前 body 是 `overflow: auto` 的普通块，面板的 `height: 100%` 解成 `auto`，29 条绑定就能把 260px 的停靠区撑成一块长页面，面板自己的内部滚动也就无从谈起。
 
-`designer.overlayPanel` 是第三个面：覆盖在画布之上的浮层，由外壳左侧活动栏的入口开关、带一个 × 关闭按钮，当前唯一贡献者是 `panel-outline`。大纲不放左槽是因为它和物料面板都要占满整栏高度、叠在一起谁都看不全；不放右槽是因为属性面板得常驻，选完节点不能每次都要重新唤它。浮层只盖画布那一段（定位参照 `.lc-designer__stage`），底部事件流仍然露在外面——「选节点 + 配事件」的组合不因打开大纲而失效。左槽的标题也一并交给面板自己画，与底槽同一约定（`DesignerView.vue:493` 注释）。
+`designer.overlayPanel` 是第三个面：覆盖在画布之上的浮层，由外壳左侧活动栏的入口开关、带一个 × 关闭按钮，当前唯一贡献者是 `panel-outline`。大纲不放左槽是因为它和物料面板都要占满整栏高度、叠在一起谁都看不全；不放右槽是因为属性面板得常驻，选完节点不能每次都要重新唤它。浮层只盖画布那一段（定位参照 `.lc-designer__stage`），底部事件流仍然露在外面——「选节点 + 配事件」的组合不因打开大纲而失效。左槽的标题也一并交给面板自己画，与底槽同一约定（`DesignerView.vue` 左栏「标题与搜索由面板自己提供」注释，按结构定位）。
 
 `designer.statusBar` 当前只有常量没有消费者——`StatusBar.vue` 是宿主直接渲染的组件，不走贡献。文件头注释规定了扩展流程：先加契约常量 → 再加宿主插槽 → 才允许插件声明。
 
@@ -119,6 +119,8 @@ type SlotName = (typeof SLOT)[keyof typeof SLOT]
 `packages/contracts/src/services/*`。
 
 ### 版本服务（`version.ts`，方案 13 的 P1 / P3 / P4 落地）
+
+> 这一节是**已落地事实**（可在 `packages/contracts/src/services/version.ts` 与 `@lc/service-version` 逐条核对）。方案文档 [13](./13-version-control.md) 的状态已从「提案，未实现」改为「已落地 P1–P3 + 剩余提案」；仍属 `[提案]` 的是 §18 治理接缝与 P5 服务端 / 环境绑定。宿主装配见 [09](./09-vue-host.md)，插件贡献见 [08](./08-plugins.md)。
 
 `packages/contracts/src/services/version.ts` 定义内容寻址版本库的数据模型（`SectionObject` / `DocumentObject` / `Commit` / `Ref` / `BranchMeta` / `EntityChange` / `DiffResult` 等）、P1 能力集 `VersionServiceCore`（提交、历史、diff、分支、检出、单文档恢复、脏状态刷新）、P3 能力集 `VersionServiceMerge`（`mergePreview` / `merge`）与 `VersionStore`（对象 / 提交 / ref / 分支元数据的读写）。`VersionService = VersionServiceCore & VersionServiceMerge` 是 `createVersionService()` 当前返回类型；按阶段组合而不是提前写满接口，避免 `Not implemented` 伪实现。P3 另导出 `MergePlan` / `MergeConflict` / `MergeResolution` / `MergeResult` / `DanglingRef` / `MergeValidate` 等类型，其中 `MergeValidate` 是注入既有 `validateDocument` / `validateFlow` 的钩子：内核不另写一套 schema 规则，未注入时 `MergePlan.validation` 为 `skipped`，不谎报校验通过。`VersionStore.putObject` 与 `putCommit` 都是内容寻址写入，契约要求**同地址不同内容一律 fail-closed**：`createdAt` 不参与提交寻址，同父同树同消息同作者的两次提交会撞同一 id，静默覆盖等于改写既有历史。两个适配器共用 `commitConflictMessage()` 出同一条诊断，避免同一份数据在单测里失败、在浏览器里悄悄坏掉。实现在 `@lc/service-version`，纯 Core 无 Vue / DOM；`IdbVersionStore` 是唯一使用浏览器 API 的适配器。服务名 `'version'` 已加入 `RESERVED_SERVICES` 占位，防止第三方插件抢注。
 
@@ -161,7 +163,7 @@ P4 在同一文件补了宿主面板桥接：`VersionMode`（从 `@lc/service-ve
 
 `ModuleService`（`modules.ts:9-18`）：`register`（key 重复抛错）/ `load`（并发共享 Promise）/ `preload`（失败只上报）/ `evict(plugin)`（按 `plugin/` 前缀清缓存）。`moduleKey(plugin, module)`（`:34-36`）注释解释拼法动机：贡献里只写包内模块名，拼出全局 key 以免两个插件同名互相覆盖。
 
-`LoaderService`（`loader.ts:23-42`）确立「**安装 ≠ 启用**」：`register` 只落清单与贡献，`ensureActivated(event)` 命中激活事件才 `import()` + `ctx.plugin`。`PluginPackage = { manifest, load }`（`:10-15`），注释说明生产环境应由 Vite 插件扫描 `package.json.lowcode` 生成虚拟模块——当前由 `bootstrap.ts:52-58` 手工列表替代。
+`LoaderService`（`loader.ts:23-42`）确立「**安装 ≠ 启用**」：`register` 只落清单与贡献，`ensureActivated(event)` 命中激活事件才 `import()` + `ctx.plugin`。`PluginPackage = { manifest, load }`（`:10-15`），注释说明生产环境应由 Vite 插件扫描 `package.json.lowcode` 生成虚拟模块——当前由两张手工列表替代：宿主 `apps/host/src/bootstrap.ts:74-95` 的 `BUILTIN_PACKAGES`（12 项）与远程 `apps/designer/src/canvas-plugins.ts:24-40` 的 `CANVAS_PACKAGES`（15 项）。仓库里不存在 `apps/designer/src/bootstrap.ts`。
 
 ### `WorkspaceService` 与 Realm（`workspace.ts`）
 
@@ -311,16 +313,16 @@ patch 路径采用 JSON Pointer 风格（/nodes/n1/layout/rect/x），
 只覆盖「对象属性 + 数组下标」两类操作，不实现完整 RFC 6902。
 ```
 
-| API                                          | 位置     | 说明                      |
-| -------------------------------------------- | -------- | ------------------------- |
-| `SchemaPatchOp = 'add'\|'replace'\|'remove'` | `:15`    | `remove` 忽略 `value`     |
-| `SchemaPatch { op, path, value? }`           | `:21-28` | —                         |
-| `applyPatches(target, patches)`              | `:103`   | 泛型版，返回新对象        |
-| `getAtPath(target, path)`                    | `:117`   | 读路径                    |
-| `createNodeLayoutPatch(...)`                 | `:133`   | 布局 patch 构造器         |
-| `nodePath(nodeId, suffix='')`                | `:145`   | 拼 `/nodes/<id>/<suffix>` |
-| `isNodePatch(patch)`                         | `:154`   | 判断是否节点级 patch      |
-| `applySchemaPatches(schema, patches)`        | `:170`   | 文档专用，**拷贝式**      |
+| API                                          | 位置     | 说明                                                                                                        |
+| -------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------- |
+| `SchemaPatchOp = 'add'\|'replace'\|'remove'` | `:15`    | `remove` 忽略 `value`                                                                                       |
+| `SchemaPatch { op, path, value? }`           | `:21-28` | —                                                                                                           |
+| `applyPatches(target, patches)`              | `:103`   | 泛型版，返回新对象                                                                                          |
+| `getAtPath(target, path)`                    | `:117`   | 读路径                                                                                                      |
+| `createNodeLayoutPatch(...)`                 | `:133`   | 布局 patch 构造器                                                                                           |
+| `nodePath(nodeId, suffix='')`                | `:145`   | 拼 `/nodes/<id>/<suffix>`                                                                                   |
+| `isNodePatch(patch)`                         | `:158`   | 供调用方按需使用的路径收窄工具，未接入事务校验；合法补丁还可写 `/actions` / `/connections` / `/datasources` |
+| `applySchemaPatches(schema, patches)`        | `:170`   | 文档专用，**拷贝式**                                                                                        |
 
 路径转义实现齐全：`decodeSegment`/`encodeSegment` 处理 `~0`/`~1`（`:43-49`），`parsePath` 对不以 `/` 开头的路径抛错（`:51-60`）。
 

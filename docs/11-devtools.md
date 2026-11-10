@@ -2,7 +2,7 @@
 
 ## 1. 定位
 
-宿主级只读调试面板，**不是插件，也不进 loader**：它由 `apps/designer` 直接渲染，通过 props 拿到根上下文与画布上下文。
+宿主级只读调试面板，**不是插件，也不进 loader**：Module Federation 拆分后它由 **`apps/host`** 直接渲染（`apps/host/src/views/DesignerView.vue` 模板中的 `<LcDevtools>`，按符号名定位），通过 props 拿到根上下文与画布上下文。`apps/designer` 现在只是画布远程模块，不再渲染 devtools。
 
 三条硬边界：
 
@@ -106,9 +106,11 @@ packages/devtools/src/
 
 ## 9. 验证记录
 
-- `pnpm typecheck`：无错误。
-- `pnpm test`：**30 个测试文件 / 222 条用例全部通过**，其中 devtools 3 个 spec / 33 条（`format` 12、`feed` 4、`snapshot` 17）。
-- `pnpm build`：通过。
+本节是 MF 拆分前的历史实测记录（当时只有 designer 一个应用）；浏览器类条目与 `pnpm build` 未在 2026-11-10 复核中重跑，**只把 `pnpm test` 行按当前基线更新**。`pnpm build` 本轮未执行；CI 当时（`.github/workflows/ci.yml:21-24`）不含 build 步骤，现已在 `format:check` 之后补 `Build (MF host + remote)`（`:31-34`，`env.VITE_DESIGNER_ENTRY` 为占位地址）。
+
+- `pnpm typecheck`：无错误（引用 2026-11-10 评审实跑记录）。
+- `pnpm test`：**110 个测试文件 / 1136 条用例，默认并行实跑 EXIT=0**；`release-store.spec.ts` 的 5s 超时抖动已由本轮把该 suite `timeout` 放宽到 `20_000` 治理（用例体与断言未改），`--no-file-parallelism` 仅作对照、不再是回归基线（见 README 基线；本次按路径静态清点 spec 文件数），其中 devtools 3 个 spec / 33 条（`format` 12、`feed` 4、`snapshot` 17）。该行已更新，不再是当时的 30 个文件 / 222 条。
+- `pnpm build`：拆分当时通过；本轮未重跑。
 - 浏览器实测（`http://localhost:5180`，designer dev）：
   - 打开面板后画布舞台宽度保持 721px（覆盖式抽屉不挤压），无横向溢出，控制台无 error/warn。
   - 插件树：30 个实例、3 层作用域（应用根 10 / 文档 demo-doc 3 / 画布视图 17），manifest 摘要与耗时（含 `preset-canvas 176 ms`）正常。

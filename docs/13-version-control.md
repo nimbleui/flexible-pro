@@ -1,31 +1,28 @@
-# 13 · 版本控制设计方案（提案，未实现）
+# 13 · 版本控制设计方案（已落地 P1–P3 + 剩余提案）
 
-> **状态**：提案稿。本文分两类陈述，务必区分——
-> **现状**（可在源码逐条核对，引用格式 `文件路径:行号`）与 **提案**（标 `[提案]`，代码里还不存在）。
-> 按 [README 维护约定](./README.md) 第 2、3 条，本目录其余文档只写已实现事实；提案类内容单列在本文件，
-> 落地某阶段后应把该阶段的事实回填到 05 / 07 / 08 / 09 对应章节，本文件只保留未实现部分。
+> **状态**：**已落地 P1–P3 + 剩余提案**。本文分两类陈述，务必区分——
+> **现状**（可在源码逐条核对，引用格式 `文件路径:行号`；已落地部分见 [§16](#16-分阶段实施计划) 各阶段「落地状态」与 [§19](#19-验证记录) 各轮改动清单）与 **`[提案]`**（代码里还不存在，标题带 `[提案]` 的 §5 / §18 等章节）。
+> 标题里的 P1–P3 指对象存储 / commit、提交链路、三方合并三条内核主线；**P4 的版本面板 UI、命令与宿主接线也已落地**（§16 P4、§19），不是未实现。仍未实现的是 §18 治理接缝、P5 服务端与环境绑定、§12 软锁、§14 可达性 GC，以及 §17 已知边界列出的「检出只读」等限制。默认档位仍是 `off`，删掉 `VITE_LC_VERSION_MODE` 即完整回退。
+> 按 [README 维护约定](./README.md) 第 2、3 条，本目录其余文档只写已实现事实；已落地事实已回填 [05 的版本服务小节](./05-contracts-and-schema.md)，并在 [07](./07-services.md) / [08](./08-plugins.md) / [09](./09-vue-host.md) / [10 §9.1](./10-development-guide.md) 与 [README 索引](./README.md) 指向本文，本文件保留未实现部分。
 >
-> **基线与核对范围**：`main` @ `e620b20`（2026-11-06）为参照，但**行号取自工作区当前内容而非 HEAD**——
-> `apps/host/src/projects/`、`apps/host/src/pages/`、`apps/host/src/apis/`、`packages/plugins/plugin-panel-code`、
-> `plugin-panel-data` 等在本轮核对时仍是**未提交的新增文件**（`git status` 里的 `??`），
-> 与 [README 基线表](./README.md) 记录同类情况的做法一致。改动这批文件前先复核本文引用行号。
-> 核对方式：逐文件读取源码 + 依赖边检索 + `pnpm test` 实测。
+> **基线与核对范围**：`main` @ `60a7f5e`（2026-11-10），**源码基线工作区干净**（指 `60a7f5e` 已提交的源码；本次文档与 P1 修订本身不纳入该判断）。因此本文所列已落地文件都已提交入库，不再有「未提交的新增文件」；行号取自该 commit 的文件状态，P1 源码改动使部分行号进一步漂移，改动源码后需复核行号，定位优先用符号名。
+> 核对方式：逐文件读取源码 + 依赖边检索；`pnpm test` 默认并行 110 文件 / 1136 用例全绿（P1 已对 `apps/host/tests/release-store.spec.ts` 设文件级 `timeout: 20_000` 治理既有并行 CPU 抖动；`--no-file-parallelism` 仅作对照、不再是回归基线）、`pnpm typecheck` 与 `pnpm format:check` 引用 2026-11-10 评审实跑记录（**此句为历史引用，不是本轮实跑声明**）（`pnpm build` 本地未执行；CI 已在 `format:check` 之后补 `Build (MF host + remote)`，见 `.github/workflows/ci.yml:31-34`）。
 
 ---
 
 ## 0. 一页结论
 
-| 决策点   | 选择                                                                                     | 核心理由                                                                                                  |
-| -------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| 版本模型 | **内容寻址 commit DAG**（git 式 plumbing），不是快照列表                                 | 现有 `ProjectRelease` 是"深拷贝全量 + 指针回滚"，无 diff / 分支 / 合并能力，且按份数剪枝会丢历史          |
-| 合并单元 | **实体级三方合并**（按 id 寻址的 `nodes` / `actions` / `edges` 条目）                    | 文档本来就是 `{ [id]: Entity }` 字典，比 JSON 文本行合并的语义准确一个量级                                |
-| 版本粒度 | **双层**：文档级（page/flow/function/component/api）+ 项目级（commit 树）                | 单文档回滚和整体发布是两个真实需求，缺任一侧都会逼用户做全量覆盖                                          |
-| 存储     | **本地优先 + 适配器预留服务端**：`MemoryVersionStore` → `IndexedDB` → `HttpVersionStore` | 仓库当前无后端，所有持久化在 `apps/host` 的 localStorage；契约先稳定，实现可换                            |
-| 协同     | **提交 + CAS 冲突**（乐观），非实时 CRDT；同文档软锁作为过渡                             | CRDT 要替换 id 生成与 patch 寻址方式，代价远大于收益；实体合并已覆盖并行开发主场景                        |
-| 环境晋级 | 环境 = **ref 到 commit 的绑定**，发布 = commit 打 tag + 过闸门，回滚 = 只移动绑定        | 沿用已被验证的既有不变量："回滚只移指针不回写资产"                                                        |
-| 编号系统 | **只允许一套权威编号 = commit hash**；`revision` / semver 降级为人读标签                 | 现在同时存在 `ProjectRelease.revision`（单调递增）与 `FlowDefinition.version`（semver），三套并行必然漂移 |
-| 前置条件 | **必须先修三项地基**：确定性序列化、跨端稳定 id、历史持久化                              | 见 [§1.3](#13-三个必须先修的地基缺陷)，任一未修则 hash 不可信、合并会撞 id、DAG 存不住                    |
-| 交付节奏 | P0 地基 → P1 对象存储/commit → P2 提交链路 → P3 diff/合并 → P4 UI → P5 服务端契约        | 每阶段独立可验收、可回滚，不出现"半成品悬空"                                                              |
+| 决策点   | 选择                                                                                     | 核心理由                                                                                                                                                                                                              |
+| -------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 版本模型 | **内容寻址 commit DAG**（git 式 plumbing），不是快照列表                                 | 现有 `ProjectRelease` 是"深拷贝全量 + 指针回滚"，无 diff / 分支 / 合并能力，且按份数剪枝会丢历史                                                                                                                      |
+| 合并单元 | **实体级三方合并**（按 id 寻址的 `nodes` / `actions` / `edges` 条目）                    | 文档本来就是 `{ [id]: Entity }` 字典，比 JSON 文本行合并的语义准确一个量级                                                                                                                                            |
+| 版本粒度 | **双层**：文档级（page/flow/function/component/api）+ 项目级（commit 树）                | 单文档回滚和整体发布是两个真实需求，缺任一侧都会逼用户做全量覆盖                                                                                                                                                      |
+| 存储     | **本地优先 + 适配器预留服务端**：`MemoryVersionStore` → `IndexedDB` → `HttpVersionStore` | **现状**：`MemoryVersionStore` 与 `IdbVersionStore` 已落地，版本对象与 commit 走 IndexedDB（§16 P1 / P2b）；`HttpVersionStore` 属 `[提案]`（P5），仓库当前无后端，宿主五类资产仍存 localStorage；契约先稳定，实现可换 |
+| 协同     | **提交 + CAS 冲突**（乐观），非实时 CRDT；同文档软锁作为过渡                             | CRDT 要替换 id 生成与 patch 寻址方式，代价远大于收益；实体合并已覆盖并行开发主场景                                                                                                                                    |
+| 环境晋级 | 环境 = **ref 到 commit 的绑定**，发布 = commit 打 tag + 过闸门，回滚 = 只移动绑定        | 沿用已被验证的既有不变量："回滚只移指针不回写资产"                                                                                                                                                                    |
+| 编号系统 | **只允许一套权威编号 = commit hash**；`revision` / semver 降级为人读标签                 | 现在同时存在 `ProjectRelease.revision`（单调递增）与 `FlowDefinition.version`（semver），三套并行必然漂移                                                                                                             |
+| 前置条件 | **必须先修三项地基**：确定性序列化、跨端稳定 id、历史持久化                              | 见 [§1.3](#13-三个必须先修的地基缺陷)，任一未修则 hash 不可信、合并会撞 id、DAG 存不住                                                                                                                                |
+| 交付节奏 | P0 地基 → P1 对象存储/commit → P2 提交链路 → P3 diff/合并 → P4 UI → P5 服务端契约        | 每阶段独立可验收、可回滚，不出现"半成品悬空"                                                                                                                                                                          |
 
 **这一版方案的取舍底线**：宁可不支持"多人同时拖同一张页面的像素级实时协同"，也要保证"两个人各改各的页面/节点，合并时不丢任何一方且不产生悬空引用"。后者是低代码协同的真实主场景，且用现有数据结构可以低成本做对。
 
@@ -56,16 +53,16 @@
 
 ### 1.2 已有的相邻能力（可复用，不可混淆）
 
-| 能力                | 现状                                                                                                                                                                                                                                                          | 与版本控制的关系                                                                            |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `service-history`   | 纯内存全量快照双栈，`SnapshotEntry { meta, before, after }`，无持久化、无分支、无栈深上限（[packages/services/service-history/src/index.ts:30-63](../packages/services/service-history/src/index.ts)）                                                        | **不同轴**：history 是"会话内撤销"，版本是"跨会话历史"。保留原样，不复用为 commit 存储      |
-| `service-document`  | 唯一写入口 `apply(patches, { record, label, before })` → `commitSchema()` 自增 `model.version`、置 `dirty`、写 history（[packages/services/service-document/src/index.ts:77-121](../packages/services/service-document/src/index.ts)）                        | **提交链路的接入点**：`apply` 已经是 patch 流，commit 只是把这条流聚合成一个不可变对象      |
-| `SchemaPatch`       | `add / replace / remove` + JSON Pointer，不可变且**只克隆路径上的容器**（[packages/schema/src/patch.ts:103](../packages/schema/src/patch.ts)，结构化共享见同文件 95-101 注释）                                                                                | 让"哪些顶层 section 变了"可以用 `===` 引用比较判定，hash 成本可控                           |
-| `ProjectRelease`    | 发布快照：`{ projectId, revision, createdAt, assets }`，写后不改；`RELEASE_RETENTION = 5`；`nextRevision`；`validateProjectRelease` 四道闸门；`pruneReleases`（[apps/host/src/projects/release-model.ts:29-270](../apps/host/src/projects/release-model.ts)） | **保留为发布产物角色**，降级为 commit 的一个视图；`revision` 与 `pruneReleases` 被 DAG 取代 |
-| `setCurrentRelease` | 回滚 = 只拨 `publishedRevision` 指针，不回写资产（[apps/host/src/projects/release-store.ts:192](../apps/host/src/projects/release-store.ts)）                                                                                                                 | **必须原样继承的不变量**，方案里对应"移动环境绑定"                                          |
-| `SchemaMigration`   | `migrateDocument` 显式迁移链，fail-closed（缺路径/有环/高于当前支持一律抛错）（[packages/schema/src/migrate.ts:28-54](../packages/schema/src/migrate.ts)）                                                                                                    | 版本库自身格式也需要一条**同构的**迁移链，但**不能复用同一套版本号**（见 §5.6）             |
-| 内核保留服务        | `RESERVED_SERVICES` 含未使用的 `'storage'`，保留服务必须声明 `apiVersion`（[packages/kernel/src/context.ts:69-89](../packages/kernel/src/context.ts)、[:334-339](../packages/kernel/src/context.ts)）                                                         | 版本对象存储直接落位 `'storage'`，版本服务新增保留名 `'version'`                            |
-| 宿主入口            | rail 里已存在 `{ id: 'versions', label: '版本管理' }` 且**无 action 即禁用态**（[apps/host/src/views/DesignerView.vue:347](../apps/host/src/views/DesignerView.vue)）；rail 支持 `action.kind: 'command'`（同文件 :335-340 是真实例子）                       | UI 入口已预留，启用它即可，不必新增外壳结构                                                 |
+| 能力                | 现状                                                                                                                                                                                                                                                                                                                                                  | 与版本控制的关系                                                                               |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `service-history`   | 纯内存全量快照双栈，`SnapshotEntry { meta, before, after }`，无持久化、无分支、无栈深上限（[packages/services/service-history/src/index.ts:30-63](../packages/services/service-history/src/index.ts)）                                                                                                                                                | **不同轴**：history 是"会话内撤销"，版本是"跨会话历史"。保留原样，不复用为 commit 存储         |
+| `service-document`  | 唯一写入口 `apply(patches, { record, label, before })` → `commitSchema()` 自增 `model.version`、置 `dirty`、写 history（[packages/services/service-document/src/index.ts:77-121](../packages/services/service-document/src/index.ts)）                                                                                                                | **提交链路的接入点**：`apply` 已经是 patch 流，commit 只是把这条流聚合成一个不可变对象         |
+| `SchemaPatch`       | `add / replace / remove` + JSON Pointer，不可变且**只克隆路径上的容器**（[packages/schema/src/patch.ts:103](../packages/schema/src/patch.ts)，结构化共享见同文件 95-101 注释）                                                                                                                                                                        | 让"哪些顶层 section 变了"可以用 `===` 引用比较判定，hash 成本可控                              |
+| `ProjectRelease`    | 发布快照：`{ projectId, revision, createdAt, assets }`，写后不改；`RELEASE_RETENTION = 5`；`nextRevision`；`validateProjectRelease` 四道闸门；`pruneReleases`（[apps/host/src/projects/release-model.ts:29-270](../apps/host/src/projects/release-model.ts)）                                                                                         | **保留为发布产物角色**，降级为 commit 的一个视图；`revision` 与 `pruneReleases` 被 DAG 取代    |
+| `setCurrentRelease` | 回滚 = 只拨 `publishedRevision` 指针，不回写资产（[apps/host/src/projects/release-store.ts:192](../apps/host/src/projects/release-store.ts)）                                                                                                                                                                                                         | **必须原样继承的不变量**，方案里对应"移动环境绑定"                                             |
+| `SchemaMigration`   | `migrateDocument` 显式迁移链，fail-closed（缺路径/有环/高于当前支持一律抛错）（[packages/schema/src/migrate.ts:28-54](../packages/schema/src/migrate.ts)）                                                                                                                                                                                            | 版本库自身格式也需要一条**同构的**迁移链，但**不能复用同一套版本号**（见 §5.6）                |
+| 内核保留服务        | `RESERVED_SERVICES` 现为 18 项（只收录已有真实提供者的服务名；`storage` 等幽灵名 P1 已清除），保留服务必须声明 `apiVersion`（[packages/kernel/src/context.ts:56-92](../packages/kernel/src/context.ts)、[:331-336](../packages/kernel/src/context.ts)）                                                                                               | 版本库是纯 Core、不注册为服务，不占用 `'storage'` 名；`version` 服务由宿主装配并已列入保留名单 |
+| 宿主入口            | **现状**：rail 的 `{ id: 'versions', label: '版本管理' }` 已带 `action: { kind: 'command', commandId: 'version.openHistory' }`（`views/composables/use-designer-rail.ts` 的 `versions` 项），不再是「无 action 即禁用态」；`plugin-panel-version` 已贡献 `designer.bottomPanel` 的 `version` 面板（§16 P4）。同一 rail 里只有 `settings` 仍是禁用占位 | P4 已启用，UI 外壳无需新增结构；「禁用占位」是提案初稿的描述，已失效                           |
 
 ### 1.3 三个必须先修的地基缺陷
 
@@ -80,7 +77,7 @@
 > **补充约束（实测得出，容易踩）**：dev/preview 监听 `0.0.0.0` 且远程地址用局域网 IPv4（[apps/host/vite.config.ts:26-28](../apps/host/vite.config.ts)、[:56-57](../apps/host/vite.config.ts)），也就是**页面运行在非安全上下文**。浏览器只在安全上下文暴露 `crypto.subtle` 与 `crypto.randomUUID`，因此**方案不能把 hash 和 id 生成建立在这两个 API 上**，否则用局域网 IP 打开设计器时直接不可用。全仓当前零 `crypto` 引用，属新增能力。
 
 **③ 历史不落盘 → 没有可查询的历史。**
-`service-history` 栈纯内存（§1.2），宿主保存只在"手动点保存"时把整份 `PageRecord.schema` 写回 localStorage（`save()`，[apps/host/src/views/DesignerView.vue:280-288](../apps/host/src/views/DesignerView.vue)），脏判据用 `model.version` 与"最后一次写回的版本"对比而非 `dirty`（同文件 :102-110）。也就是说：**现在"改了什么、谁改的、什么时候"这三问一条都答不出来**。
+`service-history` 栈纯内存（§1.2），宿主保存只在"手动点保存"时把整份 `PageRecord.schema` 写回 localStorage（`DesignerView.vue` 的 `save()`），脏判据用 `model.version` 与"最后一次写回的版本"对比而非 `dirty`（同文件 `isDirty` / `docVersion` / `savedVersion`，按符号名定位）。也就是说：**现在"改了什么、谁改的、什么时候"这三问一条都答不出来**。
 
 ---
 
@@ -463,6 +460,8 @@ export function canonicalHashAsync(value: unknown): Promise<ObjectHash>
 export function createPersistentId(prefix: string): string
 ```
 
+`packages/shared/src/id.ts:52-71` 另有 `createUniquePersistentId(prefix, taken)`：在 `createPersistentId` 之上对调用方给出的「已占用键」查重，命中则重试，供 `actions` / `connections` 这类扁平表新建实体时使用（P1 新增）。
+
 1. **不用 `crypto.randomUUID`**（同样受非安全上下文限制），也不用引 `nanoid`/`uuid` 依赖——现有 `Date.now + Math.random` 风格（宿主三处 store）其实已经是对的形态，缺的是**集中化 + 熵足够 + 撞名重试统一**。
 2. 熵组成：48bit 时间 + 48bit 随机（两次 32bit `Math.random` 拼接），并在模块内维护 `seen` 集合做**同进程去重**（现在 `Date.now()` 在同一 tick 内不变，批量创建 10 个节点确实会撞）。
 3. 改造点清单（本轮源码复核后的完整口径，依据见 [§18.1](#181-现状复核本轮新增可源码核对)；以符号名定位，P0 落地后行号需复核）：
@@ -838,14 +837,14 @@ export interface VersionStore {
 
 三个实现 + 一个空壳：
 
-| 实现                   | 用途                   | 关键约束                                                                                                                                                                                                                                     |
-| ---------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MemoryVersionStore`   | 单测、CI、preview 模式 | 属性测试的主力                                                                                                                                                                                                                               |
-| `IdbVersionStore`      | 本地默认               | IndexedDB，两个 object store（`objects` 按 hash、`refs` 按 name）+ 一个 `commits`；**不用 localStorage**：现有 `lc.*` 各键合计已在使用，DAG 是追加型海量数据，5MB 配额与同步 API 都不合适。**这是新增能力，仓库现在没有任何 IndexedDB 代码** |
-| `HttpVersionStore`     | 服务端预留             | 走 §10.3 契约；`casRef` 对应 HTTP `If-Match`                                                                                                                                                                                                 |
-| `LegacyReleaseAdapter` | 只读迁移               | 把既有 `ProjectRelease` 快照读成 tag + commit（§13）                                                                                                                                                                                         |
+| 实现                   | 用途                   | 关键约束                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ---------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MemoryVersionStore`   | 单测、CI、preview 模式 | 属性测试的主力                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `IdbVersionStore`      | 本地默认               | IndexedDB，两个 object store（`objects` 按 hash、`refs` 按 name）+ 一个 `commits`；**不用 localStorage**：现有 `lc.*` 各键合计已在使用，DAG 是追加型海量数据，5MB 配额与同步 API 都不合适。**现状**：该适配器已落地在 `packages/services/service-version/src/store/idb.ts`（§16 P1 / P2b），§19 补执行轮记录过浏览器落盘并刷新读回；初稿「仓库现在没有任何 IndexedDB 代码」的说法已失效。`putCommit` 的 fail-closed 浏览器分支仍未单独实测（§19） |
+| `HttpVersionStore`     | 服务端预留             | 走 §10.3 契约；`casRef` 对应 HTTP `If-Match`                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `LegacyReleaseAdapter` | 只读迁移               | 把既有 `ProjectRelease` 快照读成 tag + commit（§13）                                                                                                                                                                                                                                                                                                                                                                                              |
 
-**内核落位**：对象存储注册为保留服务 `'storage'`（已在 `RESERVED_SERVICES`，且当前无人使用），版本领域服务新增保留名 `'version'`（需同时改 `RESERVED_SERVICES`，属契约面变更 → 按 README 维护约定 1 同步 docs/05）。两者都按 [:337-339](../packages/kernel/src/context.ts) 的要求声明 `apiVersion`。
+**内核落位**：`storage` 曾为保留名但无提供者 / 消费者，P1 已清除；将来落地对象存储服务时随真实提供者一并登记。版本领域服务新增保留名 `'version'`（需同时改 `RESERVED_SERVICES`，属契约面变更 → 按 README 维护约定 1 同步 docs/05），由宿主装配并按 [:331-336](../packages/kernel/src/context.ts) 的要求声明 `apiVersion`。
 
 ### 10.3 服务端契约（设计，不含后端实现）
 
@@ -950,15 +949,15 @@ GET    /version/repos/:repoId/since?have=h1,h2→ 增量：返回本地缺的对
 
 沿用项目现状（Vitest，`packages/**/tests` + `apps/**/tests`，node 环境只测纯逻辑，无 ESLint 配置、Prettier 无分号单引号宽 96）。每阶段的收尾命令即根 `package.json` 的现有脚本：`pnpm test`、`pnpm typecheck`（`vue-tsc --noEmit`）、`pnpm format:check`。
 
-| 层         | 内容                                                                                                                                                                                                                                                                                                                   |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 单元       | `canonicalJson`（键序、嵌套、数组保序、`-0`、`NaN` 拒绝、`undefined` 剔除、码点排序、循环引用）、`hashText`（SHA-256 标准向量、多块与 UTF-8 对齐 `node:crypto`）、`canonicalHashAsync`（纯 JS 与 `subtle` 同结果、`subtle` 不可用回退）、`createPersistentId`（同 tick 批量 1000 个无重复、时间+随机固定时仍不死循环） |
-| DAG        | `log` 第一父链、多 LCA 虚拟基线、分支落后数、ref 移动不改对象（I1/I3）                                                                                                                                                                                                                                                 |
-| Diff       | 黄金夹具：对 `apps/host/src/pages/page-seed.ts`、`event-demo-document.ts` 真实数据断言 diff 结果条数与内容，防止"看起来对但噪声多"                                                                                                                                                                                     |
-| 合并       | §8.7 六条不变式做属性测试（随机生成三方字典/列表 + 断言性质），实体规则表 15 行逐行覆盖，`dangling-ref` 与 `rename` 各一组                                                                                                                                                                                             |
-| 集成       | shadow 模式下「版本库投影 vs `lc.pages.v1`」等价性（这是 §13 第 5 步灰度开关的验证抓手）                                                                                                                                                                                                                               |
-| 迁移       | 既有 `narrowRelease` 形状兼容、`pruneReleases` 与可达性 GC 并存期行为                                                                                                                                                                                                                                                  |
-| 浏览器实测 | 提交→切分支→合并冲突→解决→发布→回滚全链路；**以及从 `http://<lanIP>:5173` 打开一遍**（专测非安全上下文下 hash/id 是否可用，这一条踩过坑的方向）；面板渲染、rail 入口启用、状态栏分支指示                                                                                                                               |
+| 层         | 内容                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 单元       | `canonicalJson`（键序、嵌套、数组保序、`-0`、`NaN` 拒绝、`undefined` 剔除、码点排序、循环引用）、`hashText`（SHA-256 标准向量、多块与 UTF-8 对齐 `node:crypto`）、`canonicalHashAsync`（纯 JS 与 `subtle` 同结果、`subtle` 不可用回退）、`createPersistentId`（同 tick 批量 1000 个无重复、时间+随机固定时仍不死循环）、`createUniquePersistentId`（传入已占用键时不落在 `taken` 内） |
+| DAG        | `log` 第一父链、多 LCA 虚拟基线、分支落后数、ref 移动不改对象（I1/I3）                                                                                                                                                                                                                                                                                                                |
+| Diff       | 黄金夹具：对 `apps/host/src/pages/page-seed.ts`、`event-demo-document.ts` 真实数据断言 diff 结果条数与内容，防止"看起来对但噪声多"                                                                                                                                                                                                                                                    |
+| 合并       | §8.7 六条不变式做属性测试（随机生成三方字典/列表 + 断言性质），实体规则表 15 行逐行覆盖，`dangling-ref` 与 `rename` 各一组                                                                                                                                                                                                                                                            |
+| 集成       | shadow 模式下「版本库投影 vs `lc.pages.v1`」等价性（这是 §13 第 5 步灰度开关的验证抓手）                                                                                                                                                                                                                                                                                              |
+| 迁移       | 既有 `narrowRelease` 形状兼容、`pruneReleases` 与可达性 GC 并存期行为                                                                                                                                                                                                                                                                                                                 |
+| 浏览器实测 | 提交→切分支→合并冲突→解决→发布→回滚全链路；**以及从 `http://<lanIP>:5173` 打开一遍**（专测非安全上下文下 hash/id 是否可用，这一条踩过坑的方向）；面板渲染、rail 入口启用、状态栏分支指示                                                                                                                                                                                              |
 
 **验收指标**：200 节点文档一次提交的 hash+写盘 < 120ms（本地 IDB）；shadow 期不一致报警数为 0；干净合并属性测试 10 万随机用例 0 反例。
 
@@ -968,7 +967,7 @@ GET    /version/repos/:repoId/since?have=h1,h2→ 增量：返回本地缺的对
 
 > 每阶段末尾的"可停点"是刻意设计的：任一阶段结束都能独立交付价值，不出现"必须做到 P4 才能用"。
 
-### P0 · 地基（前置，不可跳）
+### P0 · 地基（前置，不可跳）【已落地】
 
 | 任务                                                                                                   | 涉及文件                                                                                                                                           | 验收                                                 |
 | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
@@ -978,21 +977,21 @@ GET    /version/repos/:repoId/since?have=h1,h2→ 增量：返回本地缺的对
 
 **可停点**：单看就修了"同内容不同 hash"和"id 撞车"两个真实 bug，与版本控制解耦也有价值。
 
-### P1 · 对象存储与提交内核（无 UI、无宿主接线）
+### P1 · 对象存储与提交内核（无 UI、无宿主接线）【已落地】
 
-| 任务                                                   | 涉及文件                                                                           |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| `VersionService` / `VersionStore` 契约                 | 新增 `packages/contracts/src/services/version.ts`，出口进 `contracts/src/index.ts` |
-| Core：对象写入、commit DAG、`log`、`diff`、`mergeBase` | 新增 `packages/services/service-version/src/**`                                    |
-| `MemoryVersionStore` + `IdbVersionStore`               | `service-version/src/store/{memory,idb}.ts`                                        |
-| `RESERVED_SERVICES` 增 `'version'`（`storage` 沿用）   | `packages/kernel/src/context.ts`，同步 docs/05                                     |
-| 单测 + 属性测试（§15 的 DAG/Diff 两栏）                | `packages/services/service-version/tests/**`                                       |
+| 任务                                                                         | 涉及文件                                                                           |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `VersionService` / `VersionStore` 契约                                       | 新增 `packages/contracts/src/services/version.ts`，出口进 `contracts/src/index.ts` |
+| Core：对象写入、commit DAG、`log`、`diff`、`mergeBase`                       | 新增 `packages/services/service-version/src/**`                                    |
+| `MemoryVersionStore` + `IdbVersionStore`                                     | `service-version/src/store/{memory,idb}.ts`                                        |
+| `RESERVED_SERVICES` 增 `'version'`（`storage` 无提供者 / 消费者，P1 已清除） | `packages/kernel/src/context.ts`，同步 docs/05                                     |
+| 单测 + 属性测试（§15 的 DAG/Diff 两栏）                                      | `packages/services/service-version/tests/**`                                       |
 
-**落地状态（2026-11-09）**：P1 已实现，见 `packages/services/service-version/src/{object,dag,diff,service}.ts`、`src/store/{memory,idb}.ts` 与 `tests/*.spec.ts`；`RESERVED_SERVICES` 与 docs/05 已同步。契约按阶段拆分为 `VersionServiceCore`，见 §10.1。**合并属于 P3**，本阶段刻意不提供 `merge` / `mergePreview`。
+**落地状态（2026-11-09）**：P1 已实现，见 `packages/services/service-version/src/{object,dag,diff,service}.ts`、`src/store/{memory,idb}.ts` 与 `tests/*.spec.ts`；`version` 已加入 `RESERVED_SERVICES`；该名单现为 18 项，`storage` 等无提供者的名字已清除，与 docs/05 的版本服务 / `http` 小节一致。契约按阶段拆分为 `VersionServiceCore`，见 §10.1。**合并属于 P3**，本阶段刻意不提供 `merge` / `mergePreview`。
 
 **验收**：纯 node 环境跑通"建库 → 3 个提交 → 分支 → diff → 检出 / 单文档恢复"，UI 零依赖；灰度开关与宿主接线仍在 P2。
 
-### P2 · 提交链路（写进设计器）
+### P2 · 提交链路（写进设计器）【已落地，范围见 P2a / P2b】
 
 | 任务                                                                              | 涉及文件                                                        |
 | --------------------------------------------------------------------------------- | --------------------------------------------------------------- |
@@ -1019,7 +1018,7 @@ GET    /version/repos/:repoId/since?have=h1,h2→ 增量：返回本地缺的对
 **验收**：`shadow` 模式下全量对齐一个晚上，报警数 0；`on` 模式能提交、能 `log`、能切分支读历史（只读 Realm）。P2a 由 7 项运行时断言覆盖（含 P1 链路回归）；P2b 由 13 项运行时断言覆盖（档位回落、五类投影、时间与环境边界、双读比对、父子链、连续活动串行化、故障隔离、检出边界），`tsc --strict` 对 4 个新增源文件 + 2 个 spec 零诊断。**`shadow` 全量对齐一晚仍未执行**，见 §19；浏览器实测与 `IdbVersionStore` 真实路径已在补执行轮完成；`on` 的"运行态权威读取"仍未完成，留待后续。
 **可停点**：此时已有"完整历史 + 逐次提交 + 回滚到任意提交"，diff 可文本级展示。多数团队到 P2 就够用。
 
-### P3 · 三方合并（本方案的技术核心）
+### P3 · 三方合并（本方案的技术核心）【已落地】
 
 任务：实体规则表 + 列表前驱锚定 + 引用完整性检查 + `rename intent` 采集（改名入口在宿主：页面改名、变量改名、绑定改名）+ `MergePlan` 预览 API + 六条不变式属性测试。
 **验收**：§8.7 全部通过；随机用例 10 万 0 反例；真实数据上"两人各加一页 + 同页各改不同节点"零冲突自动合并。
@@ -1044,7 +1043,7 @@ GET    /version/repos/:repoId/since?have=h1,h2→ 增量：返回本地缺的对
 
 **P3 明确未做**：宿主侧的改名 intent 采集入口（页面/变量/绑定改名时写 `CommitIntent`）、发布与环境绑定（P5）。P4 已补上冲突 UI 与命令、把 `validateDocument` / `validateFlow` 接进 `VersionServiceOptions.validate`；改名 intent 采集与 P5 仍是缺口。
 
-### P4 · UI 与命令（本轮已落地）
+### P4 · UI 与命令【已落地】
 
 任务：`plugin-panel-version`（manifest + 面板 + 五区）、`SLOT` 复用 bottomPanel、rail `versions` 启用、6 个命令 + keybinding、状态栏分支指示。
 **依赖**：必须在 P3 之后，否则冲突 UI 只能做成"二选一"，把实体级合并的价值全丢掉。
@@ -1068,7 +1067,7 @@ GET    /version/repos/:repoId/since?have=h1,h2→ 增量：返回本地缺的对
 
 **可停点**：此时用户已有可见、可操作的历史 / 差异 / 分支 / 冲突 / 发布界面，默认档位仍是 `off`，删掉环境变量即完整回退。
 
-### P5 · 服务端契约与环境晋级
+### P5 · 服务端契约与环境晋级 `[提案]`
 
 任务：`HttpVersionStore`、REST 契约（§10.3）、CAS 冲突协议、环境绑定 UI（dev/test/prod 三条 + 晋级/回滚）、编号归一（I8，删 `revision` 寻址语义）。
 **验收**：两个客户端并发提交同一 ref → 一方 409 → 自动拉取合并 → 成功，且全程无覆盖丢失。
@@ -1103,7 +1102,7 @@ P0 ─→ P1 ─→ P2 ─────────────┐
 3. 重命名识别依赖 intent 记录，P3 之前的存量提交一律退化为"删 + 加"。
 4. 服务端契约（P5）只是设计，未实现，未验证。
 5. 表达式字符串里的引用（`data.<binding>`、变量名）靠 §8.4 清单做悬空检测，**不做跨字符串的语义改名**（正则式改表达式风险高于收益，改名要连带更新表达式的能力本仓当前也不具备）。
-6. 本文最初是提案稿，P0–P4 已陆续落地（各轮改动清单见 §19）；仍未实现的是 §18 治理接缝、P5 服务端与环境绑定、§12 软锁与 §14 可达性 GC。按 [README 维护约定](./README.md)，已落地部分的事实应回填 05 / 07 / 08 / 09，本文只保留未实现部分——**这条回填尚未做完**，本文标题与状态块仍写着「提案，未实现」，与源码不符。
+6. 本文最初是提案稿，P0–P4 已陆续落地（各轮改动清单见 §19）；仍未实现的是 §18 治理接缝、P5 服务端与环境绑定、§12 软锁与 §14 可达性 GC。按 [README 维护约定](./README.md)，已落地事实已回填 [05 版本服务小节](./05-contracts-and-schema.md)，并在 [07](./07-services.md) / [08](./08-plugins.md) / [09](./09-vue-host.md) / [10 §9.1](./10-development-guide.md) 与 [README 索引](./README.md) 指向本文；标题与状态块已改为「已落地 P1–P3 + 剩余提案」，§16 各阶段也逐条标了「已落地 / `[提案]`」。仍未做完的是把 P2b / P4 的宿主接线细节逐段并入 07 / 09 正文，本文继续保留落地清单以免读者误判。
 7. **检出是只读查看，不是 git 的 checkout**。宿主还没有资产替换 API，`writeWorkingTree` 只把树投影给版本视图，草稿不动；因此宿主以 `workingTreeReplaceable: false` 创建服务，内核把查看态下的 `commit` / `restoreDoc` / `merge` 一律拒绝（错误码 `read-only-view`），也不持久化 HEAD。代价是：宿主当前**无法真正切分支继续编辑，也无法落合并提交**，合并只能用 `mergePreview` 看结果。解除条件是给五类资产 store 补替换 API（含冲突确认），届时把该选项改回 `true` 即可，内核行为与 git 对齐。
 
 ---
@@ -1116,12 +1115,12 @@ P0 ─→ P1 ─→ P2 ─────────────┐
 
 P0 落地前重新检索了全仓，[§1.3](#13-三个必须先修的地基缺陷)② 与 [§6.2](#62-跨端稳定-id) 的初次描述有三处不精确，以本节为准：
 
-| 项                   | 初次描述                | 复核结果                                                                                                                                                                                                                                                                |
-| -------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `createId` 入档点    | 2 处（两个面板插件）    | **4 处**：`use-event-flow-store.ts` 的 `nextId`、`use-node-event-bindings.ts` 的 `nextId`、`canvas-drop/src/index.ts` 的 `buildDropNode`、`canvas-commands/src/index.ts` 的 `duplicate` / `paste` / `groupSelected`。后两处生成的是 `PageSchema.nodes` 的键，同样会落盘 |
-| 宿主私有 id 生成器   | 3 个 store              | **7 处同形态**：`page-store` / `flow-store` / `project-store` / `api-store` / `api-config-model`（`createEnvironmentId`）/ `global-functions` / `custom-components`                                                                                                     |
-| 蓝图 `renameMap`     | 「顺延逻辑需改造」      | **不是 id 生成器**，是旧 id 的确定性前缀迁移，必须保持幂等，改造会破坏 `apps/host/tests/blueprint-document.spec.ts` 的 `bp-root` / `bp-node-1` 断言                                                                                                                     |
-| `EnvName` 与现有口径 | 与 `isEnvironment` 一致 | `apps/host/src/apis/api-config-model.ts` 的 `isEnvironment` 校验的是 `RequestEnvironment`（`id` / `name` / `baseUrl` 对象），**不是三元枚举**；环境由用户自定义并可增删，见 [§18.2](#182-环境命名与绑定口径)                                                            |
+| 项                   | 初次描述                | 复核结果                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createId` 入档点    | 2 处（两个面板插件）    | **4 处**（P0 复核口径）：`use-event-flow-store.ts` 的 `nextId`、`use-node-event-bindings.ts` 的 `nextId`、`canvas-drop/src/index.ts` 的 `buildDropNode`、`canvas-commands/src/index.ts` 的 `duplicate` / `paste` / `groupSelected`。后两处生成的是 `PageSchema.nodes` 的键，同样会落盘。**P1 更正**：前两处本地 `nextId` 实现已删除，统一 import `@lc/shared` 的 `createUniquePersistentId`（`packages/shared/src/id.ts:52-71`）；`use-event-flow-store.ts:135` 仍以 `nextId` 名义转出该函数 |
+| 宿主私有 id 生成器   | 3 个 store              | **7 处同形态**：`page-store` / `flow-store` / `project-store` / `api-store` / `api-config-model`（`createEnvironmentId`）/ `global-functions` / `custom-components`                                                                                                                                                                                                                                                                                                                          |
+| 蓝图 `renameMap`     | 「顺延逻辑需改造」      | **不是 id 生成器**，是旧 id 的确定性前缀迁移，必须保持幂等，改造会破坏 `apps/host/tests/blueprint-document.spec.ts` 的 `bp-root` / `bp-node-1` 断言                                                                                                                                                                                                                                                                                                                                          |
+| `EnvName` 与现有口径 | 与 `isEnvironment` 一致 | `apps/host/src/apis/api-config-model.ts` 的 `isEnvironment` 校验的是 `RequestEnvironment`（`id` / `name` / `baseUrl` 对象），**不是三元枚举**；环境由用户自定义并可增删，见 [§18.2](#182-环境命名与绑定口径)                                                                                                                                                                                                                                                                                 |
 
 `service-workspace` 的 `realm.id` / `canvas.id`、`service-history` 的 `meta.id`、`use-flow-debug.ts` 的 `exec_` 均为运行时标识，不落文档，**不参与** `createPersistentId` 改造。
 
@@ -1409,7 +1408,7 @@ P4 轮另核对了 9 个 `plugin-panel-*` 包「纯声明式 manifest + `index.t
 | `prettier --check`（19 个改动文件）→ 对 9 个不合规新文件 `--write` → 类型检查 / SFC / 运行时断言复跑                                                              | 全部符合 Prettier 风格；三项验证复跑均通过                                                                                                                                                                                                                                                         |
 | 临时目录清理                                                                                                                                                      | `.tmp-p4-verify` 已删除                                                                                                                                                                                                                                                                            |
 
-**历史未执行项（保留当时排查记录；补执行轮已全部补上，见下文）**：P0 轮、P1 轮、P2a 轮、P2b 轮与 P3 轮的 `pnpm test`（`npx vitest run`）、全量 `pnpm typecheck`（`vue-tsc`）、`pnpm build` 与浏览器实测**均未执行**。原因是本机 `node_modules` 的 pnpm junction 被 Windows 判为"不受信任装入点"（os error 448）：corepack shim 报 `ERR_PNPM_PACKAGE_MANAGER_INSPECT_OPTIONAL_DEPENDENCY`；改跑缓存中的 `pnpm.exe 10.33.0` 后，`install --offline --force` 报 `ERR_PNPM_EPERM`（esbuild.exe / rollup native 被占用），`--config.node-linker=hoisted` 报 `UNKNOWN: open ... @lc/kernel/package.json`，`npx vitest run` 报 `ERR_MODULE_NOT_FOUND @vitest/utils`。**因此五轮均不声称全量测试或全量类型检查通过**；五轮各自的核心链路断言是对编译产物的独立运行时校验，不等价于项目 vitest 套件。README 基线表的 303 条与初稿记录的 860 条均为历史数据，均未复现。P1 轮另试了一次标准 `pnpm install --offline --force`，报 `ERR_PNPM_NO_OFFLINE_TARBALL`（缺 `@rollup/rollup-android-arm64` 离线包），`npx vitest run` 改为报 `Cannot find package 'vite'`。P1 的 Core 已在纯 node 环境跑通，但 `IdbVersionStore`（浏览器 IndexedDB 路径）、P2 宿主接线与 P4 UI 均未实测。P2a 轮改为联网执行 `pnpm install --ignore-scripts`（成功，`Already up to date`）与 `pnpm install --ignore-scripts --force`（成功，下载 23 个缺失包、重建 166 个包），但 `npx vitest run` 仍报 `Cannot find package 'vite'`、`npx vue-tsc` 仍报 `Cannot find module 'typescript/lib/tsc'`——说明 `.pnpm/*/node_modules/` 内部 junction 整体不可遍历，不是缺包问题，故本轮把 P2 拆成 P2a / P2b。P2b 轮又试了一次联网 `pnpm install --ignore-scripts --force --config.node-linker=hoisted`，仍报 `UNKNOWN: open 'E:\ai-design\new-cordis\packages\canvas-plugins\canvas-align\node_modules\@lc\kernel\package.json'`，确认 junction 遍历问题与链接模式无关；因此本轮把 P2b 收敛为「不改 Vue 组件、不改五类资产持久化实现」的旁路接线，并用独立 `tsc` 与 CJS 编译产物做离线验证。`IdbVersionStore` 的浏览器路径、`shadow` 全量对齐一晚、HMR 重复订阅的实际表现均未实测。上述结论只对当时成立：补执行轮换了一条路径绕过 junction 限制，把全量测试、类型检查、构建与浏览器实测都跑通了，见下文。
+**历史未执行项（保留当时排查记录；补执行轮已全部补上，见下文）**：P0 轮、P1 轮、P2a 轮、P2b 轮与 P3 轮的 `pnpm test`（`npx vitest run`）、全量 `pnpm typecheck`（`vue-tsc`）、`pnpm build` 与浏览器实测**均未执行**。原因是本机 `node_modules` 的 pnpm junction 被 Windows 判为"不受信任装入点"（os error 448）：corepack shim 报 `ERR_PNPM_PACKAGE_MANAGER_INSPECT_OPTIONAL_DEPENDENCY`；改跑缓存中的 `pnpm.exe 10.33.0` 后，`install --offline --force` 报 `ERR_PNPM_EPERM`（esbuild.exe / rollup native 被占用），`--config.node-linker=hoisted` 报 `UNKNOWN: open ... @lc/kernel/package.json`，`npx vitest run` 报 `ERR_MODULE_NOT_FOUND @vitest/utils`。**因此五轮均不声称全量测试或全量类型检查通过**；五轮各自的核心链路断言是对编译产物的独立运行时校验，不等价于项目 vitest 套件。README 基线表当时记的 303 条与初稿记录的 860 条均为历史数据，均未复现（README 基线表现已按 2026-11-10 复核更新为 101 文件 / 1058 条）。P1 轮另试了一次标准 `pnpm install --offline --force`，报 `ERR_PNPM_NO_OFFLINE_TARBALL`（缺 `@rollup/rollup-android-arm64` 离线包），`npx vitest run` 改为报 `Cannot find package 'vite'`。P1 的 Core 已在纯 node 环境跑通，但 `IdbVersionStore`（浏览器 IndexedDB 路径）、P2 宿主接线与 P4 UI 均未实测。P2a 轮改为联网执行 `pnpm install --ignore-scripts`（成功，`Already up to date`）与 `pnpm install --ignore-scripts --force`（成功，下载 23 个缺失包、重建 166 个包），但 `npx vitest run` 仍报 `Cannot find package 'vite'`、`npx vue-tsc` 仍报 `Cannot find module 'typescript/lib/tsc'`——说明 `.pnpm/*/node_modules/` 内部 junction 整体不可遍历，不是缺包问题，故本轮把 P2 拆成 P2a / P2b。P2b 轮又试了一次联网 `pnpm install --ignore-scripts --force --config.node-linker=hoisted`，仍报 `UNKNOWN: open 'E:\ai-design\new-cordis\packages\canvas-plugins\canvas-align\node_modules\@lc\kernel\package.json'`，确认 junction 遍历问题与链接模式无关；因此本轮把 P2b 收敛为「不改 Vue 组件、不改五类资产持久化实现」的旁路接线，并用独立 `tsc` 与 CJS 编译产物做离线验证。`IdbVersionStore` 的浏览器路径、`shadow` 全量对齐一晚、HMR 重复订阅的实际表现均未实测。上述结论只对当时成立：补执行轮换了一条路径绕过 junction 限制，把全量测试、类型检查、构建与浏览器实测都跑通了，见下文。
 
 P3 轮未再尝试修复依赖（junction 问题已在 P2a / P2b 两轮分别用离线重装与 `hoisted` 模式确认与链接模式无关），直接沿用独立 `tsc` + CJS 编译产物做验证；P3 不碰 Vue 组件与浏览器 API，因此没有引入新的未验证面。
 
@@ -1436,7 +1435,7 @@ P3 轮未再尝试修复依赖（junction 问题已在 P2a / P2b 两轮分别用
 
 **浏览器实测（`VITE_LC_VERSION_MODE=shadow`，host 5175 / designer 5174）**：
 
-- 首页 → 项目列表 → 设计器：画布与 16 个画布插件正常渲染，状态栏显示「分支 main」，控制台最终 **0 error**。
+- 首页 → 项目列表 → 设计器：画布与 15 个画布能力插件正常渲染，状态栏显示「分支 main」，控制台最终 **0 error**。
 - rail「版本管理」触发 `version.openHistory`：dock 展开、版本面板激活、五区 tab 齐全，头部显示 `档位 shadow` / 分支 / HEAD / dirty；`IdbVersionStore` 真实路径全程落盘并在刷新后读回。
 - 历史 / 差异：首次提交 `93f3570a`；根提交空态正确；合并提交后查看真实 diff（`2991eba3 → 52208222 · 1 处变更`，`page:demo-doc / metadata / description`，基线 B 值 → 当前 A 值）。
 - 分支 / 合并：新建 `feature` 与 `conflict-a`、检出、刷新后保持分支（HEAD 持久化修复生效）；两分支各有独有提交后执行三方合并，得到 `8a489785`「合并 · 2 父」；`up-to-date` 路径返回「目标已是当前祖先，无需合并」。
@@ -1599,4 +1598,4 @@ P3 轮未再尝试修复依赖（junction 问题已在 P2a / P2b 两轮分别用
 
 **环境残留**：修复依赖时把 `node_modules/.pnpm/` 下 9 个 Windows 原生包目录临时改名为 `*.bak`，P0 轮尝试清理后仍有 3 个因文件占用/回收站策略删除失败（`@esbuild+win32-x64@0.28.2.bak`、`@rollup+rollup-win32-x64-msvc@4.66.0.bak` 及一个嵌套 `.bak`）。P1 轮新增的临时目录 `.tmp-p1-verify` 已删除；P2a 轮的 `.tmp-p2-verify` 也已删除，并成功联网重建了依赖（见上），但 junction 遍历问题依旧。它们只位于依赖缓存内、不参与源码构建，建议在其他机器上重新 `pnpm install` 时一并清除这些缓存目录。**更正（修复轮）**：junction 遍历问题在修复轮已不复现，`npx vitest run` 与 `npx vue-tsc` 可直接在仓库根执行，见该轮的「依赖环境已恢复」。
 
-**工作区状态提醒**：`git status` 显示宿主项目/发布/接口模块与两个面板插件在初稿时仍是**未提交内容**；P0 / P1 / P2a / P2b / P3 / P4 与补执行轮、修复轮、刷新放大轮、数组重排轮、冲突文案轮、裁决预填轮、按钮置灰轮共十三轮又新增/修改了上列文件，现状引用只对当前工作区成立。
+**工作区状态提醒**：初稿时 `git status` 曾显示宿主项目/发布/接口模块与两个面板插件是**未提交内容**；P0 / P1 / P2a / P2b / P3 / P4 与补执行轮、修复轮、刷新放大轮、数组重排轮、冲突文案轮、裁决预填轮、按钮置灰轮共十三轮又新增/修改了上列文件。**这一状态已结束**：2026-11-10 复核时 HEAD 为 `60a7f5e`、`git status --short` 仅有未跟踪的 `.workbuddy/`，上述文件全部入库，本文的「现状」引用对该 commit 成立；源码改动后行号仍需复核，定位优先用符号名。

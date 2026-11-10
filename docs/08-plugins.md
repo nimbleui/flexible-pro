@@ -1,6 +1,6 @@
 # 08 插件层
 
-25 个插件包（10 个业务插件 + 15 个画布能力）+ 2 个预设。全部通过 `manifest.contributes` 声明入口，宿主与预设不认识任何一个具体插件。
+26 个插件包（11 个业务插件 + 15 个画布能力）+ 2 个预设。全部通过 `manifest.contributes` 声明入口，宿主与预设不认识任何一个具体插件。另有 `packages/editor/expression-editor`（`@lc/expression-editor`）是被面板 / 宿主直接消费的编辑器组件包，不贡献 manifest，不计入插件数。
 
 ## 1. 装配路径回顾
 
@@ -40,22 +40,23 @@ for (const feature of features)
 
 `@lc/preset-canvas` 的依赖只有 `contracts` 与 `kernel`，**不认识任何画布插件**——这是「新增画布能力不需要改宿主」的结构保证。
 
-## 3. 业务插件（10 个）
+## 3. 业务插件（11 个）
 
-| 包                            | manifest.name      | 贡献点      | 条目 | 关键属性                                                                                                                           |
-| ----------------------------- | ------------------ | ----------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `@lc/plugin-materials-basic`  | `materials-basic`  | `materials` | 4    | `certification: 'platform'`、`executionProfile: 'inline'`、**无 `main`**（纯声明式，`plugin-materials-basic/src/manifest.ts:3-7`） |
-| `@lc/plugin-panel-outline`    | `panel-outline`    | `panels`    | 1    | slot `designer.overlayPanel`、title「页面大纲」、`order: 10`、`activationEvents: ['onPanel:outline']`                              |
-| `@lc/plugin-panel-materials`  | `panel-materials`  | `panels`    | 1    | slot `designer.leftPanel`、title「组件库」、`order: 20`、`onPanel:materials`                                                       |
-| `@lc/plugin-panel-properties` | `panel-properties` | `panels`    | 1    | slot `designer.rightPanel`、`order: 10`、`onPanel:properties`                                                                      |
-| `@lc/plugin-panel-style`      | `panel-style`      | `panels`    | 1    | slot `designer.stylePanel`、title「样式」、`order: 10`、`onPanel:style`                                                            |
-| `@lc/plugin-panel-node-event` | `panel-node-event` | `panels`    | 1    | slot `designer.eventPanel`、title「事件」、`order: 10`、`onPanel:nodeEvent`                                                        |
-| `@lc/plugin-panel-advanced`   | `panel-advanced`   | `panels`    | 1    | slot `designer.advancedPanel`、title「高级」、`order: 10`、`onPanel:advanced`                                                      |
-| `@lc/plugin-panel-eventflow`  | `panel-eventflow`  | `panels`    | 1    | slot `designer.bottomPanel`、`order: 10`、`onPanel:eventflow`（`plugin-panel-eventflow/src/manifest.ts:3-23`）                     |
-| `@lc/plugin-panel-data`       | `panel-data`       | `panels`    | 1    | slot `designer.bottomPanel`、title「数据绑定」、`order: 20`、`onPanel:data`                                                        |
-| `@lc/plugin-panel-code`       | `panel-code`       | `panels`    | 1    | slot `designer.bottomPanel`、title「代码」、`order: 30`、`onPanel:code`                                                            |
+| 包                            | manifest.name      | 贡献点      | 条目 | 关键属性                                                                                                                                                                 |
+| ----------------------------- | ------------------ | ----------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@lc/plugin-materials-basic`  | `materials-basic`  | `materials` | 4    | `certification: 'platform'`、`executionProfile: 'inline'`、**无 `main`**（纯声明式，`plugin-materials-basic/src/manifest.ts:3-7`）                                       |
+| `@lc/plugin-panel-outline`    | `panel-outline`    | `panels`    | 1    | slot `designer.overlayPanel`、title「页面大纲」、`order: 10`、`activationEvents: ['onPanel:outline']`                                                                    |
+| `@lc/plugin-panel-materials`  | `panel-materials`  | `panels`    | 1    | slot `designer.leftPanel`、title「组件库」、`order: 20`、`onPanel:materials`                                                                                             |
+| `@lc/plugin-panel-properties` | `panel-properties` | `panels`    | 1    | slot `designer.rightPanel`、`order: 10`、`onPanel:properties`                                                                                                            |
+| `@lc/plugin-panel-style`      | `panel-style`      | `panels`    | 1    | slot `designer.stylePanel`、title「样式」、`order: 10`、`onPanel:style`                                                                                                  |
+| `@lc/plugin-panel-node-event` | `panel-node-event` | `panels`    | 1    | slot `designer.eventPanel`、title「事件」、`order: 10`、`onPanel:nodeEvent`                                                                                              |
+| `@lc/plugin-panel-advanced`   | `panel-advanced`   | `panels`    | 1    | slot `designer.advancedPanel`、title「高级」、`order: 10`、`onPanel:advanced`                                                                                            |
+| `@lc/plugin-panel-eventflow`  | `panel-eventflow`  | `panels`    | 1    | slot `designer.bottomPanel`、`order: 10`、`onPanel:eventflow`（`plugin-panel-eventflow/src/manifest.ts:3-23`）                                                           |
+| `@lc/plugin-panel-data`       | `panel-data`       | `panels`    | 1    | slot `designer.bottomPanel`、title「数据绑定」、`order: 20`、`onPanel:data`                                                                                              |
+| `@lc/plugin-panel-code`       | `panel-code`       | `panels`    | 1    | slot `designer.bottomPanel`、title「代码」、`order: 30`、`onPanel:code`                                                                                                  |
+| `@lc/plugin-panel-version`    | `panel-version`    | `panels`    | 1    | slot `designer.bottomPanel`、title「版本管理」、`order: 20`、`onPanel:version`；五区历史 / 分支 / 冲突 / 差异 / 发布，落地事实与剩余提案见 [13](./13-version-control.md) |
 
-左槽现在只剩物料面板一个贡献者（大纲改投浮层槽，`order` 10 < 20 的先后关系因此不再有意义）；浮层槽是页面大纲，右侧四个页签各一个贡献者，**底槽是唯一有多位贡献者的槽**——事件流、数据绑定、代码三家共用它，页签条由外壳按贡献生成、`LcSlot` 的 `active` 只挂载当前那一个（分工差别见 [05 §3](./05-contracts-and-schema.md)）。
+左槽现在只剩物料面板一个贡献者（大纲改投浮层槽，`order` 10 < 20 的先后关系因此不再有意义）；浮层槽是页面大纲，右侧四个页签各一个贡献者，**底槽是唯一有多位贡献者的槽**——事件流、数据绑定、代码、版本管理四家共用它，页签条由外壳按贡献生成、`LcSlot` 的 `active` 只挂载当前那一个（分工差别见 [05 §3](./05-contracts-and-schema.md)）。版本面板是 P4 落地后新增的第四家，`order: 20` 与数据绑定并列，靠插件名决胜。
 
 一个插件包只能贡献**一个**面板组件：`collectModules` 把 manifest 里出现的每个 `module` 字符串都登记成 `插件名/模块路径`，但加载器一律指向同一个 `pkg.load`（`service-loader/src/index.ts:322-329`），`Slot.vue` 再取 `module.default`（`packages/vue/src/components/Slot.vue:100-106`）。所以样式 / 事件 / 高级三个右栏页签是三个独立包，底栏的数据绑定与代码也各自一包，而不是让事件流面板多写三条 `panels` 贡献。
 
@@ -239,11 +240,11 @@ MIME 前缀 `application/x-lc-material:` + 物料名按码点转十六进制（`
 
 ## 7. 裁剪与差异化
 
-| 需求                         | 做法                                                                    | 需要改代码吗     |
-| ---------------------------- | ----------------------------------------------------------------------- | ---------------- |
-| 某租户不要标尺               | `canvas-rulers` manifest 的 `defaultEnabled: false`，或装配时不提供该包 | 否               |
-| 调整能力顺序                 | 改 `canvasFeatures[].order`                                             | 否               |
-| 换吸附阈值/网格              | 改 `canvasFeatures[].config`（`{ thresholdScreenPx, gridSize }`）       | 否               |
-| 只留基础物料                 | 不登记 `materials-basic`，改登记自己的物料包                            | 否               |
-| 换一套面板                   | 新增 `panels` 贡献指向新模块，旧包不登记                                | 否               |
-| 「按产品形态选一组画布预设」 | 契约有 `canvasProfiles` 点，**当前无实现**：`preset-canvas` 不读它      | 是（需接消费方） |
+| 需求                         | 做法                                                                                | 需要改代码吗     |
+| ---------------------------- | ----------------------------------------------------------------------------------- | ---------------- |
+| 某租户不要标尺               | `canvas-rulers` manifest 的 `defaultEnabled: false`，或装配时不提供该包             | 否               |
+| 调整能力顺序                 | 改 `canvasFeatures[].order`                                                         | 否               |
+| 换吸附阈值/网格              | 改 `canvasFeatures[].config`（`{ thresholdScreenPx, gridSize }`）                   | 否               |
+| 只留基础物料                 | 不登记 `materials-basic`，改登记自己的物料包                                        | 否               |
+| 换一套面板                   | 新增 `panels` 贡献指向新模块，旧包不登记                                            | 否               |
+| 「按产品形态选一组画布预设」 | 契约有 `canvasProfiles` 点，**实验性，宿主未校验 / 未求值**：`preset-canvas` 不读它 | 是（需接消费方） |
