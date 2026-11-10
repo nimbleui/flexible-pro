@@ -15,6 +15,7 @@ export type { RestRequestOptions } from './rest'
 
 /** 插件配置：由宿主按当前项目与当前环境给出的请求默认值 */
 interface DataSourceServiceConfig {
+  /** 当前生效的请求默认值；来自宿主配置，可被 `setRequestDefaults` 覆盖 */
   requestDefaults?: RequestDefaults
 }
 
@@ -108,6 +109,11 @@ export default defineEditorPlugin<DataSourceServiceConfig>({
       for (const listener of [...listeners]) listener()
     }
 
+    /** 自动取数的 rejection 不能变成全局 unhandledrejection，与显式 fetch 一样只记诊断 */
+    function reportFetchError(error: unknown): void {
+      ctx.diagnostics.report(error, { scope: 'dataSource', phase: 'autoFetch' })
+    }
+
     function schema(): PageSchema {
       return document.model.schema
     }
@@ -147,13 +153,15 @@ export default defineEditorPlugin<DataSourceServiceConfig>({
      * finally 里比对 controller 引用后才清空，避免误清别处刚登记的新请求。
      */
     async function runRestFetch(entry: Entry, config: RestConfig): Promise<void> {
-      entry.controller?.abort()
       const controller = new AbortController()
-      entry.controller = controller
-      entry.state = { ...entry.state, loading: true, error: null }
-      notify()
-
       try {
+        // try 必须罩住整个函数体：前置的 notify() / 状态写入若抛错，绕过 finally 会让
+        // controller 永远留在 entry 上、loading 永远停在 true。
+        entry.controller?.abort()
+        entry.controller = controller
+        entry.state = { ...entry.state, loading: true, error: null }
+        notify()
+
         // 默认值在这里合并：域名与 token 属于项目而不是文档，落进 schema 等于把凭证抄进
         // 每一篇导出的文档。有宿主 http 服务时交给它发（凭据注入与 401 重取只有一份实现），
         // 没有就退回裸取数，行为与引入这些能力之前一致。
@@ -206,7 +214,7 @@ export default defineEditorPlugin<DataSourceServiceConfig>({
 
       if (!existing) {
         entries.set(source.id, { fingerprint, state: initialState(source) })
-        if (shouldAutoFetch(source)) void fetchState(source.id)
+        if (shouldAutoFetch(source)) void fetchState(source.id).catch(reportFetchError)
         return true
       }
 
@@ -216,7 +224,7 @@ export default defineEditorPlugin<DataSourceServiceConfig>({
       existing.controller = undefined
       existing.fingerprint = fingerprint
       existing.state = initialState(source)
-      if (shouldAutoFetch(source)) void fetchState(source.id)
+      if (shouldAutoFetch(source)) void fetchState(source.id).catch(reportFetchError)
       return true
     }
 
@@ -255,7 +263,7 @@ export default defineEditorPlugin<DataSourceServiceConfig>({
 
       for (const source of schema().datasources ?? []) {
         if (restConfigOf(source) === undefined || !shouldAutoFetch(source)) continue
-        void fetchState(source.id)
+        void fetchState(source.id).catch(reportFetchError)
       }
 
       notify()
