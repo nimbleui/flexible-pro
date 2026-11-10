@@ -18,6 +18,7 @@ export type HorizontalConstraint = NonNullable<LayoutConstraints['horizontal']>
 /** 垂直约束候选 */
 export type VerticalConstraint = NonNullable<LayoutConstraints['vertical']>
 
+/** 水平约束候选清单；与 `HorizontalConstraint` 同向，属性面板下拉共用 */
 export const HORIZONTAL_CONSTRAINTS: readonly HorizontalConstraint[] = [
   'left',
   'right',
@@ -43,6 +44,7 @@ interface Axis {
   size: number
 }
 
+/** 单轴约束解析模式；由 `modeOf` 从约束字面量映射，未知取值回落 start */
 type AxisMode = 'start' | 'end' | 'center' | 'scale' | 'stretch'
 
 /**

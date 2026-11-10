@@ -31,6 +31,7 @@ export const GUIDE_DRAFT_LABEL = '参考线草稿'
 
 /** 手柄 id 前缀：覆盖层与交互处理器共用，改一边另一边立刻对不上，所以集中在这里 */
 export const RULER_HANDLE = { horizontal: 'ruler-h', vertical: 'ruler-v' } as const
+/** 单条参考线手柄 id 的前缀；`guideHandleId` 在此之上拼轴向字母与下标 */
 export const GUIDE_HANDLE_PREFIX = 'guide-'
 
 /** 由轴向 + 下标生成参考线手柄 id */

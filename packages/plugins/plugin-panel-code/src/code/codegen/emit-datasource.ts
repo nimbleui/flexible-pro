@@ -6,6 +6,7 @@ import { emitJsonLiteral, fetchFunctionName, memberKey, quote } from './naming'
 
 /** 数据源出码结果：状态初值 + 取数函数 + 挂载时要不要自动取数 */
 export interface EmittedSource {
+  /** 数据源 id，与 schema 里的声明 id 对应 */
   id: string
   /** `sources` 里的一条初值 */
   initial: string

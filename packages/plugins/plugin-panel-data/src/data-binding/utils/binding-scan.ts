@@ -15,6 +15,7 @@ export interface PageBinding {
   nodeLabel: string
   /** 位置标识，如 `props.text`、`condition`、`actions[act-1].config.url` */
   field: string
+  /** 绑定类别（prop / condition / loop …），决定它与哪些绑定在表格里同组 */
   kind: BindingKind
   /** 表达式原文 */
   expression: string
@@ -38,13 +39,19 @@ export interface PageBinding {
 
 /** 一个表达式槽位：位置已知，引用还没算 */
 interface RawSlot {
+  /** 节点 id；动作绑定不属于任何节点时缺省 */
   nodeId?: string
+  /** 展示名，扫描时算好避免面板回查 schema */
   nodeLabel?: string
+  /** 位置标识，如 `props.text` */
   field: string
+  /** 绑定类别 */
   kind: BindingKind
+  /** 表达式原文 */
   expression: string
   /** 引用提取的输入形态，与 `listExpressionRefs` 同一套 */
   mode: 'expression' | 'template'
+  /** 是否白名单之外的原生 JS 片段 */
   unsafe: boolean
 }
 
@@ -54,6 +61,7 @@ export interface UnresolvedRef {
   name: string
   /** 引用到的完整路径，如 `data.token` */
   path: string
+  /** 触发这条未解析引用的原始绑定 */
   binding: PageBinding
 }
 

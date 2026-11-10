@@ -245,6 +245,13 @@ function collectArrowSymbols(
   return []
 }
 
+/**
+ * 把光标处箭头函数的形参作为局部符号注入补全上下文。
+ *
+ * 箭头参数只在自身函数体内可见。先在 token 流里定位包住光标的 `=>`，
+ * 取出参数名并绑定到当前方法/接收者类型，再合并进既有符号
+ * （同名时局部参数优先，避免被外层同名变量遮蔽）。无可用参数时原样返回上下文。
+ */
 export function withArrowSymbols(
   prefixText: string,
   tokens: readonly Token[],

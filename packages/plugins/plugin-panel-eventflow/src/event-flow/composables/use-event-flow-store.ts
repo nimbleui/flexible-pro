@@ -18,9 +18,13 @@ import { useAppContext } from '@lc/vue'
  * 其余 composable 都通过它读写文档，避免每个切片各自 `ctx.get()` 并维护自己的订阅。
  */
 export interface EventFlowStore {
+  /** 文档服务句柄；面板未装配时为 undefined */
   document: DocumentService | undefined
+  /** 选区服务句柄；面板未装配时为 undefined */
   selection: SelectionService | undefined
+  /** 物料服务句柄；面板未装配时为 undefined */
   material: MaterialService | undefined
+  /** 表达式引擎句柄；面板未装配时为 undefined */
   expression: ExpressionEngine | undefined
   /**
    * 流程图仓库；宿主没装时为 undefined，此时子流程候选为空。
@@ -32,16 +36,25 @@ export interface EventFlowStore {
   version: Ref<number>
   /** 页面数据符号供条件表达式补全；函数体仍然只能看到形参 */
   expressionSymbols: ComputedRef<ScopeSymbol[]>
+  /** 表达式可用函数清单，供动作配置里的函数下拉 */
   expressionFunctions: ComputedRef<readonly FunctionDescriptor[]>
+  /** 当前选中的节点 id，未选中为 undefined */
   selectedNodeId: ComputedRef<string | undefined>
+  /** 当前选中的节点 schema，未选中为 undefined */
   selectedNode: ComputedRef<NodeSchema | undefined>
   /** 提交一批 schema 变更；空补丁不写入历史 */
   commit(patches: SchemaPatch[], label: string): void
+  /** 取节点展示名：优先名称，回退组件名，再回退 id；节点已删除时给出提示 */
   nodeLabel(nodeId: string): string
   /** 生成不与现有键冲突的实例 id */
   nextId(prefix: string, taken: readonly string[]): string
 }
 
+/**
+ * 创建事件流面板共享 store（状态形状见 {@link EventFlowStore}）。
+ *
+ * 其余事件流 composable 都经它读写文档，避免各自 `ctx.get()` 并维护独立订阅。
+ */
 export function useEventFlowStore(): EventFlowStore {
   const ctx = useAppContext()
   const document = ctx.get<DocumentService>('document')

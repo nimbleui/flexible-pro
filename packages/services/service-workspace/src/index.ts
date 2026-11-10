@@ -123,8 +123,8 @@ export default definePlugin({
          * 新建一个画布视图（CanvasRealm）。
          *
          * 每个画布有独立的视口、图层、交互管线与画布设置，文档与选中集仍来自
-         * 同一个 EditorRealm。契约把这一步描述为「主画布、每文档一个」，
-         * 实现不限制调用次数。
+         * 同一个 EditorRealm。契约只要求「视口、覆盖层与交互管线由该 Realm 独立持有」，
+         * 没有限制数量：调用几次就建几个视图，关闭文档时按创建顺序反向回收。
          */
         createCanvasRealm(): CanvasRealm {
           const canvasCtx = realmCtx.fork()

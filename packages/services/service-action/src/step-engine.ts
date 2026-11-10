@@ -71,7 +71,9 @@ export interface ActionRunnerDeps {
 
 /** 一次执行的可变态；收在引擎里，调用方只读不写 */
 export interface RunState {
+  /** 已执行的动作步数 */
   steps: number
+  /** 剩余步数预算；归零触发 step-limit 中止 */
   budget: number
   /**
    * 被强制中止的原因；优先级高于 failure 与 stopped。
@@ -80,6 +82,7 @@ export interface RunState {
    * `FlowSettings.timeoutSeconds`。
    */
   aborted?: 'step-limit' | 'disposed' | 'timeout'
+  /** 最近一次失败的动作 id 与原因；成功完成后清空 */
   failure?: { actionId: string; message: string }
 }
 

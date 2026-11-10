@@ -191,6 +191,7 @@ export function arrayFieldPatch(
       : { op: 'replace', path: `/${key}`, value: next }
 }
 
+/** 把一组 schema 补丁应用到页面 schema 上，返回不可变的新 schema（委托给 JSON Patch 实现）。 */
 export function applySchemaPatches(schema: PageSchema, patches: SchemaPatches): PageSchema {
   return applyPatches(schema, patches)
 }

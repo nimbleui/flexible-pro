@@ -32,6 +32,7 @@ export interface PropertyDoc {
   readonly description: string
 }
 
+/** 可直接读取的自有属性文档表；供补全列出属性（方法走 `METHOD_DOCS`），内容不进入求值路径 */
 export const PROPERTY_DOCS: readonly PropertyDoc[] = [
   {
     name: 'length',

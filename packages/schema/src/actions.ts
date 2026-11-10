@@ -125,7 +125,9 @@ export type PageEventName = (typeof PAGE_EVENTS)[number]
 
 /** 控制流动作类型；这些类型的 `config` 里含动作 id 引用，见 {@link referencedActionIds} */
 export const FLOW_CONDITION = 'flow.condition'
+/** 顺序动作：进入后依次执行其 `config.actions` 里的子动作 */
 export const FLOW_SEQUENCE = 'flow.sequence'
+/** 结束动作：终止当前流程分支，不再向下执行 */
 export const FLOW_END = 'flow.end'
 
 /**

@@ -12,7 +12,9 @@ import type { EventFlowStore } from './use-event-flow-store'
 
 /** 中栏与右栏共享的选中态；由面板编排层持有，切换事件/动作时统一回收 */
 export interface ActionSelection {
+  /** 当前选中的动作实例 id；undefined 表示未选中 */
   selectedActionId: Ref<string | undefined>
+  /** 动作选择器（picker）是否打开 */
   isActionPickerOpen: Ref<boolean>
 }
 

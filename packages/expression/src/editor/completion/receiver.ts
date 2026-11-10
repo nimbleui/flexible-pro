@@ -149,6 +149,12 @@ export function receiverStart(tokens: readonly Token[], endExclusive: number): n
   return index + 1
 }
 
+/**
+ * 把补全上下文换算成类型推断所需的两样东西：变量表与函数返回类型查表。
+ *
+ * 变量表由符号树换算（回调参数已并入）；函数返回只查调用方传入的声明清单，
+ * 不查运行时注册表，因此推断结果稳定、不受接口可用性影响。
+ */
 export function inferenceOptions(context: CompletionContext): {
   /** 推断用的变量表；由符号树换算，回调参数已并入 */
   variables: Record<string, ValueTypeSchema>

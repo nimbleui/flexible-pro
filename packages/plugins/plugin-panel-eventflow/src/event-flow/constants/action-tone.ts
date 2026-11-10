@@ -44,12 +44,14 @@ const ACTION_TONE_BY_PREFIX: ReadonlyArray<{
   { prefix: 'plugin.', tone: 'plugin' },
 ]
 
+/** 由动作 type 前缀推断其配色种类；动作缺失或未匹配时退回 unknown。 */
 export function actionTone(action: ActionDeclaration | undefined): ActionTone {
   if (!action) return 'unknown'
   const matched = ACTION_TONE_BY_PREFIX.find((item) => action.type.startsWith(item.prefix))
   return matched?.tone ?? 'unknown'
 }
 
+/** 生成动作卡片的 CSS 变量：主色及由它派生的 ring / glow 透明度色。 */
 export function actionCardStyle(action: ActionDeclaration | undefined): CSSProperties {
   const color = ACTION_STYLE[actionTone(action)].color
   return {
@@ -124,6 +126,7 @@ const ACTION_PARAM_SUMMARY: Record<string, (config: Record<string, unknown>) => 
   },
 }
 
+/** 按动作类型把 config 解释成一行参数摘要（调哪个接口 / 跳哪里 / 什么级别）。 */
 export function actionParamSummary(action: ActionDeclaration | undefined): string {
   if (!action) return '(未知动作)'
   const summarize = ACTION_PARAM_SUMMARY[action.type]
@@ -140,6 +143,7 @@ export function actionTypeTitle(type: string): string {
   return findActionDefinition(type)?.title || type
 }
 
+/** 取动作展示名：显式命名优先，其次内置类型标题，最后退回 type。 */
 export function actionTitle(action: ActionDeclaration | undefined): string {
   if (!action) return '动作已丢失'
   // 用户显式命名优先；未命名时内置类型取协议标题，自定义类型只能退回 type

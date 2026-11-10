@@ -6,6 +6,7 @@ const PAGE_EVENT_LABELS: Record<string, string> = {
   pageUnload: '页面卸载',
 }
 
+/** 页面事件名到中文标签；未登记时原样返回事件名。 */
 export function pageEventLabel(eventName: string): string {
   return PAGE_EVENT_LABELS[eventName] ?? eventName
 }
@@ -49,10 +50,12 @@ const EVENT_TONE_BY_NAME: Record<string, EventTone> = {
   blur: 'data',
 }
 
+/** 由连接上的事件名推断其配色种类；未命中归入中性色 other。 */
 export function eventTone(connection: EventConnection): EventTone {
   return EVENT_TONE_BY_NAME[connection.eventName] ?? 'other'
 }
 
+/** 生成事件连接图标的 CSS 变量：注入 `--event-color` 主色。 */
 export function eventIconStyle(connection: EventConnection): CSSProperties {
   return { '--event-color': EVENT_STYLE[eventTone(connection)].color }
 }

@@ -132,11 +132,15 @@ export const Group = defineComponent({
 
 /** 按钮配色：一个 `tone` 取值对应的一组样式 */
 interface ButtonTone {
+  /** 按钮背景色 */
   background: string
+  /** 边框色 */
   borderColor: string
+  /** 文字色 */
   color: string
 }
 
+/** 三种内置按钮配色；`tone` 取值不在表中时回落到 primary（见 `toneOf`）。 */
 const BUTTON_TONES: Record<string, ButtonTone> = {
   primary: { background: '#2f6bff', borderColor: '#2f6bff', color: '#ffffff' },
   neutral: { background: '#ffffff', borderColor: 'rgba(37, 99, 235, 0.35)', color: '#1e293b' },

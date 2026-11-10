@@ -138,7 +138,7 @@ export interface CanvasLayer {
   pointerEvents?: 'none' | 'children' | 'auto'
   /** 可见条件；廉价纯函数，每个渲染帧调用 */
   visible?(frame: CanvasFrame): boolean
-  /** 覆盖层模块；首次可见时加载，默认导出为 Vue 组件 */
+  /** 覆盖层模块；宿主在图层注册时即预取（不按 visible 过滤），默认导出为 Vue 组件 */
   load(): Promise<unknown>
 }
 

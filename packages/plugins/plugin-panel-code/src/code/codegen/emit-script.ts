@@ -8,6 +8,7 @@ import { emitRuntime } from './runtime'
 
 /** 脚本段产物；vue 的 import 已经在第一行里 */
 export interface EmittedScript {
+  /** `<script setup>` 段逐行文本，已含 vue import 与物料 / 状态 / 数据源 / 运行时拼装 */
   lines: string[]
 }
 

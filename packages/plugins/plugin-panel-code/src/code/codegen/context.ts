@@ -13,7 +13,9 @@ export type MaterialImportResolver = (componentName: string) => string | undefin
 
 /** 一次出码的共享上下文 */
 export interface CodegenContext {
+  /** 表达式编译器，见 {@link ExpressionCompiler} */
   compile: ExpressionCompiler
+  /** 物料导入解析，见 {@link MaterialImportResolver} */
   resolveImport: MaterialImportResolver
   /** 生成代码实际用到的 `$rt` 成员名；决定运行时块里落哪几条 */
   runtimeNeeds: Set<string>
@@ -40,8 +42,16 @@ export const RESERVED_BINDINGS: ReadonlySet<string> = new Set([
   '$query',
 ])
 
+/**
+ * 创建一次出码的共享上下文。
+ *
+ * 只接两个不会变的输入（表达式编译与物料导入解析）；运行期累计的 `runtimeNeeds` /
+ * `components` / `warnings` 等都从这里生长，调用方拿同一对象贯穿整次出码。
+ */
 export function createCodegenContext(input: {
+  /** 表达式编译器，见 {@link ExpressionCompiler} */
   compile: ExpressionCompiler
+  /** 物料导入解析，见 {@link MaterialImportResolver} */
   resolveImport: MaterialImportResolver
 }): CodegenContext {
   return {

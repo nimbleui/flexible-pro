@@ -32,8 +32,11 @@ export interface DataItemRow extends DataItem {
 
 /** 左列的一个分组 */
 export interface DataItemGroup {
+  /** 分组种类，与 {@link DataItemKind} 一致 */
   kind: DataItemKind
+  /** 分组标题文案 */
   label: string
+  /** 该分组下的数据项行 */
   items: readonly DataItemRow[]
 }
 

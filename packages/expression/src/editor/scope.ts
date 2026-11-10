@@ -51,6 +51,7 @@ export interface ScopeSymbol {
   nullable?: boolean
 }
 
+/** 符号来源的中文标签，用于补全分组与详情里的来源徽章 */
 export const SCOPE_SOURCE_LABELS: Readonly<Record<ScopeSymbolSource, string>> = {
   param: '形参',
   callback: '回调参数',
@@ -62,6 +63,7 @@ export const SCOPE_SOURCE_LABELS: Readonly<Record<ScopeSymbolSource, string>> = 
   loop: '循环变量',
 }
 
+/** 符号类型的中文标签，用于补全展示 */
 export const SYMBOL_KIND_LABELS: Readonly<Record<ScopeSymbolKind, string>> = {
   object: '对象',
   array: '数组',

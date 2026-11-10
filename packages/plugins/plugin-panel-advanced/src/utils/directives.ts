@@ -17,6 +17,7 @@ export interface DirectiveTypeOption {
   honored: boolean
 }
 
+/** 指令类型下拉选项；`honored` 标出渲染层是否真正实现该指令。 */
 export const DIRECTIVE_TYPES: readonly DirectiveTypeOption[] = [
   { type: 'show', label: '显示 show', honored: true },
   { type: 'hide', label: '隐藏 hide', honored: true },

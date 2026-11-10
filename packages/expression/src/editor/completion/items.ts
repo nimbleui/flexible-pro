@@ -49,6 +49,11 @@ function functionItems(
     }))
 }
 
+/**
+ * 生成补全项详情文案：`类型 · 来源`，并在有标记时追加「可选 / 可为空」。
+ *
+ * 来源缺省显示「作用域」，与补全面板中符号的来源徽章保持一致。
+ */
 export function symbolDetail(symbol: ScopeSymbol): string {
   const source = symbol.source ? SCOPE_SOURCE_LABELS[symbol.source] : '作用域'
   const flags = [symbol.optional ? '可选' : '', symbol.nullable ? '可为空' : ''].filter(Boolean)

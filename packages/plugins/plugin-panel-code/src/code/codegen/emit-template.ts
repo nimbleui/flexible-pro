@@ -37,6 +37,7 @@ export interface EmittedMarkup {
 
 /** 模板出码输入 */
 export interface MarkupInput {
+  /** 待出码的页面 schema */
   schema: PageSchema
   /** 节点 id → 已绑定的事件名；动作链本体不在出码范围内，模板里只留一条注释 */
   eventsByNode: ReadonlyMap<string, readonly string[]>
@@ -44,6 +45,7 @@ export interface MarkupInput {
 
 /** 一个 schema 值的出码结果 */
 interface EmittedValue {
+  /** 该 schema 值出码后的 JS 表达式文本 */
   js: string
   /** 模板里必须用 `:prop="…"` 绑定而不是静态属性 */
   needsBinding: boolean

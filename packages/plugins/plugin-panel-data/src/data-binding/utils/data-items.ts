@@ -6,6 +6,7 @@ export type DataItemKind = 'variable' | 'source' | 'function' | 'route'
 
 /** 左列的一行数据项 */
 export interface DataItem {
+  /** 数据项种类，决定它归属哪个分组与命名空间（如 `data.` 还是 `$params.`） */
   kind: DataItemKind
   /** 展示名 */
   name: string

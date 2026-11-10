@@ -136,6 +136,12 @@ function symbolFieldItems(
   )
 }
 
+/**
+ * 按已解析的接收者路径生成「成员补全」项。
+ *
+ * `segments` 是点选路径（如 `data.user`）；命中目标符号后取其子字段。
+ * 路径写错（目标不存在）时返回空列表而不是退回「全部方法」，避免误导。
+ */
 export function memberItems(
   prefix: string,
   symbols: readonly ScopeSymbol[] | undefined,
@@ -166,6 +172,12 @@ function inferredFieldItems(type: ValueTypeSchema, prefix: string): CompletionIt
     }))
 }
 
+/**
+ * 用类型推断结果生成「成员补全」项（接收者无法静态解析、只能靠推断时走这里）。
+ *
+ * 推断分支拿不到字段说明，只能展示类型；字段本身仍是补全主项。
+ * 类型未解析成功时返回空列表。
+ */
 export function memberItemsFromInference(
   prefix: string,
   inferred: InferredType,

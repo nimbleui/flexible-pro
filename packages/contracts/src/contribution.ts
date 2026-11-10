@@ -87,7 +87,13 @@ export interface ContributionItem<K extends ContributionPoint = ContributionPoin
  * - `list`：宿主渲染时查询，已按 order / priority / 插件名排序
  */
 export interface ContributionService {
-  /** 注册一组贡献；返回的 Disposable 会移除同批全部条目 */
+  /**
+   * 注册一组贡献；返回的 Disposable 会移除同批全部条目。
+   *
+   * @param plugin 声明这些贡献的插件 id
+   * @param point 贡献点（如面板插槽或菜单）
+   * @param items 该批次的条目；卸载时整批移除，避免孤儿条目
+   */
   register<K extends ContributionPoint>(
     plugin: string,
     point: K,

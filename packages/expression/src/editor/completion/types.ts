@@ -1,6 +1,12 @@
 import type { FunctionDescriptor } from '@lc/schema'
 import type { ScopeSymbol } from '../scope'
 
+/**
+ * 补全项的类别。
+ *
+ * 决定列表里的图标与分组展示；`method` / `property` 来自符号树的类型推断，
+ * `function` / `variable` / `keyword` 来自根级作用域或语言关键字。
+ */
 export type CompletionKind = 'function' | 'method' | 'property' | 'variable' | 'keyword'
 
 /**
