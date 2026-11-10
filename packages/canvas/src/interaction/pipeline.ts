@@ -194,6 +194,9 @@ export function createInteractionPipeline(
   /** 当前挂载的舞台元素；null 表示未 attach，此时不产生任何事件 */
   let stage: HTMLElement | null = null
 
+  /** 最近一次 attach 的注销句柄；重复 attach 前先释放，避免旧舞台监听器残留 */
+  let currentDetach: Disposable | null = null
+
   /** 舞台 rect 快照：指针事件里只读缓存，避免每次 move 触发一次布局读取 */
   let stageRect: DOMRect | null = null
 
@@ -482,14 +485,17 @@ export function createInteractionPipeline(
     /**
      * 挂载舞台 DOM。
      *
-     * 一个管线实例同一时刻只应挂一个舞台：stage / stageRect 等状态是单例的，
-     * 重复 attach 会覆盖前一个舞台，而前一套监听器仍在其上直到旧 Disposable 执行。
+     * 一个管线实例同一时刻只挂一个舞台：stage / stageRect 等状态是单例的。
+     * 重复 attach 会先释放上一套监听再接管新舞台，不会留下两套坐标基准。
      *
      * element 需要 `tabindex`，否则 keydown / keyup 收不到键盘事件；wheel 以
      * `passive: false` 注册，缩放插件才可能 preventDefault 阻止页面滚动。
      * 位移超过阈值的 pointerup 不再合成 click，与浏览器原生行为一致。
      */
     attach(element): Disposable {
+      // 同一管线只认最后一次挂载：先释放上一套监听，否则旧舞台的监听器会继续
+      // 收到事件，而 stage / stageRect 已被新舞台覆盖，坐标会串到错误的作用域。
+      currentDetach?.dispose()
       stage = element
       updateStageRect()
 
@@ -725,8 +731,10 @@ export function createInteractionPipeline(
       element.addEventListener('dblclick', onDoubleClick)
       window.addEventListener('resize', onResize)
 
-      return {
+      const detach: Disposable = {
         dispose: () => {
+          // 只清自己的登记：旧句柄被重复 dispose 时不能把新 attach 的句柄抹掉
+          if (currentDetach === detach) currentDetach = null
           // 先摘掉全部监听，再收尾手势：避免 onFinish 里仍可能收到新的 pointermove
           element.removeEventListener('pointerdown', onPointerDown)
           element.removeEventListener('pointermove', onPointerMove)
@@ -748,6 +756,8 @@ export function createInteractionPipeline(
           down = null
         },
       }
+      currentDetach = detach
+      return detach
     },
   }
 
