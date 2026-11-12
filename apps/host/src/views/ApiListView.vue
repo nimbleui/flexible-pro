@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import EmptyState from '../components/common/EmptyState.vue'
 import { useRoute } from 'vue-router'
 import type { ProjectApi } from '@lc/schema'
 import { joinApiUrl } from '@lc/schema'
@@ -93,13 +94,17 @@ function confirmDelete(id: string): void {
 
     <ApiRequestConfigPanel :project-id="projectId" />
 
-    <div v-if="rows.length === 0" class="lc-apis__empty">
-      <span class="lc-apis__empty-title">这个项目还没有登记接口</span>
-      <span>把跨页面复用的接口抽到这里，页面里就只需要选名字，不必各抄一遍地址。</span>
-      <RouterLink class="lc-apis__link" :to="projectPath(projectId, 'apis/new')"
-        >登记第一个接口</RouterLink
-      >
-    </div>
+    <EmptyState
+      v-if="rows.length === 0"
+      title="这个项目还没有登记接口"
+      description="把跨页面复用的接口抽到这里，页面里就只需要选名字，不必各抄一遍地址。"
+    >
+      <template #actions>
+        <RouterLink class="lc-apis__primary" :to="projectPath(projectId, 'apis/new')"
+          >登记第一个接口</RouterLink
+        >
+      </template>
+    </EmptyState>
 
     <section v-for="group in rows" :key="group.name ?? '__ungrouped'" class="lc-apis__group">
       <h2 class="lc-apis__group-title">{{ group.name ?? '未分组' }}</h2>
@@ -197,8 +202,22 @@ function confirmDelete(id: string): void {
   padding: 0 14px;
   border: 1px solid var(--lc-accent);
   border-radius: var(--lc-radius-sm);
-  background: var(--lc-accent-soft);
+  background: linear-gradient(
+    135deg,
+    var(--lc-accent-bright),
+    var(--lc-accent) 52%,
+    var(--lc-accent-2)
+  );
+  box-shadow: 0 0 18px var(--lc-glow);
+  color: var(--lc-on-accent);
+  font-weight: 600;
   white-space: nowrap;
+}
+
+.lc-apis__primary:hover {
+  border-color: var(--lc-accent-bright);
+  color: var(--lc-on-accent);
+  text-decoration: none;
 }
 
 .lc-apis__group {
@@ -226,6 +245,7 @@ function confirmDelete(id: string): void {
 }
 
 .lc-apis__item {
+  position: relative;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -234,6 +254,39 @@ function confirmDelete(id: string): void {
   border: 1px solid var(--lc-border);
   border-radius: var(--lc-radius-sm);
   background: var(--lc-panel-glass);
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+/* 行尾光晕：hover 时点亮，呼应全局蓝紫霓虹，不抢交互焦点 */
+.lc-apis__item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 100px;
+  height: 100%;
+  pointer-events: none;
+  background: radial-gradient(circle at 100% 50%, rgba(55, 182, 255, 0.16), transparent 72%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.lc-apis__item:hover {
+  border-color: var(--lc-border-strong);
+  background: linear-gradient(150deg, var(--lc-surface-raised), var(--lc-surface));
+  box-shadow:
+    0 0 0 1px rgba(55, 182, 255, 0.2),
+    0 14px 34px rgba(0, 6, 18, 0.5),
+    0 0 26px rgba(47, 140, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.lc-apis__item:hover::before {
+  opacity: 1;
 }
 
 .lc-apis__item-main {
@@ -299,8 +352,7 @@ function confirmDelete(id: string): void {
   white-space: nowrap;
 }
 
-.lc-apis__link:hover,
-.lc-apis__primary:hover {
+.lc-apis__link:hover {
   text-decoration: underline;
 }
 
@@ -347,6 +399,13 @@ function confirmDelete(id: string): void {
 
   .lc-apis__item {
     flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-apis__primary,
+  .lc-apis__item {
+    transition: none;
   }
 }
 </style>

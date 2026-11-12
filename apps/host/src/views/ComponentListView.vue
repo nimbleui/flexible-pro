@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import EmptyState from '../components/common/EmptyState.vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { MaterialService } from '@lc/contracts'
 import { SchemaPreview, useAppContext, useRegistryList } from '@lc/vue'
@@ -126,18 +127,23 @@ function toggleEnabled(component: CustomComponent): void {
       </span>
     </div>
 
-    <div v-if="projectComponents.length === 0" class="lc-components__empty">
-      <span class="lc-components__empty-title">这个项目还没有自定义组件</span>
-      <span>把反复出现的卡片、徽标、表头抽成组件，之后所有页面都能直接拖。</span>
-      <button type="button" class="lc-components__link" @click="openCreate">
-        创建第一个组件
-      </button>
-    </div>
+    <EmptyState
+      v-if="projectComponents.length === 0"
+      title="这个项目还没有自定义组件"
+      description="把反复出现的卡片、徽标、表头抽成组件，之后所有页面都能直接拖。"
+    >
+      <template #actions>
+        <button type="button" class="lc-components__primary" @click="openCreate">
+          创建第一个组件
+        </button>
+      </template>
+    </EmptyState>
 
-    <div v-else-if="visible.length === 0" class="lc-components__empty">
-      <span class="lc-components__empty-title">没有匹配的组件</span>
-      <span>换个关键字，或先去「函数管理」确认你在找的是不是全局函数。</span>
-    </div>
+    <EmptyState
+      v-else-if="visible.length === 0"
+      title="没有匹配的组件"
+      description="换个关键字，或先去「函数管理」确认你在找的是不是全局函数。"
+    />
 
     <ul v-else class="lc-components__list">
       <li v-for="component in visible" :key="component.id" class="lc-components__item">
@@ -302,9 +308,15 @@ function toggleEnabled(component: CustomComponent): void {
   height: 32px;
   padding: 0 14px;
   border: 1px solid var(--lc-accent);
-  border-radius: 8px;
-  background: linear-gradient(150deg, var(--lc-accent-bright), var(--lc-accent));
-  color: #04101f;
+  border-radius: var(--lc-radius-sm);
+  background: linear-gradient(
+    150deg,
+    var(--lc-accent-bright),
+    var(--lc-accent) 55%,
+    var(--lc-accent-2)
+  );
+  box-shadow: 0 0 18px var(--lc-glow);
+  color: var(--lc-on-accent);
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -403,13 +415,47 @@ function toggleEnabled(component: CustomComponent): void {
 }
 
 .lc-components__item {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding: 14px 16px;
   border: 1px solid var(--lc-border);
   border-radius: var(--lc-radius-md);
-  background: linear-gradient(150deg, rgba(10, 30, 61, 0.7), rgba(7, 21, 40, 0.5));
+  background: linear-gradient(150deg, var(--lc-surface), var(--lc-surface-sunken));
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+/* 行尾光晕：hover 时点亮，呼应全局蓝紫霓虹，不抢交互焦点 */
+.lc-components__item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 120px;
+  height: 100%;
+  pointer-events: none;
+  background: radial-gradient(circle at 100% 50%, rgba(55, 182, 255, 0.16), transparent 72%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.lc-components__item:hover {
+  border-color: var(--lc-border-strong);
+  background: linear-gradient(150deg, var(--lc-surface-raised), var(--lc-surface));
+  box-shadow:
+    0 0 0 1px rgba(55, 182, 255, 0.2),
+    0 16px 40px rgba(0, 6, 18, 0.5),
+    0 0 28px rgba(47, 140, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.lc-components__item:hover::before {
+  opacity: 1;
 }
 
 .lc-components__body {
@@ -557,7 +603,8 @@ function toggleEnabled(component: CustomComponent): void {
 
 @media (prefers-reduced-motion: reduce) {
   .lc-components__primary,
-  .lc-components__button {
+  .lc-components__button,
+  .lc-components__item {
     transition: none;
   }
 }

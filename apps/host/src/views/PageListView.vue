@@ -8,11 +8,12 @@ import { currentReleaseOf, onReleasesChange } from '../projects/release-store'
 import { projectPath } from '../projects/project-path'
 import { toastService } from '../toast'
 import { useAppContext } from '@lc/vue'
+import EmptyState from '../components/common/EmptyState.vue'
 
 /**
  * 页面列表。
  *
- * 记录来自 `page-store`（localStorage），并按 URL 上的项目过滤：项目是归属容器，
+ * 记录来自 `page-store`（IndexedDB），并按 URL 上的项目过滤：项目是归属容器，
  * 这一页只该看到自己名下的页面。改造前带过来的记录没有归属字段，
  * 由 `resolveProjectId` 解释成默认项目，所以它们只在默认项目里出现。
  */
@@ -163,11 +164,17 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <button type="button" class="lc-pages__primary" @click="openCreate">+ 新建页面</button>
     </header>
 
-    <div v-if="visible.length === 0" class="lc-pages__empty">
-      <span class="lc-pages__empty-title">这个项目还没有页面</span>
-      <span>先建一张空白页，进画布拖物料，保存后就常驻在这里。</span>
-      <button type="button" class="lc-pages__link" @click="openCreate">创建第一个页面</button>
-    </div>
+    <EmptyState
+      v-if="visible.length === 0"
+      title="这个项目还没有页面"
+      description="先建一张空白页，进画布拖物料，保存后就常驻在这里。"
+    >
+      <template #actions>
+        <button type="button" class="lc-pages__primary" @click="openCreate">
+          创建第一个页面
+        </button>
+      </template>
+    </EmptyState>
 
     <ul v-else class="lc-pages__list">
       <li
@@ -393,7 +400,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     var(--lc-accent-2)
   );
   box-shadow: 0 0 18px var(--lc-glow);
-  color: var(--lc-app-bg);
+  color: var(--lc-on-accent);
   font-weight: 600;
 }
 
@@ -421,13 +428,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     var(--lc-accent) 55%,
     var(--lc-accent-2)
   );
-  color: var(--lc-app-bg);
+  color: var(--lc-on-accent);
   font-weight: 600;
 }
 
 .lc-pages__button--primary:hover {
   border-color: var(--lc-accent-bright);
-  color: var(--lc-app-bg);
+  color: var(--lc-on-accent);
 }
 
 .lc-pages__button--danger {

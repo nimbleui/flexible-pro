@@ -376,7 +376,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     var(--lc-accent-2)
   );
   box-shadow: 0 0 18px var(--lc-glow);
-  color: var(--lc-app-bg);
+  color: var(--lc-on-accent);
   font-weight: 600;
 }
 
@@ -403,13 +403,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     var(--lc-accent) 55%,
     var(--lc-accent-2)
   );
-  color: var(--lc-app-bg);
+  color: var(--lc-on-accent);
   font-weight: 600;
 }
 
 .lc-projects__button--primary:hover {
   border-color: var(--lc-accent-bright);
-  color: var(--lc-app-bg);
+  color: var(--lc-on-accent);
 }
 
 .lc-projects__button--danger {
