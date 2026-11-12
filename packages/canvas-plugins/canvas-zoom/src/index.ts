@@ -11,6 +11,9 @@ const MAX_ZOOM = 4
 /** 键盘与按钮每次点击的缩放倍率 */
 const STEP = 1.2
 
+/** 「适应画布」命令与首帧适配共用的屏幕留白，比视口 fit 的默认 40 更宽 */
+const FIT_PADDING = 64
+
 /**
  * 滚轮 deltaY 到缩放倍率的指数映射系数。
  *
@@ -147,8 +150,7 @@ export default defineCanvasPlugin({
       ctx.command.register({
         id: 'canvas.zoomFit',
         title: '适应画布',
-        // 显式传 64 屏幕像素留白，比视口 fit 的默认 40 更宽
-        run: () => canvas.viewport.fit(canvas.scene.getRootBounds(), 64),
+        run: () => canvas.viewport.fit(canvas.scene.getRootBounds(), FIT_PADDING),
       }),
     )
 
@@ -180,5 +182,43 @@ export default defineCanvasPlugin({
         }),
       )
     }
+
+    /**
+     * 首帧只在「100% 装不下整页」时收缩视口。
+     *
+     * 视口创建时 zoom 缺省 1，而 1440 宽的页面在 1366×768 屏的舞台上（实测约 735px 可视宽）
+     * 横向溢出约 700px，第一眼只看到左上角一块。已经装得下就不动——把能整页看见的文档
+     * 缩到很小会让文字发虚，那不是这条要解决的问题。
+     *
+     * 一辈子只做一次：canvas-core 的 attach 会先同步量一次尺寸再交给 ResizeObserver，
+     * 那次 setSize 的通知就是这里的触发点；卸载时尺寸归零会被尺寸守卫挡掉，
+     * 所以复用同一 Realm 的热更新不会把用户手动调过的缩放覆盖掉。
+     * 末尾再补一次同步调用，覆盖插件晚于挂载安装的情形。
+     */
+    let fitted = false
+
+    function fitIfOverflowing(): void {
+      if (fitted) return
+
+      const size = canvas.viewport.size
+      const bounds = canvas.scene.getRootBounds()
+      if (size.width <= 0 || size.height <= 0) return
+      // 根节点缺失时 core 会回落到 100×40 的兜底矩形，非正数一律视为还没准备好
+      if (bounds.width <= 0 || bounds.height <= 0) return
+
+      fitted = true
+
+      if (
+        bounds.width <= size.width - FIT_PADDING * 2 &&
+        bounds.height <= size.height - FIT_PADDING * 2
+      ) {
+        return
+      }
+
+      canvas.viewport.fit(bounds, FIT_PADDING)
+    }
+
+    ctx.effect(() => canvas.viewport.onDidChange(fitIfOverflowing))
+    fitIfOverflowing()
   },
 })
