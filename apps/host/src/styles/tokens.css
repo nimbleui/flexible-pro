@@ -2,10 +2,57 @@
  * 设计器设计令牌：外壳与覆盖层只消费语义变量，不硬编码主题色。
  *
  * 深色霓虹体系下，画布覆盖层（手柄、辅助线、网格、右键菜单）同样直接读取这些变量，
- * 因此既有变量名一个都不能改，只能替换取值；新增变量只服务于外壳布局。
+ * 因此既有变量名一个都不能改，只能替换取值；新增变量分为 L0 尺度层与外壳专用层，
+ * 覆盖层不依赖它们，改名与调值可自由进行。
  */
 :root {
   color-scheme: dark;
+
+  /* L0 尺度层：只回答「多大 / 多快」，不含颜色语义，因此深浅主题共用、可自由增删。
+     半径的 sm(8) / md(12) 留在下面的冻结块里——两者已被引用 240 / 74 次，
+     改名或改值会牵动画布覆盖层，所以新增档位只能另起名字，不能重排现有家族。 */
+  --lc-space-1: 4px;
+  --lc-space-2: 8px;
+  --lc-space-3: 12px;
+  --lc-space-4: 16px;
+  --lc-space-5: 24px;
+  --lc-space-6: 32px;
+  --lc-space-7: 48px;
+  --lc-space-8: 64px;
+
+  /* 11px 是可读下限。属性面板 / 事件流卡 / 页面数据 / 代码编辑器原有 7 处 9px，已升到这一档；
+     仓内还散落 88 处 10px，遵循「改到哪个界面顺手升哪处」，不做全仓批量替换。 */
+  --lc-font-size-3xs: 11px;
+  --lc-font-size-2xs: 12px;
+  --lc-font-size-xs: 13px;
+  --lc-font-size-sm: 14px;
+  --lc-font-size-md: 16px;
+  --lc-font-size-lg: 20px;
+  --lc-font-size-xl: 26px;
+
+  --lc-radius-2xs: 4px;
+  --lc-radius-xs: 6px;
+  --lc-radius-lg: 16px;
+  --lc-radius-pill: 999px;
+
+  /* 28 是设计器默认控件高，32 给长表单与发布页，40 留给每区唯一的主操作 */
+  --lc-control-h-24: 24px;
+  --lc-control-h-28: 28px;
+  --lc-control-h-32: 32px;
+  --lc-control-h-40: 40px;
+
+  /* 变量在同一元素上取值，故 var(--lc-shadow) 会跟着下面的主题块翻转，
+     第三级阴影不必在亮色块里重复声明一遍 */
+  --lc-elev-1: 0 1px 2px rgba(0, 6, 18, 0.4);
+  --lc-elev-2: 0 8px 20px -6px rgba(0, 6, 18, 0.55);
+  --lc-elev-3: var(--lc-shadow);
+
+  /* 现状硬编码的 0.15 / 0.16 / 0.18 / 0.2s 收进这三档 */
+  --lc-motion-fast: 120ms;
+  --lc-motion-base: 180ms;
+  --lc-motion-slow: 260ms;
+  --lc-ease-out: cubic-bezier(0.22, 0.8, 0.32, 1);
+  --lc-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 
   /* 画布与覆盖层：插件按变量名消费，改名会让手柄 / 辅助线 / 选中框失去颜色 */
   --lc-canvas-bg: #050d1c;
@@ -51,6 +98,45 @@
   --lc-glow-soft: rgba(47, 140, 255, 0.2);
   --lc-hairline: rgba(64, 150, 255, 0.1);
   --lc-surface-raised: #0d2444;
+
+  /* 按钮文字色：与页面背景分离，亮色主题下翻转为白，保证渐变按钮可读 */
+  --lc-on-accent: #04101f;
+}
+
+/* 亮色科技主题：只覆盖外壳语义变量，画布内核（画布背景 / 手柄 / 辅助线 / 网格线 / 主色）
+   保持深色取值，让编辑区仍是霓虹深底，外壳切换为浅色而不必重做整个画布配色 */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --lc-app-bg: #eef2f8;
+  --lc-rail-bg: #f4f7fc;
+  --lc-panel-glass: rgba(255, 255, 255, 0.74);
+  --lc-dock-bg: rgba(238, 242, 248, 0.88);
+  --lc-surface: #ffffff;
+  --lc-surface-sunken: #e8eef7;
+  --lc-surface-raised: #ffffff;
+  --lc-border: rgba(30, 80, 160, 0.18);
+  --lc-border-strong: rgba(30, 80, 160, 0.34);
+  --lc-text: #0f2747;
+  --lc-text-secondary: #41597d;
+  /* 原 #6c85a8 落在 --lc-surface-sunken(#e8eef7) 上只有 3.88:1，而 muted 被引用 328 处、
+     多为 10–12px 小字，浅色主题下读不清；#52708f 同一组合实测 5.69:1，满足 AA */
+  --lc-text-muted: #52708f;
+  --lc-accent-soft: rgba(47, 140, 255, 0.12);
+  --lc-accent-2-soft: rgba(139, 92, 246, 0.14);
+  --lc-grid: rgba(30, 80, 160, 0.06);
+  --lc-glow: rgba(47, 140, 255, 0.28);
+  --lc-glow-strong: rgba(55, 182, 255, 0.38);
+  --lc-glow-soft: rgba(47, 140, 255, 0.14);
+  --lc-hairline: rgba(30, 80, 160, 0.12);
+  /* 浅色底上纯黑投影会显脏，改用同色相蓝灰；第三级经 var(--lc-shadow) 自动跟随，不必重复 */
+  --lc-elev-1: 0 1px 2px rgba(20, 50, 100, 0.1);
+  --lc-elev-2: 0 8px 20px -6px rgba(20, 50, 100, 0.16);
+  --lc-shadow: 0 24px 60px rgba(20, 50, 100, 0.18);
+  --lc-success: #0f9e7e;
+  --lc-warning: #d98a00;
+  --lc-danger: #e0455e;
+  --lc-on-accent: #ffffff;
 }
 
 html,

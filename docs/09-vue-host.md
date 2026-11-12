@@ -324,7 +324,9 @@ ContextScope(editor.context)                            :376
 
 ### 样式
 
-- 设计令牌：`apps/host/src/styles/tokens.css:4-24` 共 **18 个 `--lc-*` 变量**（画布底色、surface、border、text、accent、danger、radius、guide、handle、grid line、shadow、font）。头注释即规则：「外壳与覆盖层只消费语义变量，不硬编码主题色」。令牌由宿主提供，远程画布只读变量——换一个宿主复用画布时必须自带同一套令牌。
+- 设计令牌：`apps/host/src/styles/tokens.css` 共 **94 个 `--lc-*` 声明**（`:root` 68 + `[data-theme='light']` 26），分两层。
+  **冻结语义层**（`tokens.css:56-102`：画布底色、surface、border、text、accent、danger、radius-sm/md、guide、handle、grid line、shadow、font）——覆盖层按变量名消费，这层的名字与取值本次一个都没动。**L0 尺度层**（`tokens.css:11-54`：space / font-size / radius 补档 / control-h / elev / motion / ease，共 31 个新名字）只描述「多大 / 多快」，深浅主题共用，**目前还没有任何消费者**，供后续 `@lc/ui` 与外壳改造落地。头注释即规则：「外壳与覆盖层只消费语义变量，不硬编码主题色」。令牌由宿主提供，远程画布只读变量——换一个宿主复用画布时必须自带同一套令牌。
+- **浅色主题只覆盖外壳变量**（`tokens.css:107-139`），画布底色 / 手柄 / 辅助线 / 网格保持深色取值。`--lc-text-muted` 在浅色块里从 `#6c85a8` 改为 `#52708f`：前者落在 `--lc-surface-sunken`（`#e8eef7`）上实测只有 3.88:1，而 muted 被引用 328 处、多为 10–12px 小字；后者同一组合 5.69:1，满足 WCAG AA。`--lc-elev-3` 写成 `var(--lc-shadow)`，浏览器实测两主题各自解析为 `rgba(0,6,18,.55)` / `rgba(20,50,100,.18)`，故浅色块只需覆盖 `--lc-elev-1/2`。
 - 布局样式：`apps/host/src/styles/app.css`（392 行）定义 `.lc-app*`、`.lc-app__nav*`、`.lc-designer*`、`.lc-pages*`、`.lc-toolbar*`、`.lc-status*` 等宿主类。
 - **每个可复用组件都带 `<style scoped>`**：`CanvasStage.vue:290`、`LayerHost.vue:204`、`PluginBoundary.vue:46`、`Slot.vue:139`、`CommandPalette.vue:144`、`OutlinePanel.vue:335`、`PropertiesPanel.vue:353`。`ToolbarStock.vue`/`StatusBar.vue`/`App.vue` 无 style 块，走全局 `app.css`——它们本来就是宿主壳层。
 - **画布覆盖层是 `.ts` 渲染函数，用内联 `style` 对象 + CSS 变量兜底**：例 `canvas-selection/src/overlay.ts:107-118` 的 `border: 1px solid var(--lc-accent, #2563eb)`、`canvas-grid/src/overlay.ts:58-60` 的 `var(--lc-grid-line, rgba(15,23,42,0.08))`。这样插件在没有宿主持色文件时仍能自洽显示。一处不一致：hover 描边硬编码 `rgba(37, 99, 235, 0.55)`（`canvas-selection/src/overlay.ts:95`）未走变量。
