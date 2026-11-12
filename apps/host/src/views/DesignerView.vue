@@ -206,9 +206,15 @@ const { registerDialogCommands, registerVersionCommands } = useDesignerCommands(
 
 type DeviceKind = 'desktop' | 'tablet' | 'mobile'
 
-/** 预览设备档位；顺序即切换器展示顺序，与 DeviceKind 全集一致 */
+/**
+ * 预览设备档位；顺序即切换器展示顺序，与 DeviceKind 全集一致。
+ *
+ * 这里刻意不持有「当前档位」：断点渲染要改的是远程画布的求值链路，外壳单方面记住
+ * 一个档位只会做出一个点了只换按钮态的假控件。先按仓里「设置」「发布」的同一约定
+ * 渲染成禁用态，远程支持落地后再把状态接上来。
+ */
 const devices: ReadonlyArray<{
-  /** 档位 id，写入 activeDevice 供模板比较 */
+  /** 档位 id，决定字形类名 lc-device-switch__glyph--<id> */
   id: DeviceKind
   /** 档位展示名 */
   label: string
@@ -217,9 +223,6 @@ const devices: ReadonlyArray<{
   { id: 'tablet', label: '平板' },
   { id: 'mobile', label: '手机' },
 ]
-
-/** 模板直接写回 activeDevice（@click="activeDevice = device.id"），折叠表与状态保留在视图 */
-const activeDevice = ref<DeviceKind>('desktop')
 
 onMounted(async () => {
   await appCtx.runtime.whenIdle()
@@ -336,10 +339,9 @@ const devtoolsOpen = shallowRef(false)
             :key="device.id"
             type="button"
             class="lc-device-switch__button"
-            :aria-pressed="activeDevice === device.id"
-            :aria-label="`${device.label}预览`"
-            :title="`${device.label}（断点渲染尚未接入）`"
-            @click="activeDevice = device.id"
+            disabled
+            :aria-label="`${device.label}预览（断点渲染尚未接入）`"
+            :title="`${device.label}预览：断点渲染尚未接入，暂不可用`"
           >
             <span
               class="lc-device-switch__glyph"

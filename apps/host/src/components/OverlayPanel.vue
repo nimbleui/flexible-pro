@@ -53,7 +53,18 @@ const emit = defineEmits<{
   display: flex;
   flex: none;
   flex-direction: column;
-  width: 280px;
+
+  /*
+   * 上限 280、下限 180，中间跟着舞台宽走。
+   *
+   * 原来写死 280：1366×768 舞台只有 735px 宽，浮层一张就盖掉 40%，而页面大纲恰恰是
+   * 调布局时一直开着的那块。大纲树本身是流式的（OutlinePanel.vue 只有 16/20px 图标宽），
+   * 收到 32% 不会挤坏内容。
+   *
+   * 只动浮层自己的宽，不动 .lc-designer__stage / .lc-stage 的盒模型：画布的选框、标尺、
+   * 小地图、右键菜单都按 .lc-stage 的 clientWidth 定位，那个改动要连它们一起验。
+   */
+  width: clamp(180px, 32%, 280px);
   overflow: hidden;
   border: 1px solid var(--lc-border-strong);
   border-radius: var(--lc-radius-md);
