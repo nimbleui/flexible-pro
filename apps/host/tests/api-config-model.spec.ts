@@ -189,8 +189,59 @@ describe('读档收窄', () => {
       { id: 'a', name: 'x', headers: { A: 1 } },
       { id: 'a', name: 'x', params: null },
       { id: 'a', name: '' },
+      { id: 'a', name: 'x', autoRetry: 'yes' },
+      { id: 'a', name: 'x', requestLogging: 1 },
+      { id: 'a', name: 'x', responseHeaders: { A: 1 } },
     ]
 
     for (const value of badRecords) expect(isEnvironment(value)).toBe(false)
+  })
+})
+
+describe('响应头登记与重试 / 日志开关', () => {
+  it('autoRetry 缺省 true 只落 false，requestLogging 缺省 false 只落 true', () => {
+    const env = normalizeEnvironment({
+      id: 'e',
+      name: '测试',
+      autoRetry: true,
+      requestLogging: false,
+    })
+    expect(env.autoRetry).toBeUndefined()
+    expect(env.requestLogging).toBeUndefined()
+
+    const flipped = normalizeEnvironment({
+      id: 'e',
+      name: '测试',
+      autoRetry: false,
+      requestLogging: true,
+    })
+    expect(flipped.autoRetry).toBe(false)
+    expect(flipped.requestLogging).toBe(true)
+  })
+
+  it('响应头登记按默认头同一规则清洗，空集合不落键', () => {
+    const env = normalizeEnvironment({
+      id: 'e',
+      name: '测试',
+      responseHeaders: { '  ': 'x', 'Access-Control-Allow-Origin': ' * ' },
+    })
+    expect(env.responseHeaders).toEqual({ 'Access-Control-Allow-Origin': '*' })
+
+    expect(
+      normalizeEnvironment({ id: 'e', name: '测试', responseHeaders: {} }).responseHeaders,
+    ).toBeUndefined()
+  })
+
+  it('重试 / 日志开关随请求默认值带出去，响应头登记不属于请求侧', () => {
+    const defaults = toRequestDefaults({
+      id: 'e',
+      name: '测试',
+      autoRetry: false,
+      requestLogging: true,
+      responseHeaders: { 'Access-Control-Allow-Origin': '*' },
+    })
+
+    expect(defaults).toEqual({ autoRetry: false, requestLogging: true })
+    expect(defaults && 'responseHeaders' in defaults).toBe(false)
   })
 })

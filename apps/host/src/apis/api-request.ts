@@ -184,8 +184,9 @@ async function fetchToken(
 /**
  * 发一次已经合并过默认值的请求。
  *
- * 带 `defaults.auth` 时会先取凭据、注入请求头；命中 401 就丢掉缓存重取一次并重发——
- * **只重发一次**，否则凭据始终无效的请求会在服务端与客户端之间无限打转。
+ * 带 `defaults.auth` 时会先取凭据、注入请求头；命中 401 且 `autoRetry` 未关闭时丢掉缓存
+ * 重取一次并重发——**只重发一次**，否则凭据始终无效的请求会在服务端与客户端之间无限打转。
+ * `requestLogging` 打开时在控制台打印一行方法 / 地址 / 状态 / 耗时，登录取票同样计入。
  *
  * @param config 完整请求配置
  * @param defaults 项目默认值；凭据来源从这里的 `auth` 读，登录接口也按这里拼域名
@@ -196,6 +197,28 @@ export async function sendRequest(
   config: RestConfig,
   located: { url: string },
   options: ApiRequestOptions & { defaults?: RequestDefaults } = {},
+): Promise<ApiRequestResult> {
+  const result = await executeRequest(config, located, options)
+
+  if (options.defaults?.requestLogging === true) {
+    console.info(
+      '[lc-http]',
+      config.method ?? 'GET',
+      located.url,
+      result.status,
+      `${result.durationMs}ms`,
+      result.ok ? 'ok' : (result.error ?? 'failed'),
+    )
+  }
+
+  return result
+}
+
+/** 请求执行本体；日志统一在 {@link sendRequest} 出口打印，避免每个返回分支各写一遍 */
+async function executeRequest(
+  config: RestConfig,
+  located: { url: string },
+  options: ApiRequestOptions & { defaults?: RequestDefaults },
 ): Promise<ApiRequestResult> {
   const startedAt = Date.now()
   const elapsed = (): number => Date.now() - startedAt
@@ -235,8 +258,8 @@ export async function sendRequest(
   const first = await perform(sent, located.url, options.signal, fetchImpl, startedAt)
 
   // 401 只处理一次：丢缓存 → 重新取票 → 重发。第二次再 401 就如实报失败，否则凭据
-  // 一直无效的请求会在服务端与客户端之间无限打转。
-  if (defaults && auth && first.status === 401) {
+  // 一直无效的请求会在服务端与客户端之间无限打转。autoRetry 显式关闭时不重发。
+  if (defaults && auth && first.status === 401 && defaults.autoRetry !== false) {
     tokenCache.delete(tokenCacheKey(defaults))
     try {
       const token = await fetchToken(defaults, options.signal, fetchImpl)

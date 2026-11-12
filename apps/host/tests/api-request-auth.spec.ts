@@ -246,4 +246,44 @@ describe('401 重取一次', () => {
     expect(result.status).toBe(401)
     expect(calls).toHaveLength(1)
   })
+
+  it('autoRetry 关闭时 401 不重取也不重发，如实报失败', async () => {
+    const { fetchMock, calls } = makeFetch({
+      [LOGIN_PATH]: () => jsonResponse({ data: { token: 'T' } }),
+      '/users': () => new Response('no', { status: 401, statusText: 'Unauthorized' }),
+    })
+
+    const result = await sendApiRequest(
+      { method: 'GET', path: '/users' },
+      defaultsWithAuth({ autoRetry: false }),
+      { fetchImpl: fetchMock },
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.status).toBe(401)
+    expect(calls.filter((call) => call.url === '/users')).toHaveLength(1)
+    expect(calls.filter((call) => call.url === LOGIN_PATH)).toHaveLength(1)
+  })
+})
+
+describe('请求日志', () => {
+  it('requestLogging 打开时打印一行方法 / 地址 / 状态，关闭时不打印', async () => {
+    const spy = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const { fetchMock } = makeFetch({ '/users': () => jsonResponse([]) })
+
+    await sendApiRequest(
+      { method: 'GET', path: '/users' },
+      { requestLogging: true },
+      { fetchImpl: fetchMock },
+    )
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy.mock.calls[0]).toContain('[lc-http]')
+    expect(spy.mock.calls[0]).toContain('/users')
+
+    spy.mockClear()
+    await sendApiRequest({ method: 'GET', path: '/users' }, undefined, { fetchImpl: fetchMock })
+    expect(spy).not.toHaveBeenCalled()
+
+    spy.mockRestore()
+  })
 })

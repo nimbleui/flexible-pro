@@ -1,5 +1,6 @@
 import { createPersistentId } from '@lc/shared'
 import type { HttpRequestAuth, RequestDefaults, RequestEnvironment } from '@lc/schema'
+import { sanitizeEntries } from './api-model'
 
 /**
  * 项目请求环境（域名、默认头、默认参数、凭据策略）的纯逻辑。
@@ -36,6 +37,12 @@ export interface EnvironmentInput {
   params?: Record<string, string>
   /** 跨域是否携带凭据；false 与缺省等价 */
   withCredentials?: boolean
+  /** 401 自动重取凭据并重发；缺省 true，只有 false 才落库 */
+  autoRetry?: boolean
+  /** 控制台请求日志；缺省 false，只有 true 才落库 */
+  requestLogging?: boolean
+  /** 登记的服务端响应头（设计期信息，不参与请求）；清洗规则同默认头 */
+  responseHeaders?: Record<string, string>
   /**
    * 凭据来源（可选）：登录接口的请求侧字段 + token 在响应里的路径。
    *
@@ -83,6 +90,7 @@ export function normalizeEnvironment(input: EnvironmentInput): RequestEnvironmen
   const headers =
     input.headers && Object.keys(input.headers).length > 0 ? input.headers : undefined
   const params = input.params && Object.keys(input.params).length > 0 ? input.params : undefined
+  const responseHeaders = sanitizeEntries(input.responseHeaders)
   const auth = normalizeAuth(input.auth)
 
   return {
@@ -92,6 +100,9 @@ export function normalizeEnvironment(input: EnvironmentInput): RequestEnvironmen
     ...(headers === undefined ? {} : { headers }),
     ...(params === undefined ? {} : { params }),
     ...(input.withCredentials === true ? { withCredentials: true } : {}),
+    ...(input.autoRetry === false ? { autoRetry: false } : {}),
+    ...(input.requestLogging === true ? { requestLogging: true } : {}),
+    ...(responseHeaders === undefined ? {} : { responseHeaders }),
     ...(auth === undefined ? {} : { auth }),
   }
 }
@@ -142,6 +153,8 @@ export function toRequestDefaults(
     ...(env.headers === undefined ? {} : { headers: env.headers }),
     ...(env.params === undefined ? {} : { params: env.params }),
     ...(env.withCredentials === undefined ? {} : { withCredentials: env.withCredentials }),
+    ...(env.autoRetry === undefined ? {} : { autoRetry: env.autoRetry }),
+    ...(env.requestLogging === undefined ? {} : { requestLogging: env.requestLogging }),
     ...(env.auth === undefined ? {} : { auth: env.auth }),
   }
 }
@@ -195,6 +208,9 @@ export function isEnvironment(value: unknown): value is RequestEnvironment {
     (value.headers === undefined || isStringMap(value.headers)) &&
     (value.params === undefined || isStringMap(value.params)) &&
     (value.withCredentials === undefined || typeof value.withCredentials === 'boolean') &&
+    (value.autoRetry === undefined || typeof value.autoRetry === 'boolean') &&
+    (value.requestLogging === undefined || typeof value.requestLogging === 'boolean') &&
+    (value.responseHeaders === undefined || isStringMap(value.responseHeaders)) &&
     (value.auth === undefined || isAuth(value.auth))
   )
 }
