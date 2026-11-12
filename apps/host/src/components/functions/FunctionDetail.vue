@@ -80,8 +80,8 @@ type TabId = 'basic' | 'code' | 'params' | 'examples' | 'versions'
 
 const TABS: ReadonlyArray<{ id: TabId; label: string }> = [
   { id: 'basic', label: '基本信息' },
-  { id: 'code', label: '代码编辑' },
   { id: 'params', label: '参数配置' },
+  { id: 'code', label: '代码编辑' },
   { id: 'examples', label: '使用示例' },
   { id: 'versions', label: '版本管理' },
 ]
@@ -384,7 +384,7 @@ function validate(): boolean {
     return false
   }
   if (errors.value.body) {
-    tab.value = 'basic'
+    tab.value = 'code'
     return false
   }
   return true
@@ -702,28 +702,14 @@ onUnmounted(() => {
               :key="option.value"
               class="lc-fnd__scope"
               :class="{ 'lc-fnd__scope--active': draft.scope === option.value }"
-              :title="option.hint"
             >
               <input v-model="draft.scope" type="radio" name="fn-scope" :value="option.value" />
-              {{ option.label }}
+              <span class="lc-fnd__scope-text">
+                <span>{{ option.label }}</span>
+                <span class="lc-fnd__scope-hint">{{ option.hint }}</span>
+              </span>
             </label>
           </div>
-        </div>
-
-        <div class="lc-fnd__field">
-          <FunctionCodeBox
-            v-model="draft.body"
-            :functions="catalog"
-            :symbols="symbols"
-            :min-height="180"
-            @update:model-value="clearError('body')"
-          />
-          <span v-if="errors.body" class="lc-fnd__field-error" role="alert">{{
-            errors.body
-          }}</span>
-          <span class="lc-fnd__hint">
-            纯表达式，只能访问形参与已注册函数；输入时自动提示，Ctrl+Space 手动呼出。
-          </span>
         </div>
 
         <details class="lc-fnd__advanced">
@@ -778,6 +764,9 @@ onUnmounted(() => {
         <span v-if="errors.body" class="lc-fnd__field-error" role="alert">{{
           errors.body
         }}</span>
+        <span class="lc-fnd__hint">
+          纯表达式，只能访问形参与已注册函数；输入时自动提示，Ctrl+Space 手动呼出。
+        </span>
 
         <FunctionTestPanel
           :engine="engine"
@@ -1436,12 +1425,13 @@ onUnmounted(() => {
 
 .lc-fnd__scopes {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .lc-fnd__scope {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   padding: 7px 14px;
   border: 1px solid var(--lc-border);
@@ -1458,7 +1448,22 @@ onUnmounted(() => {
 
 .lc-fnd__scope input {
   accent-color: var(--lc-accent);
-  margin: 0;
+  margin: 2px 0 0;
+}
+
+/* 说明原先只在 title 里，悬停才可见，现在与选项名同列常驻显示 */
+.lc-fnd__scope-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lc-fnd__scope-hint {
+  color: var(--lc-text-muted);
+  font-size: var(--lc-font-size-3xs);
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: nowrap;
 }
 
 .lc-fnd__scope--active {
