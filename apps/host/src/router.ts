@@ -94,6 +94,7 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', redirect: '/projects' },
+    { path: '/login', component: () => import('./views/LoginView.vue') },
     { path: '/projects', component: () => import('./views/ProjectListView.vue') },
     {
       path: '/projects/:projectId',
