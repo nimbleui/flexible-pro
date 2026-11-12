@@ -400,4 +400,15 @@ describe('快照读档收窄', () => {
     const kept = narrowRelease(withBad)?.assets.pages.map((page) => page.id)
     expect(kept).toEqual(['p1', 'p2'])
   })
+
+  it('备注与发布人缺失或形状坏时只丢该字段，不影响整条快照', () => {
+    expect(narrowRelease(valid)?.note).toBeUndefined()
+    expect(narrowRelease(valid)?.publishedBy).toBeUndefined()
+    expect(narrowRelease({ ...valid, note: '', publishedBy: 42 })?.note).toBeUndefined()
+    expect(narrowRelease({ ...valid, note: '', publishedBy: 42 })?.publishedBy).toBeUndefined()
+
+    const withMeta = narrowRelease({ ...valid, note: '首次发布', publishedBy: '陈宇' })
+    expect(withMeta?.note).toBe('首次发布')
+    expect(withMeta?.publishedBy).toBe('陈宇')
+  })
 })

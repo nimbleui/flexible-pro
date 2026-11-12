@@ -12,8 +12,10 @@ import {
 } from './release-model'
 import { currentAssetLists } from './project-assets'
 import { getProject, projects, setPublishedRevision } from './project-store'
+import { appendDeploy } from './release-deploy-log'
 import { emitVersionActivity } from './version-activity'
 import { activeEnvironmentOf } from '../apis/api-config'
+import { getAuthUser } from '../storage/app-preferences'
 import { STORE, getAll, replaceAll } from '../storage/idb'
 
 /**
@@ -38,6 +40,11 @@ const listeners = new Set<() => void>()
  */
 function cloneAssets(assets: ProjectReleaseAssets): ProjectReleaseAssets {
   return JSON.parse(JSON.stringify(assets)) as ProjectReleaseAssets
+}
+
+/** 发布人：复用本地登录标记；未登录时兜底「本地用户」，不留空字段 */
+function currentPublisher(): string {
+  return getAuthUser().trim() || '本地用户'
 }
 
 /**
@@ -149,9 +156,10 @@ export function checkProjectRelease(projectId: string): ValidationIssue[] {
  * 而「发布成功」的提示会让人以为已经交付了。错误文案取第一条阻断原因并带上总条数，
  * 完整清单由发布页从 `checkProjectRelease` 自己渲染。
  *
+ * @param input 可选发布备注；空白串按未填写处理，不落库为 `''`
  * @throws 项目不存在、或存在阻断问题时抛错，文案可直接展示给用户
  */
-export function publishProject(projectId: string): ProjectRelease {
+export function publishProject(projectId: string, input?: { note?: string }): ProjectRelease {
   const project = getProject(projectId)
   if (!project) throw new Error(`[host] 待发布的项目不存在: ${projectId}`)
 
@@ -168,6 +176,8 @@ export function publishProject(projectId: string): ProjectRelease {
     throw new Error(`[host] 项目不能发布：${first?.message ?? '存在阻断问题'}${more}`)
   }
 
+  const note = input?.note?.trim() ?? ''
+  const publishedBy = currentPublisher()
   const release: ProjectRelease = {
     projectId,
     revision: nextRevision(
@@ -176,12 +186,21 @@ export function publishProject(projectId: string): ProjectRelease {
     ),
     createdAt: new Date().toISOString(),
     assets: cloneAssets(assets),
+    publishedBy,
+    ...(note === '' ? {} : { note }),
   }
 
   // 先落快照再移指针：反过来的话，指针更新失败会留下一个「线上指向不存在的版本」
   commit(pruneReleases([...state.value, release]))
   setPublishedRevision(projectId, release.revision)
   emitVersionActivity({ kind: 'publish', projectId, revision: release.revision })
+  appendDeploy({
+    projectId,
+    kind: 'publish',
+    revision: release.revision,
+    at: release.createdAt,
+    by: publishedBy,
+  })
   return release
 }
 
@@ -199,7 +218,20 @@ export function setCurrentRelease(projectId: string, revision: number): ProjectR
     throw new Error(`[host] v${revision} 不存在：可能已被剪掉，只能切到版本表里列出的版本`)
   }
 
+  const previous = getProject(projectId)?.publishedRevision
   setPublishedRevision(projectId, revision)
+
+  // 指针没动就不留痕：重复切到同一版本不是一次部署
+  if (previous !== revision) {
+    appendDeploy({
+      projectId,
+      kind: 'rollback',
+      revision,
+      at: new Date().toISOString(),
+      by: currentPublisher(),
+    })
+  }
+
   return release
 }
 

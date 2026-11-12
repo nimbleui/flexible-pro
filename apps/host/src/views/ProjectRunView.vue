@@ -30,7 +30,7 @@ const page = release?.assets.pages.find((item) => item.id === documentId)
 const blocked = !project
   ? '项目不存在，可能已被删除。'
   : !release
-    ? '这个项目还没有线上版本，先去「发布」发一个版本。'
+    ? '这个项目还没有线上版本，先去「版本管理」发一个版本。'
     : !page
       ? `线上版本 v${release.revision} 里没有这张页面——它可能是发布之后才新建或改归属的。`
       : undefined
@@ -50,7 +50,7 @@ const { editor, ready, routeScope } = usePageRuntime({
     <span class="lc-run__blocked-title">无法运行</span>
     <span>{{ blocked }}</span>
     <RouterLink class="lc-run__button" :to="projectPath(projectId, 'releases')"
-      >去发布页</RouterLink
+      >去版本管理</RouterLink
     >
   </main>
 

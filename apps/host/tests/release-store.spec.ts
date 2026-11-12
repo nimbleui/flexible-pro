@@ -149,4 +149,64 @@ describe('发布快照存储', { timeout: 20_000 }, () => {
       true,
     )
   })
+
+  it('发布记下备注与发布人：备注去空白、空备注不落库，发布人取登录标记并兜底', async () => {
+    await seed()
+    const idb = await import('../src/storage/idb')
+    await idb.putOne(idb.STORE.appKv, { key: 'auth-user', value: ' 陈宇 ' })
+    await hydrateStores()
+    const store = await import('../src/projects/release-store')
+    const prefs = await import('../src/storage/app-preferences')
+
+    const withNote = store.publishProject(DEFAULT_PROJECT_ID, { note: '  首次发布  ' })
+    expect(withNote.note).toBe('首次发布')
+    expect(withNote.publishedBy).toBe('陈宇')
+
+    const blankNote = store.publishProject(DEFAULT_PROJECT_ID, { note: '   ' })
+    expect(blankNote.note).toBeUndefined()
+
+    prefs.setAuthUser('')
+    const anonymous = store.publishProject(DEFAULT_PROJECT_ID)
+    expect(anonymous.publishedBy).toBe('本地用户')
+  })
+
+  it('发布与回滚都留部署痕迹，按时间倒序返回；切到同一版本不重复留痕', async () => {
+    await seed()
+    await hydrateStores()
+    const store = await import('../src/projects/release-store')
+    const deployLog = await import('../src/projects/release-deploy-log')
+
+    store.publishProject(DEFAULT_PROJECT_ID)
+    store.publishProject(DEFAULT_PROJECT_ID)
+    store.setCurrentRelease(DEFAULT_PROJECT_ID, 1)
+    store.setCurrentRelease(DEFAULT_PROJECT_ID, 1)
+
+    expect(
+      deployLog.listDeployOf(DEFAULT_PROJECT_ID).map((item) => `${item.kind}:${item.revision}`),
+    ).toEqual(['rollback:1', 'publish:2', 'publish:1'])
+    expect(
+      deployLog.listDeployOf(DEFAULT_PROJECT_ID).every((item) => item.by === '本地用户'),
+    ).toBe(true)
+  })
+
+  it('部署留痕按项目保留最近 30 条，更旧的自动剪掉', async () => {
+    await seed()
+    await hydrateStores()
+    const deployLog = await import('../src/projects/release-deploy-log')
+
+    for (let revision = 1; revision <= 32; revision += 1) {
+      deployLog.appendDeploy({
+        projectId: DEFAULT_PROJECT_ID,
+        kind: 'publish',
+        revision,
+        at: STAMP,
+        by: '本地用户',
+      })
+    }
+
+    const records = deployLog.listDeployOf(DEFAULT_PROJECT_ID)
+    expect(records).toHaveLength(30)
+    expect(records[0]?.revision).toBe(32)
+    expect(records[29]?.revision).toBe(3)
+  })
 })

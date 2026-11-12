@@ -21,7 +21,7 @@ import { resolveProjectId } from './project-model'
  * 回滚也只是把指针移回它，而不是回头改资产记录。这条不可变约束是让回滚可以说得清的
  * 前提——能改的快照就不是快照。
  *
- * 纯逻辑集中在本文件（校验、剪枝、读档收窄），localStorage 读写在 `release-store.ts`。
+ * 纯逻辑集中在本文件（校验、剪枝、读档收窄），IndexedDB 读写在 `release-store.ts`。
  */
 
 /** 一次发布锁定的五类资产内容 */
@@ -61,6 +61,18 @@ export interface ProjectRelease {
   createdAt: string
   /** 当时的资产内容 */
   assets: ProjectReleaseAssets
+  /**
+   * 发布备注（可选），发布时由发布人填写，供版本历史与详情展示。
+   *
+   * 空白串按未填写处理，读档时不收窄进对象；旧快照没有该字段。
+   */
+  note?: string
+  /**
+   * 发布人（可选），发布时取本地登录标记。
+   *
+   * 平台未接控制面，登录态只在本机；旧快照没有该字段，展示侧需自行兜底。
+   */
+  publishedBy?: string
 }
 
 /** 每个项目保留的快照份数上限；再旧的版本被剪掉 */
@@ -229,7 +241,7 @@ export function validateProjectRelease(assets: ProjectReleaseAssets): Validation
 /**
  * 每个项目只保留最近 `keep` 份快照。
  *
- * 快照装的是整份资产内容，全留会让 localStorage 随发布次数线性膨胀，所以按 revision
+ * 快照装的是整份资产内容，全留会让存储随发布次数线性膨胀，所以按 revision
  * 从新到旧保留。已知边界：本函数只看 revision，看不到项目记录上的线上指针；若线上已
  * 回滚到被剪掉的旧版本，指针会指向空（`currentReleaseOf` 返回 undefined）。要保护当前
  * 指针，得由调用方把受保护的版本号传进来，当前尚未接入。
@@ -288,6 +300,11 @@ export function narrowRelease(value: unknown): ProjectRelease | undefined {
     projectId: value.projectId,
     revision: value.revision,
     createdAt: value.createdAt,
+    // 备注与发布人是后加的展示字段：旧快照不带它们算合法，带了但形状坏了就丢掉这一项
+    ...(typeof value.note === 'string' && value.note !== '' ? { note: value.note } : {}),
+    ...(typeof value.publishedBy === 'string' && value.publishedBy !== ''
+      ? { publishedBy: value.publishedBy }
+      : {}),
     assets: {
       pages: assets.pages.filter((item): item is PageRecord => isPageRecord(item)),
       flows: assets.flows as ProjectRelease['assets']['flows'],

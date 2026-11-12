@@ -31,7 +31,7 @@ const TABS: readonly ProjectTab[] = [
   { id: 'functions', label: '函数', countKey: 'functions', prefixes: ['functions'] },
   { id: 'components', label: '组件', countKey: 'components', prefixes: ['components'] },
   { id: 'apis', label: '接口', countKey: 'apis', prefixes: ['apis'] },
-  { id: 'releases', label: '发布', prefixes: ['releases', 'run/'] },
+  { id: 'releases', label: '版本管理', prefixes: ['releases', 'run/'] },
 ]
 
 const route = useRoute()
