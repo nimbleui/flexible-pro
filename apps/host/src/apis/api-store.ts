@@ -5,8 +5,10 @@ import { resolveProjectId, visibleInProject } from '../projects/project-model'
 import { pages } from '../pages/page-store'
 import type { ApiEditableFields, ApiInput } from './api-model'
 import { createPersistentId } from '@lc/shared'
-import { isProjectApi, normalizeApiInput } from './api-model'
-import { STORE, getAll, replaceAll } from '../storage/idb'
+import { isProjectApi, moveApiBefore, normalizeApiInput } from './api-model'
+import { createBuiltinApiSeeds } from './api-seed'
+import { STORE, getAll, getOne, putOne, replaceAll } from '../storage/idb'
+import type { KvRow } from '../storage/idb'
 
 /**
  * 项目接口存储。
@@ -62,10 +64,30 @@ const state = shallowRef<readonly ProjectApi[]>([])
 /** 接口列表；只读约定由调用方遵守，写入必须走本模块的 create / update / remove */
 export const apis = state
 
-/** 从 IndexedDB 灌入内存；读失败按空列表处理 */
+/**
+ * 从 IndexedDB 灌入内存；读失败按空列表处理。
+ *
+ * 空库且未初始化时补一次内置种子（见 `api-seed`）并置标记：之后删空不再补种，
+ * 与 `flow-store` 同一取舍。
+ */
 export async function hydrate(): Promise<void> {
   try {
-    state.value = narrowEntries(await getAll<ProjectApi>(STORE.apiConfigs))
+    const rows = await getAll<ProjectApi>(STORE.apiConfigs)
+    if (rows.length > 0) {
+      state.value = narrowEntries(rows)
+      return
+    }
+
+    const initialized = await getOne<KvRow>(STORE.appKv, 'apis.initialized')
+    if (initialized?.value === true) {
+      state.value = []
+      return
+    }
+
+    const seed = createBuiltinApiSeeds()
+    state.value = seed
+    await putOne<KvRow>(STORE.appKv, { key: 'apis.initialized', value: true })
+    await replaceAll(STORE.apiConfigs, seed)
   } catch (error) {
     console.error('[host] 读取接口存储失败，按空列表处理', error)
     state.value = []
@@ -140,6 +162,19 @@ export function updateApi(id: string, input: ApiInput): ProjectApi {
 
   commit(state.value.map((item) => (item.id === id ? next : item)))
   return next
+}
+
+/**
+ * 拖拽排序：把一条接口移到另一条前面。
+ *
+ * 列表按登记顺序展示，这是唯一的排序入口；位置变化不改 `updatedAt`——排序是视图
+ * 偏好，不是定义改动，不该让引用方误以为接口内容变了。任一项不存在时不写库。
+ */
+export function moveApi(dragId: string, targetId: string): void {
+  const next = moveApiBefore(state.value, dragId, targetId)
+  if (next === state.value) return
+
+  commit(next)
 }
 
 /**

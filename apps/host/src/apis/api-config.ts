@@ -9,7 +9,10 @@ import {
   normalizeEnvironment,
   toRequestDefaults,
 } from './api-config-model'
-import { STORE, getAll, replaceAll } from '../storage/idb'
+import { STORE, getAll, getOne, putOne, replaceAll } from '../storage/idb'
+import type { KvRow } from '../storage/idb'
+import { DEFAULT_PROJECT_ID } from '../projects/project-model'
+import { createBuiltinEnvironmentSeed } from './api-seed'
 
 /**
  * 项目请求环境存储。
@@ -60,10 +63,23 @@ function persist(map: Record<string, ApiScopeConfig>): void {
 
 const state = shallowRef<Record<string, ApiScopeConfig>>({})
 
-/** 挂载前调用：把 IndexedDB 里的环境表读进内存 */
+/**
+ * 挂载前调用：把 IndexedDB 里的环境表读进内存。
+ *
+ * 默认项目首次运行（没有任何环境记录且未初始化）时补一套示例环境并置标记；
+ * 之后删空不再补种。其它项目不播种，未配置时按 `DEFAULT_ENVIRONMENT` 兜底。
+ */
 export async function hydrate(): Promise<void> {
   try {
-    state.value = narrowRows(await getAll<unknown>(STORE.apiScopeConfigs))
+    const map = narrowRows(await getAll<unknown>(STORE.apiScopeConfigs))
+    const initialized = await getOne<KvRow>(STORE.appKv, 'apiScopes.initialized')
+    if (map[DEFAULT_PROJECT_ID] === undefined && initialized?.value !== true) {
+      map[DEFAULT_PROJECT_ID] = createBuiltinEnvironmentSeed()
+      await putOne<KvRow>(STORE.appKv, { key: 'apiScopes.initialized', value: true })
+      persist(map)
+    }
+
+    state.value = map
   } catch (error) {
     console.error('[host] 读取请求环境失败，按未配置处理', error)
     state.value = {}
