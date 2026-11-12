@@ -191,7 +191,14 @@ export type {
 } from './datasource'
 
 // -------------------- 项目接口与引用 -------------------- //
-export type { ApiMethod, ApiRequestFields, PageApiBinding, ProjectApi } from './api'
+export type {
+  ApiMethod,
+  ApiParamMeta,
+  ApiParamType,
+  ApiRequestFields,
+  PageApiBinding,
+  ProjectApi,
+} from './api'
 export {
   apiRequestFieldsOf,
   apiToRestConfig,

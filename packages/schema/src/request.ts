@@ -65,6 +65,14 @@ export interface RequestDefaults {
   withCredentials?: boolean
   /** 凭据来源（可选）；配置后每次请求前取一次 token，命中 401 可重取并重发 */
   auth?: HttpRequestAuth
+  /**
+   * 401 时是否自动重取凭据并重发一次；缺省 true。
+   *
+   * 只在配置了 `auth` 时有意义；写成 false 用于「凭据失效就该如实报错」的调试场景。
+   */
+  autoRetry?: boolean
+  /** 是否在控制台打印请求日志（方法 / 地址 / 状态 / 耗时）；缺省 false */
+  requestLogging?: boolean
 }
 
 function isBlank(value: string | undefined): boolean {
@@ -83,6 +91,13 @@ export interface RequestEnvironment extends RequestDefaults {
   id: string
   /** 环境展示名，如「本地」「测试」「生产」 */
   name: string
+  /**
+   * 登记的服务端响应头（可选），如网关应返回的 CORS 头。
+   *
+   * 设计期登记信息：随环境保存与发布快照导出，浏览器不会据此修改真实响应，
+   * 因此不属于 `RequestDefaults`，也不会混进发出去的请求。
+   */
+  responseHeaders?: Record<string, string>
 }
 
 /**

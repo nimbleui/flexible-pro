@@ -22,6 +22,24 @@ import type { PageSchema } from './page'
  */
 export type ApiMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
 
+/** 参数登记的类型候选；只是设计期登记信息，不参与请求序列化 */
+export type ApiParamType = 'string' | 'number' | 'boolean'
+
+/**
+ * 一条 query 参数的登记信息（设计期元数据）。
+ *
+ * 与 `params` 的默认值分开存：默认值参与请求，类型 / 必填 / 说明只服务协作与补全提示，
+ * 运行时不据此做校验或转换。
+ */
+export interface ApiParamMeta {
+  /** 参数类型；缺省按 string 展示 */
+  type?: ApiParamType
+  /** 是否必填；缺省 false */
+  required?: boolean
+  /** 说明 */
+  description?: string
+}
+
 /**
  * 项目里登记的一条接口。
  *
@@ -39,6 +57,14 @@ export interface ProjectApi {
   group?: string
   /** 说明（可选），展示在列表副标题与补全详情里 */
   description?: string
+  /** 标签（可选）；自由标记，供列表搜索与筛选，不影响请求 */
+  tags?: string[]
+  /**
+   * 是否公开（可选，缺省 false）。
+   *
+   * 登记信息：标记接口是否面向项目外公开，随定义保存与导出；运行时不据此做权限拦截。
+   */
+  isPublic?: boolean
   /** 请求方法 */
   method: ApiMethod
   /**
@@ -53,6 +79,12 @@ export interface ProjectApi {
   headers?: Record<string, string>
   /** query 参数默认值，键值对；页面数据源里的同名参数由请求侧合并 */
   params?: Record<string, string>
+  /**
+   * 参数登记信息（可选），键与 `params` 对应。
+   *
+   * 只服务设计期：类型 / 必填 / 说明供协作与补全提示，请求仍按 `params` 的默认值发送。
+   */
+  paramMeta?: Record<string, ApiParamMeta>
   /** 请求体（POST / PUT / PATCH 用），纯 JSON 结构 */
   body?: unknown
   /** 跨域请求是否携带凭据 */
