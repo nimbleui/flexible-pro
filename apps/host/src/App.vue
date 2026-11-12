@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAppContext } from '@lc/vue'
 import ToastHost from './components/ToastHost.vue'
@@ -15,6 +16,27 @@ interface TopbarNavItem {
 
 const route = useRoute()
 const appCtx = useAppContext()
+
+/**
+ * 视图重建键。
+ *
+ * 默认绑 path：换文档即整页重建，画布模块与文档 Realm 的装载状态保持一致。
+ * 例外是函数主控台：列表 / 新建 / 编辑三条路由共用一个视图实例，未保存草稿
+ * 缓存在视图里，若跟着 path 重建，每次切换选中都会丢修改，所以这三条路由
+ * 共用项目级键；换项目仍然整页重建。
+ */
+const viewKey = computed(() => {
+  const name = route.name
+  if (
+    typeof route.params.projectId === 'string' &&
+    (name === 'project-functions' ||
+      name === 'project-function-new' ||
+      name === 'project-function-edit')
+  ) {
+    return `functions:${route.params.projectId}`
+  }
+  return route.path
+})
 
 /**
  * 顶栏只留平台级入口。
@@ -124,8 +146,8 @@ function toggleTheme(): void {
       </div>
     </header>
 
-    <!-- key 绑 path：换文档即整页重建，画布模块与文档 Realm 的装载状态保持一致 -->
-    <RouterView :key="route.path" />
+    <!-- key 默认绑 path：换文档即整页重建；函数主控台三条路由共用项目级键，见 viewKey -->
+    <RouterView :key="viewKey" />
 
     <!-- 提示层挂在外壳而不是各视图里：动作链弹的提示要跨路由存活 -->
     <ToastHost />

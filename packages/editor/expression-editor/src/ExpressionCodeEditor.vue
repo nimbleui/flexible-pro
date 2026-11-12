@@ -15,7 +15,7 @@ import type { CompletionSource } from '@codemirror/autocomplete'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { linter } from '@codemirror/lint'
 import { EditorState } from '@codemirror/state'
-import { EditorView, keymap, placeholder } from '@codemirror/view'
+import { EditorView, keymap, lineNumbers, placeholder } from '@codemirror/view'
 
 const props = withDefaults(
   defineProps<{
@@ -43,6 +43,13 @@ const props = withDefaults(
      * @default 96
      */
     minHeight?: number
+    /**
+     * 是否显示行号槽；控制台式的大编辑器开启，行内表单编辑器保持紧凑。
+     * 挂载时读取一次，运行中切换不会重建扩展。
+     *
+     * @default false
+     */
+    lineNumbers?: boolean
   }>(),
   {
     symbols: () => [],
@@ -51,6 +58,7 @@ const props = withDefaults(
     placeholder: '',
     ariaLabel: '表达式',
     minHeight: 96,
+    lineNumbers: false,
   },
 )
 
@@ -143,6 +151,13 @@ const theme = EditorView.theme({
   '.cm-line': {
     padding: '0',
   },
+  '.cm-gutters': {
+    background: 'var(--lc-surface)',
+    color: 'var(--lc-text-muted)',
+    border: 'none',
+    borderRight: '1px solid var(--lc-border)',
+    fontSize: '11px',
+  },
   '.cm-placeholder': {
     color: 'var(--lc-text-muted)',
   },
@@ -184,6 +199,7 @@ const theme = EditorView.theme({
 const extensions = [
   history(),
   closeBrackets(),
+  ...(props.lineNumbers ? [lineNumbers()] : []),
   autocompletion({
     override: [completionSource],
     activateOnTyping: true,

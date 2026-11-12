@@ -26,11 +26,21 @@ const projectChildren: RouteRecordRaw[] = [
   { path: 'pages', component: () => import('./views/PageListView.vue') },
   { path: 'design/:documentId', component: () => import('./views/DesignerView.vue') },
   { path: 'preview/:documentId', component: () => import('./views/PreviewView.vue') },
-  { path: 'functions', component: () => import('./views/FunctionListView.vue') },
-  { path: 'functions/new', component: () => import('./views/FunctionEditView.vue') },
+  // 函数三条路由共用主控台视图：URL 只决定选中项，草稿缓存留在视图里，路由名供其区分新建
+  {
+    path: 'functions',
+    name: 'project-functions',
+    component: () => import('./views/FunctionListView.vue'),
+  },
+  {
+    path: 'functions/new',
+    name: 'project-function-new',
+    component: () => import('./views/FunctionListView.vue'),
+  },
   {
     path: 'functions/:functionId/edit',
-    component: () => import('./views/FunctionEditView.vue'),
+    name: 'project-function-edit',
+    component: () => import('./views/FunctionListView.vue'),
   },
   { path: 'components', component: () => import('./views/ComponentListView.vue') },
   {

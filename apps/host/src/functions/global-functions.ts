@@ -5,6 +5,20 @@ import { createPersistentId } from '@lc/shared'
 import { STORE, getAll, replaceAll } from '../storage/idb'
 
 /**
+ * 函数的作用域分类。
+ *
+ * 只是管理页的分类标签：全局 / 页面 / 私有影响列表筛选与徽标展示，
+ * 不改变运行时注册口径——注册仍是应用级 global，真正的按作用域注册
+ * 要等运行时装载阶段拿到归属后再做，不在存储层假装修好。
+ */
+export type FunctionScope = 'global' | 'page' | 'private'
+
+/** 缺省分类按全局解释；存量数据没有 scope 字段，展示与筛选统一走这一个口径 */
+export function resolveFunctionScope(scope: FunctionScope | undefined): FunctionScope {
+  return scope ?? 'global'
+}
+
+/**
  * 全局自定义函数。
  *
  * 与页面函数（`PageSchema.functions`）的区别是作用域：全局函数由函数管理页维护，
@@ -26,6 +40,14 @@ export interface GlobalFunction {
   body: string
   /** 说明 */
   description?: string
+  /**
+   * 作用域分类（可选）。
+   *
+   * 与 projectId 同一取舍：只影响管理页的分类与筛选，不改变运行时注册口径。
+   * 缺省即全局：分类引入之前保存的数据没有这个字段，由 `resolveFunctionScope`
+   * 统一解释，本模块不为存量数据写迁移。
+   */
+  scope?: FunctionScope
   /**
    * 归属项目 id（可选）。
    *
@@ -53,6 +75,8 @@ export interface GlobalFunctionInput {
   body: string
   /** 说明；空白串按未填写处理 */
   description?: string
+  /** 作用域分类；更新时缺省保留原记录的分类，显式传入则覆盖（与 projectId 的不可改语义不同） */
+  scope?: FunctionScope
   /** 归属项目 id；只在新建时生效，更新一律保留原记录上的归属 */
   projectId: string
 }
@@ -81,6 +105,10 @@ function isGlobalFunction(value: unknown): value is GlobalFunction {
     (value.title === undefined || typeof value.title === 'string') &&
     (value.description === undefined || typeof value.description === 'string') &&
     (value.projectId === undefined || typeof value.projectId === 'string') &&
+    (value.scope === undefined ||
+      value.scope === 'global' ||
+      value.scope === 'page' ||
+      value.scope === 'private') &&
     (value.params === undefined || isStringArray(value.params)) &&
     (value.paramTypes === undefined || isRecord(value.paramTypes))
   )
@@ -157,6 +185,8 @@ function toGlobalFunctionEntry(
   body: string,
   existing: GlobalFunction | undefined,
 ): GlobalFunction {
+  const scope = input.scope ?? existing?.scope
+
   return {
     id: existing?.id ?? createFunctionId(),
     name,
@@ -168,6 +198,8 @@ function toGlobalFunctionEntry(
         : undefined,
     body,
     description: normalizeOptional(input.description),
+    // 分类缺省不落字段：全局是默认口径，写出来只会给 diff 增加噪音
+    ...(scope === undefined ? {} : { scope }),
     // 更新时保留原归属：改函数名或函数体不该把它挪到别的项目里去
     projectId: existing?.projectId ?? input.projectId,
     updatedAt: new Date().toISOString(),

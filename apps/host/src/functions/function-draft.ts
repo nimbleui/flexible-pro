@@ -2,10 +2,13 @@ import type { FunctionSchema, ValueTypeSchema } from '@lc/schema'
 import { isExpressionString } from '@lc/schema'
 import type { TypeNodeDraft } from '../components/common/type-node'
 import {
+  cloneTypeNode,
   createTypeNode,
   typeNodeFromValueType,
   valueTypeFromTypeNode,
 } from '../components/common/type-node'
+import type { FunctionScope, GlobalFunction } from './global-functions'
+import { resolveFunctionScope } from './global-functions'
 
 /**
  * 函数编辑草稿。
@@ -82,4 +85,30 @@ export function schemaFromDraft(draft: FunctionDraft): FunctionSchema {
 /** 新建形参节点 */
 export function createParamNode(): TypeNodeDraft {
   return createTypeNode('', 'unknown')
+}
+
+/**
+ * 函数控制台草稿。
+ *
+ * 在表单草稿之上多一个作用域分类：管理页左侧切换条目时草稿按 id 缓存，
+ * 未保存的修改不随选中项切换而丢失，因此它比 FunctionDraft 多活一会儿。
+ */
+export interface FunctionConsoleDraft extends FunctionDraft {
+  /** 作用域分类；单选组直接写入，保存时随输入一起落库 */
+  scope: FunctionScope
+}
+
+/**
+ * 从已保存条目生成控制台草稿；null 表示新建。
+ *
+ * 形参深拷贝一份：缓存里的草稿会被递归增删字段，不能与记录或冻结的空草稿共享引用。
+ */
+export function consoleDraftFrom(fn: GlobalFunction | null): FunctionConsoleDraft {
+  const base = fn ? draftFromSchema(fn) : EMPTY_FUNCTION_DRAFT
+
+  return {
+    ...base,
+    params: base.params.map(cloneTypeNode),
+    scope: resolveFunctionScope(fn?.scope),
+  }
 }
