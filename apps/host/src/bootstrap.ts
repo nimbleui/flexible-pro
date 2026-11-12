@@ -222,7 +222,7 @@ export async function bootstrapHost(): Promise<HostBootstrap> {
   const expression = context.require<ExpressionEngine>('expression')
   context.effect(() => installGlobalFunctions(expression))
 
-  // 自定义组件同理：定义存在 localStorage，启动后注册成物料，管理页改动即时生效
+  // 自定义组件同理：定义存在 IndexedDB，启动后注册成物料，管理页改动即时生效
   context.effect(() =>
     installCustomComponents(
       context.require<MaterialService>('material'),

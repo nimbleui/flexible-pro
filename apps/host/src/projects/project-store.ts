@@ -10,18 +10,21 @@ import {
 } from './project-model'
 import { createPersistentId } from '@lc/shared'
 import { currentAssetLists } from './project-assets'
+import { STORE, getAll, replaceAll } from '../storage/idb'
 
 /**
  * 项目存储。
  *
- * 目前没有后端，存储落在 localStorage；接服务端时只需替换本文件的读写实现，
+ * 目前没有后端，存储落在 IndexedDB（表 projects）；接服务端时只需替换本文件的读写实现，
  * 与 `workflows/flow-store.ts`、`functions/global-functions.ts` 是同一种取舍。
+ *
+ * 内存 shallowRef 是会话内的同步真相源，启动 gate 里由 hydrate 从 IndexedDB 灌入；
+ * 写入同步 commit 后 fire-and-forget 写穿 IndexedDB。
  *
  * 本模块单向读取五类资产的存储来计算归属数量，资产侧只引用 `project-model`
  * 里的常量与纯函数，因此不存在循环依赖。
  */
 
-const STORAGE_KEY = 'lc.projects.v1'
 const listeners = new Set<() => void>()
 
 /** 生成规则收敛到 @lc/shared；资产归属引用的就是它 */
@@ -47,48 +50,53 @@ function createDefaultProject(): ProjectDefinition {
   }
 }
 
-function readStorage(): ProjectDefinition[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return [createDefaultProject()]
+/** 读档收窄 + 默认项目补齐；纯逻辑，不碰浏览器 API，供 hydrate 与单测复用 */
+function narrowEntries(parsed: unknown): ProjectDefinition[] {
+  if (!Array.isArray(parsed)) return [createDefaultProject()]
 
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return [createDefaultProject()]
+  // id 参与资产归属，重复条目会让同一个 projectId 指向两条项目
+  const ids = new Set<string>()
+  const entries = parsed.filter((item): item is ProjectDefinition => {
+    if (!isProject(item)) return false
+    if (ids.has(item.id)) return false
+    ids.add(item.id)
+    return true
+  })
 
-    // id 参与资产归属，重复条目会让同一个 projectId 指向两条项目
-    const ids = new Set<string>()
-    const entries = parsed.filter((item): item is ProjectDefinition => {
-      if (!isProject(item)) return false
-      if (ids.has(item.id)) return false
-      ids.add(item.id)
-      return true
-    })
-
-    // 手改存储删掉默认项目会让存量资产的归属悬空，读档时补回来
-    if (!entries.some((item) => item.id === DEFAULT_PROJECT_ID)) {
-      return [createDefaultProject(), ...entries]
-    }
-
-    return entries
-  } catch (error) {
-    console.error('[host] 读取项目存储失败，按仅含默认项目处理', error)
-    return [createDefaultProject()]
+  // 手改存储删掉默认项目会让存量资产的归属悬空，读档时补回来
+  if (!entries.some((item) => item.id === DEFAULT_PROJECT_ID)) {
+    return [createDefaultProject(), ...entries]
   }
+
+  return entries
 }
 
 function persist(entries: readonly ProjectDefinition[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
-  } catch (error) {
-    // 隐私模式或配额不足时只丢持久化，当前会话里的项目仍然可编辑
-    console.error('[host] 保存项目到 localStorage 失败', error)
-  }
+  // 写失败（隐私模式或配额不足）只丢持久化，当前会话里的项目仍然可编辑
+  void replaceAll(STORE.projects, entries).catch((error) => {
+    console.error('[host] 保存项目到 IndexedDB 失败', error)
+  })
 }
 
-const state = shallowRef<readonly ProjectDefinition[]>(readStorage())
+const state = shallowRef<readonly ProjectDefinition[]>([])
 
 /** 项目列表；只读约定由调用方遵守，写入必须走本模块的 create / update / remove */
 export const projects = state
+
+/**
+ * 从 IndexedDB 灌入内存。
+ *
+ * 必须在 releases / deploy-log 之前 hydrate：那两者读档要按 `projects.value` 过滤孤儿。
+ * 读失败（IDB 不可用）时兜底仅含默认项目，保证内存态可用。
+ */
+export async function hydrate(): Promise<void> {
+  try {
+    state.value = narrowEntries(await getAll<ProjectDefinition>(STORE.projects))
+  } catch (error) {
+    console.error('[host] 读取项目存储失败，按仅含默认项目处理', error)
+    state.value = [createDefaultProject()]
+  }
+}
 
 function notify(): void {
   for (const listener of [...listeners]) listener()

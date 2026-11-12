@@ -8,7 +8,7 @@ import { SCHEMA_VERSION } from '@lc/schema'
  * 原先页面由 `pages.ts` 里的常量数组硬编码，条目带的是 `createSchema` 工厂函数，
  * 于是「新建页面」在刷新后必然消失——项目要按归属统计资产，页面必须先变成数据。
  *
- * 本文件只做类型、空白文档构造与读档收窄，localStorage 读写在 `page-store.ts`。
+ * 本文件只做类型、空白文档构造与读档收窄，IndexedDB 读写在 `page-store.ts`。
  */
 
 /** 一条页面记录 */
@@ -83,7 +83,7 @@ export function isPageSchemaSnapshot(value: unknown): value is PageSchema {
   )
 }
 
-/** 存储内容来自用户可编辑的 localStorage，读入时逐字段收窄 */
+/** 存储内容来自用户可编辑的 IndexedDB，读入时逐字段收窄 */
 export function isPageRecord(value: unknown): value is PageRecord {
   if (!isRecord(value)) return false
 

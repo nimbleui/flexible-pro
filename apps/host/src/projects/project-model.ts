@@ -5,7 +5,7 @@
  * 项目记录本身不存资产 id 列表：双向引用会在删除资产后于项目里留下悬空 id，
  * 而「这个项目里有什么」始终能从资产侧按外键过滤出来。
  *
- * 本文件不读 localStorage、不碰浏览器 API，读写都在 `project-store.ts`；
+ * 本文件不读存储、不碰浏览器 API，读写都在 `project-store.ts`；
  * 收窄与计数留在这里，才谈得上被 node 环境的单测直接覆盖。
  */
 
@@ -121,7 +121,7 @@ export function countProjectAssets(
 }
 
 /**
- * 存储内容来自用户可编辑的 localStorage，读入时逐字段收窄。
+ * 存储内容来自用户可编辑的 IndexedDB，读入时逐字段收窄。
  *
  * `name` 要求非空：空白名会让卡片既没有标题也没有可辨认的删除目标，
  * 与其替用户编一个名字，不如把这条记录直接丢掉。
@@ -163,7 +163,7 @@ export function visibleInProject<T extends ProjectOwnedRecord>(
 /**
  * 归一化项目的可编辑字段：裁掉首尾空白，空串统一写成缺省。
  *
- * 与全局函数存储同一个理由：localStorage 里不留 `description: ''` 这种既无意义
+ * 与全局函数存储同一个理由：存储里不留 `description: ''` 这种既无意义
  * 又会干扰前后 diff 的字段。
  */
 export function normalizeProjectInput(

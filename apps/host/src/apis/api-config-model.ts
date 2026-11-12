@@ -8,7 +8,7 @@ import type { HttpRequestAuth, RequestDefaults, RequestEnvironment } from '@lc/s
  * 文档都不记域名，切环境只改这一处，取数才可能跟着换域名。反过来，把域名写进每条接口就
  * 变成了 N 处要改的副本——那正是接口管理要解决的问题，不能在这里再犯一遍。
  *
- * 本文件不读 localStorage、不碰浏览器 API，读档收窄与归一化留在这里才能被 node 单测覆盖。
+ * 本文件不读存储、不碰浏览器 API，读档收窄与归一化留在这里才能被 node 单测覆盖。
  */
 
 /** 项目还没有配置过环境时的兜底那套：没有前缀、没有默认头，等于按相对路径原样请求 */
@@ -178,7 +178,7 @@ function isAuth(value: unknown): value is HttpRequestAuth {
 /**
  * 读档收窄。
  *
- * 存储内容来自用户可编辑的 localStorage，逐字段判过才敢用。环境项坏一条丢一条而不是整条
+ * 存储内容来自用户可编辑的 IndexedDB，逐字段判过才敢用。环境项坏一条丢一条而不是整条
  * 拒收：手改坏了一个环境就把整个项目的请求配置抹掉，会让用户看不见自己原本配好的域名。
  * `activeEnvId` 最后按剩下的环境校正，指针指向已丢弃环境时落到第一项。
  */

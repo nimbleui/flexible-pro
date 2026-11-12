@@ -12,13 +12,15 @@ import {
 import { createPersistentId } from '@lc/shared'
 import { resolveProjectId } from '../projects/project-model'
 import { createSeedFlow } from './flow-template'
+import { STORE, getAll, getOne, putOne, replaceAll } from '../storage/idb'
+import type { KvRow } from '../storage/idb'
 
 /**
  * 流程图存储。
  *
  * 图是可独立发版的执行单元，所以它的生命周期与「页面文档」脱钩：页面在自己的
  * `connection.flowId` 上写住要跑哪张图，运行时按 id 取**已发布**版本执行。
- * 目前没有后端，存储落在 localStorage；接服务端时只需替换本文件的读写实现，
+ * 目前没有后端，存储落在 IndexedDB（表 flows）；接服务端时只需替换本文件的读写实现，
  * 与 `functions/global-functions.ts` 是同一种取舍。
  */
 
@@ -34,7 +36,6 @@ export interface FlowDraftInput {
   projectId: string
 }
 
-const STORAGE_KEY = 'lc.flows.v1'
 const listeners = new Set<() => void>()
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -52,7 +53,7 @@ function isPosition(value: unknown): value is FlowNode['position'] {
 }
 
 /**
- * 存储内容来自用户可编辑的 localStorage，读入时逐字段收窄。
+ * 存储内容来自用户可编辑的 IndexedDB，读入时逐字段收窄。
  *
  * 只收窄到「能安全交给执行器与画布」的程度：config 的具体形状由各节点类型的字段
  * 声明负责，这里不重复一遍，否则新增一种节点类型就要改两处。
@@ -114,40 +115,61 @@ function isFlow(value: unknown): value is FlowDefinition {
   )
 }
 
-function readStorage(): FlowDefinition[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return [createSeedFlow()]
+/** 读档收窄；纯逻辑，不碰浏览器 API。种子补齐交给 hydrate（只在首次运行做一次） */
+function narrowEntries(parsed: unknown): FlowDefinition[] {
+  if (!Array.isArray(parsed)) return []
 
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-
-    const ids = new Set<string>()
-    return parsed.filter((item): item is FlowDefinition => {
-      if (!isFlow(item)) return false
-      if (ids.has(item.id)) return false
-      ids.add(item.id)
-      return true
-    })
-  } catch (error) {
-    console.error('[host] 读取流程图存储失败，按空列表处理', error)
-    return []
-  }
+  const ids = new Set<string>()
+  return parsed.filter((item): item is FlowDefinition => {
+    if (!isFlow(item)) return false
+    if (ids.has(item.id)) return false
+    ids.add(item.id)
+    return true
+  })
 }
 
 function persist(entries: readonly FlowDefinition[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
-  } catch (error) {
-    // 隐私模式或配额不足时只丢持久化，当前会话里的图仍然可编辑
-    console.error('[host] 保存流程图到 localStorage 失败', error)
-  }
+  // 隐私模式或配额不足时只丢持久化，当前会话里的图仍然可编辑
+  void replaceAll(STORE.flows, entries).catch((error) => {
+    console.error('[host] 保存流程图到 IndexedDB 失败', error)
+  })
 }
 
-const state = shallowRef<readonly FlowDefinition[]>(readStorage())
+const state = shallowRef<readonly FlowDefinition[]>([])
 
 /** 流程列表；只读约定由调用方遵守，写入必须走本模块的 save / publish / remove */
 export const flows = state
+
+/**
+ * 从 IndexedDB 灌入内存。
+ *
+ * 种子图只在**首次运行**补一次：空库且未初始化时落一张种子图并写盘 + 置初始化标记，
+ * 之后用户把图删空（已初始化）不再补种，与旧 localStorage「有键即不再补种子」一致。
+ * 迁移时若旧 flows 键存在会预先置标记，因此删空的存量库不会被重新塞种子。
+ */
+export async function hydrate(): Promise<void> {
+  try {
+    const rows = await getAll<FlowDefinition>(STORE.flows)
+    if (rows.length > 0) {
+      state.value = narrowEntries(rows)
+      return
+    }
+
+    const initialized = await getOne<KvRow>(STORE.appKv, 'flows.initialized')
+    if (initialized?.value === true) {
+      state.value = []
+      return
+    }
+
+    const seed = [createSeedFlow()]
+    state.value = seed
+    await putOne<KvRow>(STORE.appKv, { key: 'flows.initialized', value: true })
+    await replaceAll(STORE.flows, seed)
+  } catch (error) {
+    console.error('[host] 读取流程图存储失败，按空列表处理', error)
+    state.value = []
+  }
+}
 
 function notify(): void {
   for (const listener of [...listeners]) listener()

@@ -76,7 +76,7 @@ export function createBlueprintNodes(): Record<string, NodeSchema> {
  * 拷贝一份可以确保「Realm 里的节点」和「store 里的定义」不是同一个对象，
  * 取消编辑时不会把画布上的中间态漏回定义。
  *
- * 根 id 读不到节点时按第一个节点兜底，全空才建新根：手改过的 localStorage
+ * 根 id 读不到节点时按第一个节点兜底，全空才建新根：手改过的 IndexedDB
  * 不该让编辑页直接白屏。
  */
 export function blueprintSchemaOf(
@@ -261,7 +261,7 @@ export function contentBounds(nodes: Readonly<Record<string, NodeSchema>>): Rect
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
 }
 
-/** JSON 往返拷贝：节点内容本来就要求可 JSON 序列化（同 `localStorage` 与画布拖入） */
+/** JSON 往返拷贝：节点内容本来就要求可 JSON 序列化（同 `IndexedDB` 与画布拖入） */
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }

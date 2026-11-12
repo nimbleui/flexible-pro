@@ -6,11 +6,12 @@ import { pages } from '../pages/page-store'
 import type { ApiEditableFields, ApiInput } from './api-model'
 import { createPersistentId } from '@lc/shared'
 import { isProjectApi, normalizeApiInput } from './api-model'
+import { STORE, getAll, replaceAll } from '../storage/idb'
 
 /**
  * 项目接口存储。
  *
- * 目前没有后端，存储落在 localStorage；接服务端时只需替换本文件的读写实现，
+ * 目前没有后端，存储落在 IndexedDB（表 api_configs）；接服务端时只需替换本文件的读写实现，
  * 与 `pages/page-store.ts`、`workflows/flow-store.ts` 是同一种取舍。
  *
  * 引用关系不在这里存副本：页面文档里的 `apis` 是唯一记录点，本模块按它反查
@@ -18,7 +19,6 @@ import { isProjectApi, normalizeApiInput } from './api-model'
  * 所以扫描只看页面，免得把一个还不存在的通道算进引用数。
  */
 
-const STORAGE_KEY = 'lc.apis.v1'
 const listeners = new Set<() => void>()
 
 /** 一条接口被哪些页面引用 */
@@ -36,41 +36,41 @@ function createApiId(): string {
   return createPersistentId('api')
 }
 
-function readStorage(): ProjectApi[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
+/** 读档收窄；纯逻辑，不碰浏览器 API，供 hydrate 与单测复用 */
+function narrowEntries(parsed: unknown): ProjectApi[] {
+  if (!Array.isArray(parsed)) return []
 
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-
-    // id 参与页面绑定引用，重复条目会让同一个 apiId 指向两条不同定义
-    const ids = new Set<string>()
-    return parsed.filter((item): item is ProjectApi => {
-      if (!isProjectApi(item)) return false
-      if (ids.has(item.id)) return false
-      ids.add(item.id)
-      return true
-    })
-  } catch (error) {
-    console.error('[host] 读取接口存储失败，按空列表处理', error)
-    return []
-  }
+  // id 参与页面绑定引用，重复条目会让同一个 apiId 指向两条不同定义
+  const ids = new Set<string>()
+  return parsed.filter((item): item is ProjectApi => {
+    if (!isProjectApi(item)) return false
+    if (ids.has(item.id)) return false
+    ids.add(item.id)
+    return true
+  })
 }
 
 function persist(entries: readonly ProjectApi[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
-  } catch (error) {
-    // 隐私模式或配额不足时只丢持久化，当前会话里登记的接口仍可继续编辑
-    console.error('[host] 保存接口到 localStorage 失败', error)
-  }
+  // 隐私模式或配额不足时只丢持久化，当前会话里登记的接口仍可继续编辑
+  void replaceAll(STORE.apiConfigs, entries).catch((error) => {
+    console.error('[host] 保存接口到 IndexedDB 失败', error)
+  })
 }
 
-const state = shallowRef<readonly ProjectApi[]>(readStorage())
+const state = shallowRef<readonly ProjectApi[]>([])
 
 /** 接口列表；只读约定由调用方遵守，写入必须走本模块的 create / update / remove */
 export const apis = state
+
+/** 从 IndexedDB 灌入内存；读失败按空列表处理 */
+export async function hydrate(): Promise<void> {
+  try {
+    state.value = narrowEntries(await getAll<ProjectApi>(STORE.apiConfigs))
+  } catch (error) {
+    console.error('[host] 读取接口存储失败，按空列表处理', error)
+    state.value = []
+  }
+}
 
 function notify(): void {
   for (const listener of [...listeners]) listener()

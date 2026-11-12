@@ -3,31 +3,14 @@ import { DEFAULT_PROJECT_ID } from '../src/projects/project-model'
 import { createBlankPageSchema } from '../src/pages/page-model'
 import type { PageRecord } from '../src/pages/page-model'
 import type { ProjectRelease } from '../src/projects/release-model'
+import { stubFreshIndexedDB } from './support/idb'
 
 /**
- * 发布快照 store 的模块顶层就读 localStorage，因此这里用「先 stub、再动态 import」，
- * 每个用例拿到一份干净的模块实例。纯逻辑（发布号、剪枝、闸门）已在 release-model.spec.ts
- * 覆盖，本文件只测 store 这一层的三件事：生成快照、移动指针、读档收窄。
+ * 发布快照 store 改成「启动前 hydrate + 写穿 IndexedDB」，因此这里用「先 stub、再动态
+ * import + hydrate」，每个用例拿到一份干净的内存 IDB 与模块实例。纯逻辑（发布号、剪枝、
+ * 闸门）已在 release-model.spec.ts 覆盖，本文件只测 store 这一层的三件事：
+ * 生成快照、移动指针、读档收窄。
  */
-const storage = vi.hoisted(() => ({ data: new Map<string, string>() }))
-
-function fakeLocalStorage() {
-  return {
-    getItem: (key: string) => storage.data.get(key) ?? null,
-    setItem: (key: string, value: string) => {
-      storage.data.set(key, value)
-    },
-    removeItem: (key: string) => {
-      storage.data.delete(key)
-    },
-    clear: () => storage.data.clear(),
-    key: (index: number) => [...storage.data.keys()][index] ?? null,
-    get length() {
-      return storage.data.size
-    },
-  }
-}
-
 const STAMP = '2026-11-05T00:00:00.000Z'
 
 function project(publishedRevision?: number) {
@@ -61,16 +44,45 @@ function release(revision: number, overrides: Partial<ProjectRelease> = {}): Pro
   }
 }
 
-function seed(publishedRevision?: number, releases: readonly ProjectRelease[] = []): void {
-  storage.data.set('lc.projects.v1', JSON.stringify([project(publishedRevision)]))
-  storage.data.set('lc.pages.v1', JSON.stringify([page('page-1')]))
-  storage.data.set('lc.releases.v1', JSON.stringify(releases))
+async function seed(
+  publishedRevision?: number,
+  releases: readonly ProjectRelease[] = [],
+): Promise<void> {
+  const idb = await import('../src/storage/idb')
+  await idb.replaceAll(idb.STORE.projects, [project(publishedRevision)])
+  await idb.replaceAll(idb.STORE.pages, [page('page-1')])
+  await idb.replaceAll(idb.STORE.projectReleases, releases)
+}
+
+/**
+ * 按依赖顺序灌入内存：快照与部署留痕读档要按 `projects.value` 剔孤儿，
+ * 必须先 hydrate 项目；其余彼此独立的表随后并发读入。
+ *
+ * 流程表也要 hydrate：page-store 读档会补齐内置种子页（如「工单管理系统」），
+ * 这些页连接引用了种子流程，发布校验要能在流程表里解析到它——与旧代码在模块加载时
+ * 自动落种子图的行为一致。
+ */
+async function hydrateStores(): Promise<void> {
+  const projectStore = await import('../src/projects/project-store')
+  const pageStore = await import('../src/pages/page-store')
+  const flowStore = await import('../src/workflows/flow-store')
+  const releaseStore = await import('../src/projects/release-store')
+  const deployLog = await import('../src/projects/release-deploy-log')
+  const prefs = await import('../src/storage/app-preferences')
+
+  await projectStore.hydrate()
+  await prefs.hydratePreferences()
+  await Promise.all([
+    pageStore.hydrate(),
+    flowStore.hydrate(),
+    releaseStore.hydrate(),
+    deployLog.hydrate(),
+  ])
 }
 
 beforeEach(() => {
-  storage.data.clear()
   vi.resetModules()
-  vi.stubGlobal('localStorage', fakeLocalStorage())
+  stubFreshIndexedDB()
 })
 
 afterEach(() => {
@@ -78,12 +90,13 @@ afterEach(() => {
 })
 
 // 每个用例都用 vi.resetModules() + 动态 import 重编译整条模块链；默认并行下
-// 与其它 109 个文件争抢 CPU 时，首例可能超过 vitest 默认的 5000ms 而超时，并让
+// 与其它文件争抢 CPU 时，首例可能超过 vitest 默认的 5000ms 而超时，并让
 // 依赖它 seed 的后续用例级联失败（见 docs/13-version-control.md:1476 的既有登记）。
 // 仅对本 suite 放宽超时，不改动任何用例、断言或模块加载方式，也不影响其它测试文件。
 describe('发布快照存储', { timeout: 20_000 }, () => {
   it('发布生成递增版本并移动指针，快照里的页面是当前资产的副本', async () => {
-    seed()
+    await seed()
+    await hydrateStores()
     const store = await import('../src/projects/release-store')
     const projectStore = await import('../src/projects/project-store')
     const pageStore = await import('../src/pages/page-store')
@@ -99,7 +112,8 @@ describe('发布快照存储', { timeout: 20_000 }, () => {
   })
 
   it('回滚只拨指针，不回写任何资产记录', async () => {
-    seed()
+    await seed()
+    await hydrateStores()
     const store = await import('../src/projects/release-store')
     const projectStore = await import('../src/projects/project-store')
     const pageStore = await import('../src/pages/page-store')
@@ -116,7 +130,8 @@ describe('发布快照存储', { timeout: 20_000 }, () => {
   })
 
   it('回滚到不存在的版本抛错，不假装切换成功', async () => {
-    seed(1, [release(1)])
+    await seed(1, [release(1)])
+    await hydrateStores()
     const store = await import('../src/projects/release-store')
 
     expect(() => store.setCurrentRelease(DEFAULT_PROJECT_ID, 99)).toThrow(/不存在/)
@@ -125,7 +140,8 @@ describe('发布快照存储', { timeout: 20_000 }, () => {
 
   it('读档按项目与发布号去重，丢掉孤儿项目并按上限剪枝', async () => {
     const many = [1, 2, 3, 4, 5, 6].map((n) => release(n))
-    seed(6, [...many, release(6), { ...release(1), projectId: 'ghost-project' }])
+    await seed(6, [...many, release(6), { ...release(1), projectId: 'ghost-project' }])
+    await hydrateStores()
     const store = await import('../src/projects/release-store')
 
     expect(store.releases.value.map((item) => item.revision)).toEqual([2, 3, 4, 5, 6])

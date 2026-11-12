@@ -1,11 +1,11 @@
 import type { ApiMethod, ProjectApi, ValueTypeSchema } from '@lc/schema'
 
 /**
- * 项目接口的纯逻辑：表单输入归一化、localStorage 读档收窄、列表分组。
+ * 项目接口的纯逻辑：表单输入归一化、读档收窄、列表分组。
  *
  * 接口记录本身的结构定义在 `@lc/schema`（`ProjectApi`）：引用展开的纯函数要和它放在一起，
  * 设计器与运行态才能在不依赖宿主存储的前提下解析绑定。本文件只补宿主侧的读写形状，
- * 不读 localStorage、不碰浏览器 API，收窄与归一化留在这里才谈得上被 node 单测直接覆盖。
+ * 不读存储、不碰浏览器 API，收窄与归一化留在这里才谈得上被 node 单测直接覆盖。
  */
 
 /** 请求方法候选；顺序即编辑器下拉顺序，与 `ApiMethod` 全集一致 */
@@ -129,7 +129,7 @@ export function normalizeApiInput(input: ApiInput): ApiEditableFields {
 }
 
 /**
- * 读档收窄：存储内容来自用户可编辑的 localStorage，逐字段判过才敢进列表。
+ * 读档收窄：存储内容来自用户可编辑的 IndexedDB，逐字段判过才敢进列表。
  *
  * `name` 与 `path` 要求非空——没有名字的接口在列表里无法辨认，没有路径的接口点开就是
  * 一条必然失败的请求，两者都宁可丢掉这条记录。

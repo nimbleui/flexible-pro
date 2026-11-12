@@ -9,12 +9,13 @@ import {
   normalizeEnvironment,
   toRequestDefaults,
 } from './api-config-model'
+import { STORE, getAll, replaceAll } from '../storage/idb'
 
 /**
  * 项目请求环境存储。
  *
- * 目前没有后端，存储落在 localStorage；接服务端时只需替换本文件的读写实现，
- * 与 `api-store.ts`、`pages/page-store.ts` 是同一种取舍。
+ * 目前没有后端，存储落在 IndexedDB（表 api_scope_configs，主键 projectId）；接服务端时
+ * 只需替换本文件的读写实现，与 `api-store.ts`、`pages/page-store.ts` 是同一种取舍。
  *
  * 敏感值（`Authorization` 里的 token）也存这里，是明文。这是「没有后端、凭证只能在浏览器
  * 里凑」的必然结果，能做的隔离是两件事：值不落进页面文档与接口定义（所以导出、复制文档
@@ -23,44 +24,51 @@ import {
  * 落地时随真实提供者一并登记。
  */
 
-const STORAGE_KEY = 'lc.api-scope.v1'
 const listeners = new Set<() => void>()
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-function readStorage(): Record<string, ApiScopeConfig> {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return {}
+/**
+ * 表行 → 内存里的「projectId → 环境集合」映射。
+ *
+ * 落库形态是 `{ projectId, environments, activeEnvId }` 一行一项目，主键 projectId；
+ * 内存里仍按项目 id 建索引，让 `environmentsOf` 等读接口保持同步 O(1)。逐行判过
+ * `projectId` 再交给 `narrowScopeConfig`：坏一行丢一行，不牵连其它项目的域名配置。
+ */
+function narrowRows(rows: unknown): Record<string, ApiScopeConfig> {
+  if (!Array.isArray(rows)) return {}
 
-    const parsed: unknown = JSON.parse(raw)
-    if (!isRecord(parsed)) return {}
-
-    const result: Record<string, ApiScopeConfig> = {}
-    for (const [projectId, value] of Object.entries(parsed)) {
-      const config = narrowScopeConfig(value)
-      if (config) result[projectId] = config
-    }
-
-    return result
-  } catch (error) {
-    console.error('[host] 读取请求环境失败，按未配置处理', error)
-    return {}
+  const result: Record<string, ApiScopeConfig> = {}
+  for (const row of rows) {
+    if (!isRecord(row) || typeof row.projectId !== 'string') continue
+    const config = narrowScopeConfig(row)
+    if (config) result[row.projectId] = config
   }
+
+  return result
 }
 
 function persist(map: Record<string, ApiScopeConfig>): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(map))
-  } catch (error) {
-    // 隐私模式或配额不足时只丢持久化，当前会话里的配置仍然可用
-    console.error('[host] 保存请求环境到 localStorage 失败', error)
-  }
+  const rows = Object.entries(map).map(([projectId, config]) => ({ projectId, ...config }))
+  // 写穿到 IndexedDB；失败只丢持久化，当前会话里的配置仍然可用
+  void replaceAll(STORE.apiScopeConfigs, rows).catch((error) => {
+    console.error('[host] 保存请求环境到 IndexedDB 失败', error)
+  })
 }
 
-const state = shallowRef<Record<string, ApiScopeConfig>>(readStorage())
+const state = shallowRef<Record<string, ApiScopeConfig>>({})
+
+/** 挂载前调用：把 IndexedDB 里的环境表读进内存 */
+export async function hydrate(): Promise<void> {
+  try {
+    state.value = narrowRows(await getAll<unknown>(STORE.apiScopeConfigs))
+  } catch (error) {
+    console.error('[host] 读取请求环境失败，按未配置处理', error)
+    state.value = {}
+  }
+}
 
 /** 全部项目的环境表；只读约定由调用方遵守，写入必须走本模块 */
 export const apiScopes = state

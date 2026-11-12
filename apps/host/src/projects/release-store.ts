@@ -14,18 +14,19 @@ import { currentAssetLists } from './project-assets'
 import { getProject, projects, setPublishedRevision } from './project-store'
 import { emitVersionActivity } from './version-activity'
 import { activeEnvironmentOf } from '../apis/api-config'
+import { STORE, getAll, replaceAll } from '../storage/idb'
 
 /**
  * 项目发布快照存储。
  *
- * 目前没有后端，存储落在 localStorage；接服务端时只需替换本文件的读写实现，
- * 与 `workflows/flow-store.ts`、`projects/project-store.ts` 是同一种取舍。
+ * 目前没有后端，存储落在 IndexedDB（表 project_releases，主键 [projectId, revision]）；
+ * 接服务端时只需替换本文件的读写实现，与 `workflows/flow-store.ts`、
+ * `projects/project-store.ts` 是同一种取舍。
  *
  * 「发布」在这里等于：汇总校验通过 → 把当前项目内容拷成一份不可变快照 → 把项目记录
  * 上的线上版本指针移到它。「回滚」只做最后一步的反向移动，不回写任何资产记录。
  */
 
-const STORAGE_KEY = 'lc.releases.v1'
 const listeners = new Set<() => void>()
 
 /**
@@ -40,52 +41,53 @@ function cloneAssets(assets: ProjectReleaseAssets): ProjectReleaseAssets {
 }
 
 /**
- * 读档。
+ * 表行 → 快照列表。
  *
  * 两道额外处理：一是丢掉项目已经不存在的快照（删项目时只清资产，指针与快照归这里收，
  * 否则存储里会永久留着无法从任何界面到达的内容）；二是按 `projectId#revision` 去重，
  * 同一个号指向两份内容时运行态取到哪份是随机的。
  * 剪枝也在这里做一次，手改存储塞进第六份不会绕过上限。
+ *
+ * 依赖 `projects.value`，因此必须在项目 store hydrate 之后再调用。
  */
-function readStorage(): ProjectRelease[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
+function narrowEntries(rows: unknown): ProjectRelease[] {
+  if (!Array.isArray(rows)) return []
 
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
+  const seen = new Set<string>()
+  const entries: ProjectRelease[] = []
 
-    const seen = new Set<string>()
-    const entries: ProjectRelease[] = []
+  for (const item of rows) {
+    const release = narrowRelease(item)
+    if (!release) continue
+    if (!projects.value.some((project) => project.id === release.projectId)) continue
 
-    for (const item of parsed) {
-      const release = narrowRelease(item)
-      if (!release) continue
-      if (!projects.value.some((project) => project.id === release.projectId)) continue
-
-      const key = `${release.projectId}#${release.revision}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      entries.push(release)
-    }
-
-    return pruneReleases(entries)
-  } catch (error) {
-    console.error('[host] 读取发布快照失败，按空列表处理', error)
-    return []
+    const key = `${release.projectId}#${release.revision}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    entries.push(release)
   }
+
+  return pruneReleases(entries)
 }
 
 function persist(entries: readonly ProjectRelease[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
-  } catch (error) {
-    // 隐私模式或配额不足时只丢持久化，当前会话里的版本指针仍然可用
-    console.error('[host] 保存发布快照到 localStorage 失败', error)
-  }
+  // 写穿到 IndexedDB；失败只丢持久化，当前会话里的版本指针仍然可用
+  void replaceAll(STORE.projectReleases, entries).catch((error) => {
+    console.error('[host] 保存发布快照到 IndexedDB 失败', error)
+  })
 }
 
-const state = shallowRef<readonly ProjectRelease[]>(readStorage())
+const state = shallowRef<readonly ProjectRelease[]>([])
+
+/** 挂载前调用：把 IndexedDB 里的快照读进内存；必须在项目 store hydrate 之后 */
+export async function hydrate(): Promise<void> {
+  try {
+    state.value = narrowEntries(await getAll<unknown>(STORE.projectReleases))
+  } catch (error) {
+    console.error('[host] 读取发布快照失败，按空列表处理', error)
+    state.value = []
+  }
+}
 
 /** 快照列表；只读约定由调用方遵守，写入必须走 publishProject / setCurrentRelease */
 export const releases = state

@@ -8,18 +8,18 @@ import { createBuiltinPageSeeds } from './page-seed'
 import { createPersistentId } from '@lc/shared'
 import { visibleInProject } from '../projects/project-model'
 import { emitVersionActivity } from '../projects/version-activity'
+import { STORE, getAll, replaceAll } from '../storage/idb'
 
 /**
  * 页面存储。
  *
- * 目前没有后端，存储落在 localStorage；接服务端时只需替换本文件的读写实现，
+ * 目前没有后端，存储落在 IndexedDB（表 pages）；接服务端时只需替换本文件的读写实现，
  * 与 `workflows/flow-store.ts` 是同一种取舍。
  *
  * 与流程不同的是：页面记录带文档快照，所以这份存储是页面内容的**唯一真相**，
- * 设计器只是它的一个读取方与写回方。
+ * 设计器只是它的一个读取方与写回方。内存 shallowRef 由启动 gate 的 hydrate 灌入。
  */
 
-const STORAGE_KEY = 'lc.pages.v1'
 const listeners = new Set<() => void>()
 
 /** 生成规则收敛到 @lc/shared；路由与 EditorRealm 的 key 用的就是它 */
@@ -37,41 +37,48 @@ function clone(schema: PageSchema): PageSchema {
   return JSON.parse(JSON.stringify(schema)) as PageSchema
 }
 
-function readStorage(): PageRecord[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return createBuiltinPageSeeds()
+/** 读档收窄 + 内置种子补齐；纯逻辑，不碰浏览器 API，供 hydrate 与单测复用 */
+function narrowEntries(parsed: unknown): PageRecord[] {
+  if (!Array.isArray(parsed)) return createBuiltinPageSeeds()
 
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
+  // id 参与路由与 Realm key，重复条目会让两个入口打开同一篇文档的不同副本
+  const ids = new Set<string>()
+  const existing = parsed.filter((item): item is PageRecord => {
+    if (!isPageRecord(item)) return false
+    if (ids.has(item.id)) return false
+    ids.add(item.id)
+    return true
+  })
 
-    // id 参与路由与 Realm key，重复条目会让两个入口打开同一篇文档的不同副本
-    const ids = new Set<string>()
-    return parsed.filter((item): item is PageRecord => {
-      if (!isPageRecord(item)) return false
-      if (ids.has(item.id)) return false
-      ids.add(item.id)
-      return true
-    })
-  } catch (error) {
-    console.error('[host] 读取页面存储失败，按空列表处理', error)
-    return []
-  }
+  // 内置种子补齐：已存在的内置页（含用户改过标题的）不动，缺失的（如新增的
+  // form-doc，或旧版本用户还没见过的演示页）补回，保证设计器里始终能找到它们，
+  // 同时不破坏「首次运行后才把内置页当普通记录」的约定——只是把「补齐」从
+  // 「只在空库时」放宽到「缺失即补」，避免老用户永远看不到新加的演示页。
+  const missing = createBuiltinPageSeeds().filter((seed) => !ids.has(seed.id))
+  return missing.length ? [...existing, ...missing] : existing
 }
 
 function persist(entries: readonly PageRecord[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
-  } catch (error) {
-    // 隐私模式或配额不足时只丢持久化，当前会话里编辑的页面仍然可继续
-    console.error('[host] 保存页面到 localStorage 失败', error)
-  }
+  // 隐私模式或配额不足时只丢持久化，当前会话里编辑的页面仍然可继续
+  void replaceAll(STORE.pages, entries).catch((error) => {
+    console.error('[host] 保存页面到 IndexedDB 失败', error)
+  })
 }
 
-const state = shallowRef<readonly PageRecord[]>(readStorage())
+const state = shallowRef<readonly PageRecord[]>([])
 
 /** 页面列表；只读约定由调用方遵守，写入必须走本模块的 create / save / rename / remove */
 export const pages = state
+
+/** 从 IndexedDB 灌入内存；读失败按空列表处理（种子由后续 narrow 补齐） */
+export async function hydrate(): Promise<void> {
+  try {
+    state.value = narrowEntries(await getAll<PageRecord>(STORE.pages))
+  } catch (error) {
+    console.error('[host] 读取页面存储失败，按空列表处理', error)
+    state.value = []
+  }
+}
 
 function notify(): void {
   for (const listener of [...listeners]) listener()

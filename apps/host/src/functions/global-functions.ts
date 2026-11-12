@@ -2,13 +2,14 @@ import { shallowRef } from 'vue'
 import type { Disposable } from '@lc/kernel'
 import type { ExpressionEngine, ValueTypeSchema } from '@lc/schema'
 import { createPersistentId } from '@lc/shared'
+import { STORE, getAll, replaceAll } from '../storage/idb'
 
 /**
  * 全局自定义函数。
  *
  * 与页面函数（`PageSchema.functions`）的区别是作用域：全局函数由函数管理页维护，
  * 未随任何文档持久化，而是随应用启动恢复并注册到表达式引擎，所有页面都能调用。
- * 目前没有后端，存储落在 localStorage；将来接服务端时只需替换本文件的读写实现。
+ * 目前没有后端，存储落在 IndexedDB（表 global_functions）；将来接服务端时只需替换本文件的读写实现。
  */
 export interface GlobalFunction {
   /** 稳定 id，供编辑路由使用；改名不影响它 */
@@ -56,7 +57,6 @@ export interface GlobalFunctionInput {
   projectId: string
 }
 
-const STORAGE_KEY = 'lc.global-functions.v1'
 const listeners = new Set<() => void>()
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -67,7 +67,7 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string')
 }
 
-/** 存储内容来自用户可编辑的 localStorage，读入时必须逐字段收窄 */
+/** 存储内容来自用户可编辑的 IndexedDB，读入时必须逐字段收窄 */
 function isGlobalFunction(value: unknown): value is GlobalFunction {
   if (!isRecord(value)) return false
 
@@ -86,43 +86,43 @@ function isGlobalFunction(value: unknown): value is GlobalFunction {
   )
 }
 
-function readStorage(): GlobalFunction[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
+/** 读档收窄；纯逻辑，不碰浏览器 API，供 hydrate 与单测复用 */
+function narrowEntries(parsed: unknown): GlobalFunction[] {
+  if (!Array.isArray(parsed)) return []
 
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-
-    // id 与函数名都参与路由 / 注册表查找，重复条目会让前者指向错误的一行
-    const ids = new Set<string>()
-    const names = new Set<string>()
-    return parsed.filter((item): item is GlobalFunction => {
-      if (!isGlobalFunction(item)) return false
-      if (ids.has(item.id) || names.has(item.name)) return false
-      ids.add(item.id)
-      names.add(item.name)
-      return true
-    })
-  } catch (error) {
-    console.error('[host] 读取全局函数失败，按空列表处理', error)
-    return []
-  }
+  // id 与函数名都参与路由 / 注册表查找，重复条目会让前者指向错误的一行
+  const ids = new Set<string>()
+  const names = new Set<string>()
+  return parsed.filter((item): item is GlobalFunction => {
+    if (!isGlobalFunction(item)) return false
+    if (ids.has(item.id) || names.has(item.name)) return false
+    ids.add(item.id)
+    names.add(item.name)
+    return true
+  })
 }
 
 function persist(entries: readonly GlobalFunction[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
-  } catch (error) {
-    // 隐私模式或配额不足时只丢持久化，当前会话里的函数仍然可用
-    console.error('[host] 保存全局函数到 localStorage 失败', error)
-  }
+  // 隐私模式或配额不足时只丢持久化，当前会话里的函数仍然可用
+  void replaceAll(STORE.globalFunctions, entries).catch((error) => {
+    console.error('[host] 保存全局函数到 IndexedDB 失败', error)
+  })
 }
 
-const state = shallowRef<readonly GlobalFunction[]>(readStorage())
+const state = shallowRef<readonly GlobalFunction[]>([])
 
 /** 全局函数列表；只读约定由调用方遵守，修改必须走 saveGlobalFunction / removeGlobalFunction */
 export const globalFunctions = state
+
+/** 从 IndexedDB 灌入内存；读失败按空列表处理 */
+export async function hydrate(): Promise<void> {
+  try {
+    state.value = narrowEntries(await getAll<GlobalFunction>(STORE.globalFunctions))
+  } catch (error) {
+    console.error('[host] 读取全局函数失败，按空列表处理', error)
+    state.value = []
+  }
+}
 
 function notify(): void {
   for (const listener of [...listeners]) listener()
@@ -148,7 +148,7 @@ function normalizeOptional(text: string | undefined): string | undefined {
  * 输入 → 存储条目。
  *
  * 集中做三件事：裁掉首尾空白、补齐 id 与修改时间、把「空集合」统一写成缺省，
- * 这样 localStorage 里不会留下 `params: []` 这类既无意义又会干扰 diff 的字段。
+ * 这样存储里不会留下 `params: []` 这类既无意义又会干扰 diff 的字段。
  * `paramTypes` 按引用写入：它的形状由表单自己维护，保存后即视为不可变。
  */
 function toGlobalFunctionEntry(

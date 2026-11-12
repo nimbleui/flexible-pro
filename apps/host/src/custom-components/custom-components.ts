@@ -26,13 +26,15 @@ import {
 } from './component-draft'
 import { contentBounds } from './blueprint-document'
 import { createCompositeComponent } from './composite-component'
+import { STORE, getAll, replaceAll } from '../storage/idb'
 
 /**
  * 全局自定义组件。
  *
  * 与页面里的临时组合节点不同，这里的每条定义都是一个复合组件：蓝图（节点图）+ 属性表，
  * 由本模块注册成物料后进画布物料面板，任何页面都能拖用。目前没有后端，存储落在
- * localStorage；接服务端时只需替换本文件的读写实现，与全局函数同构。
+ * IndexedDB（表 custom_components，主键 id，组件名 material_name 建索引）；接服务端时
+ * 只需替换本文件的读写实现，与全局函数同构。
  *
  * 蓝图节点由画布写入，读档时保留画布会改到的字段：物料名、父子引用、属性、布局
  * （矩形 / 旋转 / 层级 / 流式）、样式区的四个可编辑属性、图层显隐与锁定。
@@ -51,7 +53,6 @@ export const CUSTOM_PLUGIN = 'custom-components'
 /** 自定义组件的优先级；同名时贡献始终压过运行时注册，这里只用于停用/启用之间的排序稳定性 */
 const CUSTOM_PRIORITY = 20
 
-const STORAGE_KEY = 'lc.custom-components.v1'
 const listeners = new Set<() => void>()
 
 /** 一条自定义组件定义 */
@@ -205,7 +206,7 @@ function readConstraints(value: unknown): LayoutConstraints | undefined {
  * 收窄节点样式。
  *
  * 只保留属性面板「样式」区能写入的四个字段：`StyleSchema` 带
- * `[key: string]: unknown` 索引签名，整体透传会让 localStorage 里手写的任意 CSS
+ * `[key: string]: unknown` 索引签名，整体透传会让存储里手写的任意 CSS
  * 悄悄生效；按字段收窄才能保证「存进去的」与「界面上改得到的」是同一批属性。
  */
 function readStyle(value: unknown): StyleSchema | undefined {
@@ -392,7 +393,7 @@ function readDefinition(value: unknown): ComponentSchema | undefined {
   }
 }
 
-/** 存储内容来自用户可编辑的 localStorage，读入时必须逐字段收窄 */
+/** 存储内容来自用户可编辑的 IndexedDB，读入时必须逐字段收窄 */
 function readCustomComponent(value: unknown): CustomComponent | undefined {
   if (!isRecord(value) || typeof value.id !== 'string' || value.id === '') return undefined
   if (typeof value.updatedAt !== 'string') return undefined
@@ -412,45 +413,49 @@ function readCustomComponent(value: unknown): CustomComponent | undefined {
   }
 }
 
-function readStorage(): CustomComponent[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
+/**
+ * 表行 → 自定义组件列表。
+ *
+ * id 参与路由，组件名参与物料注册，重复条目会让两者指向错误的一行；逐条收窄后按
+ * id 与组件名双重去重，坏一条丢一条，不牵连其它组件。
+ */
+function narrowEntries(rows: unknown): CustomComponent[] {
+  if (!Array.isArray(rows)) return []
 
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
+  const ids = new Set<string>()
+  const names = new Set<string>()
+  const entries: CustomComponent[] = []
+  for (const item of rows) {
+    const component = readCustomComponent(item)
+    if (!component) continue
 
-    // id 参与路由，组件名参与物料注册，重复条目会让两者指向错误的一行
-    const ids = new Set<string>()
-    const names = new Set<string>()
-    const entries: CustomComponent[] = []
-    for (const item of parsed) {
-      const component = readCustomComponent(item)
-      if (!component) continue
-
-      const name = component.definition.meta.name
-      if (ids.has(component.id) || names.has(name)) continue
-      ids.add(component.id)
-      names.add(name)
-      entries.push(component)
-    }
-    return entries
-  } catch (error) {
-    console.error('[host] 读取自定义组件失败，按空列表处理', error)
-    return []
+    const name = component.definition.meta.name
+    if (ids.has(component.id) || names.has(name)) continue
+    ids.add(component.id)
+    names.add(name)
+    entries.push(component)
   }
+  return entries
 }
 
 function persist(entries: readonly CustomComponent[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
-  } catch (error) {
-    // 隐私模式或配额不足时只丢持久化，当前会话里的组件仍然可用
-    console.error('[host] 保存自定义组件到 localStorage 失败', error)
-  }
+  // 写穿到 IndexedDB；失败只丢持久化，当前会话里的组件仍然可用
+  void replaceAll(STORE.customComponents, entries).catch((error) => {
+    console.error('[host] 保存自定义组件到 IndexedDB 失败', error)
+  })
 }
 
-const state = shallowRef<readonly CustomComponent[]>(readStorage())
+const state = shallowRef<readonly CustomComponent[]>([])
+
+/** 挂载前调用：把 IndexedDB 里的组件定义读进内存 */
+export async function hydrate(): Promise<void> {
+  try {
+    state.value = narrowEntries(await getAll<unknown>(STORE.customComponents))
+  } catch (error) {
+    console.error('[host] 读取自定义组件失败，按空列表处理', error)
+    state.value = []
+  }
+}
 
 /** 自定义组件列表；只读约定由调用方遵守，修改必须走 save / remove / setEnabled */
 export const customComponents = state

@@ -179,7 +179,7 @@ export function createSlotDraft(): SlotDraft {
   return { ...EMPTY_SLOT_DRAFT, name: 'default', title: '默认插槽' }
 }
 
-/** 外部输入（localStorage、默认值文本）收窄用的最小结构判断 */
+/** 外部输入（IndexedDB、默认值文本）收窄用的最小结构判断 */
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -187,7 +187,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * 把任意 JSON 值收窄成 `PropValue`。
  *
- * localStorage 与属性文本都是外部输入，`JSON.parse` 的结果是 `unknown`；这里显式收窄，
+ * IndexedDB 与属性文本都是外部输入，`JSON.parse` 的结果是 `unknown`；这里显式收窄，
  * 避免用断言把 `undefined`、函数之类不可能出现在 JSON 里的值带进 schema。
  */
 export function toPropValue(value: unknown): PropValue | undefined {
@@ -679,7 +679,7 @@ function validateProps(props: readonly PropDraft[]): DraftIssue[] {
  * 草稿元信息 → 定义字段。
  *
  * 统一在这里裁空白、补默认分组与版本，并把空串收敛成「未填写」，
- * 这样 localStorage 里不会留下 `icon: ''` 这类既无意义又干扰 diff 的字段。
+ * 这样存储里不会留下 `icon: ''` 这类既无意义又干扰 diff 的字段。
  */
 export function metaFromDraft(draft: CustomComponentDraft): {
   name: string

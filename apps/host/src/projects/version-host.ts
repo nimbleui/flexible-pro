@@ -27,7 +27,7 @@ import { validateWorkingTree } from './version-validation'
  *
  * 读资产复用既有的 `collectProjectAssets`：它与发布校验、发布快照是同一套归属解释，
  * 版本库不需要再写一份平行的项目过滤。注意该函数会把页面里的接口绑定展开成完整
- * 地址（发布视角），而 `lc.pages.v1` 存的是 `stripApiBindings` 后的草稿；检出
+ * 地址（发布视角），而 `page-store` 存的是 `stripApiBindings` 后的草稿；检出
  * 仍是只读视图，不回写资产，因此不受影响，但未来的回写必须先做 `stripApiBindings`。
  */
 export function installVersionHost(context: Context): Disposable {
