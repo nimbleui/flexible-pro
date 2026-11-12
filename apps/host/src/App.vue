@@ -2,6 +2,7 @@
 import { useRoute } from 'vue-router'
 import { useAppContext } from '@lc/vue'
 import ToastHost from './components/ToastHost.vue'
+import { setTheme, type Theme } from './storage/app-preferences'
 
 interface TopbarNavItem {
   /** 导航文案，同时作为无障碍名 */
@@ -37,6 +38,21 @@ function isNavActive(to: string | undefined): boolean {
 
 function togglePalette(): void {
   appCtx.emit('palette:toggle')
+}
+
+/**
+ * 深色 / 亮色主题切换：状态落到 <html data-theme> 并写穿 app_kv，刷新后保持。
+ *
+ * 首帧的主题在 main.ts 挂载前就按 getTheme() 设好了，这里只负责运行中切换。
+ */
+function applyTheme(theme: Theme): void {
+  document.documentElement.setAttribute('data-theme', theme)
+  setTheme(theme)
+}
+
+function toggleTheme(): void {
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light'
+  applyTheme(isLight ? 'dark' : 'light')
 }
 </script>
 
@@ -86,6 +102,15 @@ function togglePalette(): void {
         >
           <span class="lc-topbar__glyph lc-topbar__glyph--bell" aria-hidden="true" />
           <span class="lc-topbar__dot" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          class="lc-topbar__icon"
+          aria-label="切换主题"
+          title="切换深色 / 亮色主题"
+          @click="toggleTheme"
+        >
+          <span class="lc-topbar__glyph lc-topbar__glyph--theme" aria-hidden="true" />
         </button>
         <button
           type="button"

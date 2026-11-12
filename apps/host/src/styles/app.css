@@ -397,7 +397,7 @@
   box-shadow:
     0 0 0 2px rgba(55, 182, 255, 0.22),
     0 0 16px var(--lc-glow);
-  color: #04101f;
+  color: var(--lc-on-accent);
   font-family: inherit;
   font-size: 11px;
   font-weight: 700;
@@ -748,8 +748,8 @@
     var(--lc-accent) 52%,
     var(--lc-accent-2)
   );
-  box-shadow: 0 0 18px rgba(47, 140, 255, 0.35);
-  color: #04101f;
+  box-shadow: 0 0 18px var(--lc-glow);
+  color: var(--lc-on-accent);
   font-weight: 600;
 }
 
@@ -1403,4 +1403,15 @@
   .lc-pages__link:hover {
     transform: none;
   }
+}
+
+/* 主题切换图标：蓝紫渐变圆 + 内嵌月牙，抽象表达日 / 月切换 */
+.lc-topbar__glyph--theme {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--lc-accent-bright), var(--lc-accent-2));
+  box-shadow:
+    0 0 0 1px rgba(55, 182, 255, 0.3),
+    inset -3px -2px 0 0 var(--lc-panel-glass);
 }
