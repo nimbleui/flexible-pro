@@ -1,4 +1,10 @@
-import type { ApiMethod, ProjectApi, ValueTypeSchema } from '@lc/schema'
+import type {
+  ApiMethod,
+  ApiParamMeta,
+  ApiParamType,
+  ProjectApi,
+  ValueTypeSchema,
+} from '@lc/schema'
 
 /**
  * 项目接口的纯逻辑：表单输入归一化、读档收窄、列表分组。
@@ -19,6 +25,15 @@ export const API_METHOD_OPTIONS: ReadonlyArray<{ value: ApiMethod; label: string
 
 const API_METHOD_VALUES: readonly string[] = API_METHOD_OPTIONS.map((item) => item.value)
 
+/** 参数登记的类型候选；顺序即编辑器下拉顺序 */
+export const PARAM_TYPE_OPTIONS: ReadonlyArray<{ value: ApiParamType; label: string }> = [
+  { value: 'string', label: 'string' },
+  { value: 'number', label: 'number' },
+  { value: 'boolean', label: 'boolean' },
+]
+
+const PARAM_TYPE_VALUES: readonly string[] = PARAM_TYPE_OPTIONS.map((item) => item.value)
+
 /** 新建或更新接口的输入；id 由存储层生成，时间戳也不在输入里 */
 export interface ApiInput {
   /** 接口展示名；裁首尾空白，裁完为空即拒绝 */
@@ -31,10 +46,16 @@ export interface ApiInput {
   group?: string
   /** 说明；空白串按未填写处理 */
   description?: string
+  /** 标签；裁首尾空白、去重、丢空串，全空按未填写处理 */
+  tags?: string[]
+  /** 是否公开；false 与缺省等价，不落库为 `false` */
+  isPublic?: boolean
   /** 请求头；键为空的条目在归一化时被丢掉 */
   headers?: Record<string, string>
   /** query 参数默认值；同 `headers` 的清洗规则 */
   params?: Record<string, string>
+  /** 参数登记信息；只保留 `params` 里存在的键，全缺省条目被丢掉 */
+  paramMeta?: Record<string, ApiParamMeta>
   /** 请求体；由视图侧从 JSON 文本解析而来，这里不再判形状 */
   body?: unknown
   /** 跨域是否携带凭据；false 与缺省等价，不落库为 `false` */
@@ -66,6 +87,20 @@ function isStringMap(value: unknown): value is Record<string, string> {
   return isRecord(value) && Object.values(value).every((item) => typeof item === 'string')
 }
 
+/** 参数登记信息的读档收窄：类型在候选内、必填是布尔、说明是字符串，缺省字段都放过 */
+function isParamMetaMap(value: unknown): value is Record<string, ApiParamMeta> {
+  if (!isRecord(value)) return false
+
+  return Object.values(value).every(
+    (item) =>
+      isRecord(item) &&
+      (item.type === undefined ||
+        (typeof item.type === 'string' && PARAM_TYPE_VALUES.includes(item.type))) &&
+      (item.required === undefined || typeof item.required === 'boolean') &&
+      (item.description === undefined || typeof item.description === 'string'),
+  )
+}
+
 /**
  * 清洗键值对字段：键与值都裁掉首尾空白，空键直接丢掉。
  *
@@ -90,6 +125,65 @@ export function sanitizeEntries(
 }
 
 /**
+ * 清洗标签：裁首尾空白、丢空串、按首次出现顺序去重。
+ *
+ * @returns 全空时返回 `undefined`，让存储写成缺省而不是 `[]`
+ */
+export function sanitizeTags(tags: readonly string[] | undefined): string[] | undefined {
+  if (!tags) return undefined
+
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const raw of tags) {
+    const tag = raw.trim()
+    if (tag === '' || seen.has(tag)) continue
+    seen.add(tag)
+    result.push(tag)
+  }
+
+  return result.length === 0 ? undefined : result
+}
+
+/**
+ * 清洗参数登记信息：只保留 `params` 里存在的键，丢掉整条都是缺省的条目。
+ *
+ * 孤儿键（参数已删、登记还在）会让编辑器回显出一条不存在的参数；整条缺省
+ * （string / 非必填 / 无说明）写进去只是给每条定义的 diff 添噪声。
+ *
+ * @returns 没有有效登记时返回 `undefined`
+ */
+export function sanitizeParamMeta(
+  meta: Record<string, ApiParamMeta> | undefined,
+  params: Record<string, string> | undefined,
+): Record<string, ApiParamMeta> | undefined {
+  if (!meta || !params) return undefined
+
+  const result: Record<string, ApiParamMeta> = {}
+  for (const [key, value] of Object.entries(meta)) {
+    if (!(key in params)) continue
+
+    // string 是缺省类型，与 rowsToParams 同一口径：显式写 string 也不落键
+    const type =
+      value.type !== undefined &&
+      value.type !== 'string' &&
+      PARAM_TYPE_VALUES.includes(value.type)
+        ? value.type
+        : undefined
+    const required = value.required === true ? true : undefined
+    const description = value.description?.trim() ?? ''
+    if (type === undefined && required === undefined && description === '') continue
+
+    result[key] = {
+      ...(type === undefined ? {} : { type }),
+      ...(required === undefined ? {} : { required }),
+      ...(description === '' ? {} : { description }),
+    }
+  }
+
+  return Object.keys(result).length === 0 ? undefined : result
+}
+
+/**
  * 输入 → 可编辑字段。
  *
  * 集中做三件事：裁首尾空白、把「空白串 / 空集合」统一写成缺省、校验方法在候选集合内。
@@ -103,8 +197,10 @@ export function normalizeApiInput(input: ApiInput): ApiEditableFields {
   const path = input.path.trim()
   const group = input.group?.trim() ?? ''
   const description = input.description?.trim() ?? ''
+  const tags = sanitizeTags(input.tags)
   const headers = sanitizeEntries(input.headers)
   const params = sanitizeEntries(input.params)
+  const paramMeta = sanitizeParamMeta(input.paramMeta, params)
 
   if (!API_METHOD_VALUES.includes(input.method)) {
     throw new Error(`[host] 不支持的请求方法: ${String(input.method)}`)
@@ -116,8 +212,11 @@ export function normalizeApiInput(input: ApiInput): ApiEditableFields {
     path,
     ...(group === '' ? {} : { group }),
     ...(description === '' ? {} : { description }),
+    ...(tags === undefined ? {} : { tags }),
+    ...(input.isPublic === true ? { isPublic: true } : {}),
     ...(headers === undefined ? {} : { headers }),
     ...(params === undefined ? {} : { params }),
+    ...(paramMeta === undefined ? {} : { paramMeta }),
     ...(input.body === undefined ? {} : { body: input.body }),
     ...(input.withCredentials === true ? { withCredentials: true } : {}),
     ...(input.responseType === undefined || input.responseType === 'json'
@@ -150,9 +249,13 @@ export function isProjectApi(value: unknown): value is ProjectApi {
     typeof value.updatedAt === 'string' &&
     (value.group === undefined || typeof value.group === 'string') &&
     (value.description === undefined || typeof value.description === 'string') &&
+    (value.tags === undefined ||
+      (Array.isArray(value.tags) && value.tags.every((tag) => typeof tag === 'string'))) &&
+    (value.isPublic === undefined || typeof value.isPublic === 'boolean') &&
     (value.projectId === undefined || typeof value.projectId === 'string') &&
     (value.headers === undefined || isStringMap(value.headers)) &&
     (value.params === undefined || isStringMap(value.params)) &&
+    (value.paramMeta === undefined || isParamMetaMap(value.paramMeta)) &&
     (value.withCredentials === undefined || typeof value.withCredentials === 'boolean') &&
     (value.responseType === undefined ||
       value.responseType === 'json' ||
@@ -193,4 +296,29 @@ export function groupApis(apis: readonly ProjectApi[]): ApiGroup[] {
 
     return a.name.localeCompare(b.name, 'zh-Hans-CN')
   })
+}
+
+/**
+ * 把一条接口拖到另一条前面，返回新的全量列表。
+ *
+ * 列表按登记顺序展示（不再按修改时间排），拖拽是唯一的排序入口：先摘出被拖项再插到
+ * 目标项当前的位置，跨项目记录只平移不重排。拖到自身或任一项不存在时原样返回同一引用，
+ * 调用方据此跳过无意义的写库。
+ */
+export function moveApiBefore(
+  apis: readonly ProjectApi[],
+  dragId: string,
+  targetId: string,
+): readonly ProjectApi[] {
+  if (dragId === targetId) return apis
+
+  const from = apis.findIndex((item) => item.id === dragId)
+  if (from < 0 || !apis.some((item) => item.id === targetId)) return apis
+
+  const next = [...apis]
+  const [moved] = next.splice(from, 1)
+  const to = next.findIndex((item) => item.id === targetId)
+  next.splice(to, 0, moved!)
+
+  return next
 }

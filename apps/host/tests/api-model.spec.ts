@@ -5,8 +5,11 @@ import {
   API_METHOD_OPTIONS,
   groupApis,
   isProjectApi,
+  moveApiBefore,
   normalizeApiInput,
   sanitizeEntries,
+  sanitizeParamMeta,
+  sanitizeTags,
 } from '../src/apis/api-model'
 
 /**
@@ -156,5 +159,86 @@ describe('接口列表分组', () => {
     expect(groups).toHaveLength(1)
     expect(groups[0]?.name).toBeNull()
     expect(groups[0]?.apis).toHaveLength(2)
+  })
+})
+
+describe('标签与参数登记清洗', () => {
+  it('标签裁空白、丢空串、按首次出现去重，全空给缺省', () => {
+    expect(sanitizeTags([' 用户 ', '信息', '用户', '  '])).toEqual(['用户', '信息'])
+    expect(sanitizeTags(['  '])).toBeUndefined()
+    expect(sanitizeTags(undefined)).toBeUndefined()
+  })
+
+  it('参数登记只保留 params 里存在的键，整条缺省的条目被丢掉', () => {
+    const meta = sanitizeParamMeta(
+      {
+        page: { type: 'number', description: ' 页码 ' },
+        gone: { required: true },
+        plain: { type: 'string', required: false, description: '  ' },
+      },
+      { page: '1', plain: '' },
+    )
+
+    expect(meta).toEqual({ page: { type: 'number', description: '页码' } })
+    expect(sanitizeParamMeta({ a: { required: true } }, undefined)).toBeUndefined()
+  })
+
+  it('归一化把标签 / 公开标记 / 参数登记一起带上，缺省不落键', () => {
+    const editable = normalizeApiInput(
+      makeInput({
+        tags: ['用户', '用户'],
+        isPublic: true,
+        params: { userId: '' },
+        paramMeta: { userId: { required: true, description: '用户ID' } },
+      }),
+    )
+
+    expect(editable.tags).toEqual(['用户'])
+    expect(editable.isPublic).toBe(true)
+    expect(editable.paramMeta).toEqual({ userId: { required: true, description: '用户ID' } })
+
+    const bare = normalizeApiInput(makeInput({ isPublic: false, tags: [] }))
+    expect(bare.isPublic).toBeUndefined()
+    expect(bare.tags).toBeUndefined()
+  })
+})
+
+describe('拖拽重排', () => {
+  it('把被拖项插到目标项前面，其余记录只平移不重排', () => {
+    const apis = [makeApi({ id: 'a' }), makeApi({ id: 'b' }), makeApi({ id: 'c' })]
+
+    expect(moveApiBefore(apis, 'c', 'a').map((item) => item.id)).toEqual(['c', 'a', 'b'])
+    expect(moveApiBefore(apis, 'a', 'c').map((item) => item.id)).toEqual(['b', 'a', 'c'])
+  })
+
+  it('拖到自身或任一项不存在时原样返回同一引用，调用方据此跳过写库', () => {
+    const apis = [makeApi({ id: 'a' }), makeApi({ id: 'b' })]
+
+    expect(moveApiBefore(apis, 'a', 'a')).toBe(apis)
+    expect(moveApiBefore(apis, 'gone', 'a')).toBe(apis)
+    expect(moveApiBefore(apis, 'a', 'gone')).toBe(apis)
+  })
+})
+
+describe('新增可选字段的读档收窄', () => {
+  it('合法的标签 / 公开标记 / 参数登记通过', () => {
+    expect(
+      isProjectApi(
+        makeApi({ tags: ['用户'], isPublic: true, paramMeta: { id: { type: 'number' } } }),
+      ),
+    ).toBe(true)
+  })
+
+  it('写坏的标签 / 公开标记 / 参数登记整条拒收', () => {
+    const badRecords: unknown[] = [
+      { ...makeApi(), tags: '用户' },
+      { ...makeApi(), tags: [1] },
+      { ...makeApi(), isPublic: 'yes' },
+      { ...makeApi(), paramMeta: { id: { type: 'date' } } },
+      { ...makeApi(), paramMeta: { id: { required: 'yes' } } },
+      { ...makeApi(), paramMeta: 'x' },
+    ]
+
+    for (const value of badRecords) expect(isProjectApi(value)).toBe(false)
   })
 })
