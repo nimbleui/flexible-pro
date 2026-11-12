@@ -907,6 +907,14 @@
 
 .lc-designer__stage {
   position: relative;
+  /*
+   * 把画布覆盖层的 z 序收敛在舞台内。LayerHost 给每层算 (序号+1)*10 + zIndex，
+   * 标尺 / 小地图 / 右键菜单会算到 80~110；舞台与 .lc-stage 都只是 relative 没有
+   * stacking context，这些「画布内部相对层级」会泄漏到外壳，盖过开发工具抽屉（z 40）
+   * 与浮动大纲（z 30）。isolation 只新建层叠上下文、不改盒模型，画布按 .lc-stage
+   * clientWidth 的定位测量不受影响。
+   */
+  isolation: isolate;
   display: flex;
   flex: 1;
   min-height: 0;
