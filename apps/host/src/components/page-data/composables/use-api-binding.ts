@@ -142,6 +142,7 @@ export function useApiBinding(store: PageDataStore) {
   }
 
   return {
+    projectId,
     pickerOpen,
     bindingError,
     unbindingName,

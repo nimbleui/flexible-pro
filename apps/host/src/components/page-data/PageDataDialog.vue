@@ -6,6 +6,7 @@ import { useDatasourceForm } from './composables/use-datasource-form'
 import { usePageDataStore } from './composables/use-page-data-store'
 import { useRouteForm } from './composables/use-route-form'
 import { useVariableForm } from './composables/use-variable-form'
+import { projectPath } from '../../projects/project-path'
 import { formatValue } from './utils/data-naming'
 import {
   SOURCE_TYPES,
@@ -68,6 +69,7 @@ const {
   pendingBind,
   pickerOpen,
   projectApis,
+  projectId,
   startBind,
   unbind,
   unbindingName,
@@ -273,7 +275,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                   结果在 data.&lt;数据源名&gt;.data，状态在 .loading / .loaded / .error
                 </span>
                 <div class="lc-page-data__toolbar-actions">
-                  <button type="button" class="lc-page-data__button" @click="openPicker">
+                  <button
+                    type="button"
+                    class="lc-page-data__button"
+                    :aria-expanded="pickerOpen"
+                    @click="pickerOpen ? closePicker() : openPicker()"
+                  >
                     引用项目接口
                   </button>
                   <button type="button" class="lc-page-data__button" @click="openSourceCreate">
@@ -283,9 +290,26 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               </div>
 
               <div v-if="pickerOpen" class="lc-page-data__picker">
-                <p v-if="projectApis.length === 0" class="lc-page-data__empty">
-                  这个项目还没登记接口。到「接口管理」登记之后就能在这里引用，接口地址改动会同步到所有引用它的页面。
-                </p>
+                <div class="lc-page-data__picker-head">
+                  <span class="lc-page-data__picker-title">引用项目接口</span>
+                  <button
+                    type="button"
+                    class="lc-page-data__close"
+                    aria-label="关闭引用面板"
+                    title="关闭"
+                    @click="closePicker"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div v-if="projectApis.length === 0" class="lc-page-data__picker-empty">
+                  <p>
+                    这个项目还没登记接口。登记之后就能在这里引用，接口地址改动会同步到所有引用它的页面。
+                  </p>
+                  <RouterLink class="lc-page-data__button" :to="projectPath(projectId, 'apis')">
+                    去接口管理登记
+                  </RouterLink>
+                </div>
 
                 <template v-else-if="pendingBind === null">
                   <button
