@@ -1,5 +1,11 @@
 import type { ApiInput } from '../../apis/api-model'
-import type { ApiMethod, ProjectApi, ValueTypeSchema } from '@lc/schema'
+import type {
+  ApiMethod,
+  ApiParamMeta,
+  ApiParamType,
+  ProjectApi,
+  ValueTypeSchema,
+} from '@lc/schema'
 import { formatJsonValue, parseJsonDraft } from '@lc/shared'
 
 /**
@@ -21,6 +27,16 @@ export interface ApiKeyValueRow {
   value: string
 }
 
+/** 一行 query 参数：默认值之外带设计期登记信息（类型 / 必填 / 说明） */
+export interface ApiParamRow extends ApiKeyValueRow {
+  /** 参数类型；缺省 string */
+  type: ApiParamType
+  /** 是否必填 */
+  required: boolean
+  /** 说明 */
+  description: string
+}
+
 /** 接口编辑器的完整草稿态 */
 export interface ApiDraft {
   /** 接口展示名 */
@@ -29,14 +45,18 @@ export interface ApiDraft {
   group: string
   /** 说明 */
   description: string
+  /** 标签 */
+  tags: string[]
+  /** 是否公开 */
+  isPublic: boolean
   /** 请求方法 */
   method: ApiMethod
   /** 请求路径 */
   path: string
   /** 请求头行 */
   headers: ApiKeyValueRow[]
-  /** query 参数行 */
-  params: ApiKeyValueRow[]
+  /** query 参数行（含登记信息） */
+  params: ApiParamRow[]
   /** 请求体 JSON 文本；空串表示不带 body */
   bodyText: string
   /** 响应样本 JSON 文本；空串表示没有样本 */
@@ -61,15 +81,22 @@ export function createApiDraft(): ApiDraft {
     name: '',
     group: '',
     description: '',
+    tags: [],
+    isPublic: false,
     method: 'GET',
     path: '',
     headers: [{ key: '', value: '' }],
-    params: [{ key: '', value: '' }],
+    params: [createParamRow()],
     bodyText: '',
     sampleText: '',
     withCredentials: false,
     responseType: 'json',
   }
+}
+
+/** 一行空参数：类型按 string、非必填，与登记信息的缺省一致 */
+export function createParamRow(): ApiParamRow {
+  return { key: '', value: '', type: 'string', required: false, description: '' }
 }
 
 /**
@@ -83,14 +110,73 @@ export function draftFromApi(api: ProjectApi): ApiDraft {
     name: api.name,
     group: api.group ?? '',
     description: api.description ?? '',
+    tags: [...(api.tags ?? [])],
+    isPublic: api.isPublic === true,
     method: api.method,
     path: api.path,
     headers: mapToRows(api.headers),
-    params: mapToRows(api.params),
+    params: paramRowsFrom(api.params, api.paramMeta),
     bodyText: formatJsonValue(api.body),
     sampleText: formatJsonValue(api.sample),
     withCredentials: api.withCredentials === true,
     responseType: api.responseType ?? 'json',
+  }
+}
+
+/**
+ * 参数默认值 + 登记信息 → 参数行。
+ *
+ * 空映射给一行空行，与请求头同一取舍：让第一次填参数的人看见这里能填。
+ */
+export function paramRowsFrom(
+  params: Record<string, string> | undefined,
+  meta: Record<string, ApiParamMeta> | undefined,
+): ApiParamRow[] {
+  const entries = Object.entries(params ?? {}).map(([key, value]): ApiParamRow => {
+    const info = meta?.[key]
+
+    return {
+      key,
+      value,
+      type: info?.type ?? 'string',
+      required: info?.required === true,
+      description: info?.description ?? '',
+    }
+  })
+
+  return entries.length === 0 ? [createParamRow()] : entries
+}
+
+/**
+ * 参数行 → 默认值映射 + 登记信息。
+ *
+ * 空键的行丢掉；登记信息只在该行确有非缺省内容时才写，且键与默认值映射保持一致，
+ * 不会留下指向已删参数的孤儿登记。
+ */
+export function rowsToParams(rows: readonly ApiParamRow[]): {
+  params: Record<string, string> | undefined
+  paramMeta: Record<string, ApiParamMeta> | undefined
+} {
+  const params: Array<[string, string]> = []
+  const meta: Record<string, ApiParamMeta> = {}
+
+  for (const row of rows) {
+    const key = row.key.trim()
+    if (key === '') continue
+    params.push([key, row.value])
+
+    const description = row.description.trim()
+    if (row.type === 'string' && !row.required && description === '') continue
+    meta[key] = {
+      ...(row.type === 'string' ? {} : { type: row.type }),
+      ...(row.required ? { required: true } : {}),
+      ...(description === '' ? {} : { description }),
+    }
+  }
+
+  return {
+    params: params.length === 0 ? undefined : Object.fromEntries(params),
+    paramMeta: Object.keys(meta).length === 0 ? undefined : meta,
   }
 }
 
@@ -149,6 +235,8 @@ export function parseApiDraft(draft: ApiDraft, resultType?: ValueTypeSchema): Ap
   const sample = parseJsonDraft(draft.sampleText)
   if (!sample.ok) return { error: `响应样本：${sample.error}` }
 
+  const { params, paramMeta } = rowsToParams(draft.params)
+
   return {
     error: '',
     input: {
@@ -157,8 +245,11 @@ export function parseApiDraft(draft: ApiDraft, resultType?: ValueTypeSchema): Ap
       path,
       group: draft.group,
       description: draft.description,
+      tags: draft.tags,
+      isPublic: draft.isPublic,
       headers: rowsToMap(draft.headers),
-      params: rowsToMap(draft.params),
+      params,
+      paramMeta,
       body: body.value,
       sample: sample.value,
       withCredentials: draft.withCredentials,

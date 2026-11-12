@@ -5,8 +5,10 @@ import {
   createApiDraft,
   draftFromApi,
   mapToRows,
+  paramRowsFrom,
   parseApiDraft,
   rowsToMap,
+  rowsToParams,
 } from '../src/components/api/api-draft'
 
 /**
@@ -34,9 +36,13 @@ describe('草稿初值', () => {
     const draft = createApiDraft()
 
     expect(draft.headers).toEqual([{ key: '', value: '' }])
-    expect(draft.params).toEqual([{ key: '', value: '' }])
+    expect(draft.params).toEqual([
+      { key: '', value: '', type: 'string', required: false, description: '' },
+    ])
     expect(draft.method).toBe('GET')
     expect(draft.withCredentials).toBe(false)
+    expect(draft.tags).toEqual([])
+    expect(draft.isPublic).toBe(false)
   })
 
   it('缺省字段展开成表单初始值，而不是留下无法区分两种「没填」的空位', () => {
@@ -153,5 +159,66 @@ describe('定义 → 草稿 → 提交 的往返', () => {
     )
 
     expect(Object.keys(roundTripped).sort()).toEqual(['method', 'name', 'path'])
+  })
+})
+
+describe('参数行与登记信息', () => {
+  it('默认值与登记信息合到一行，缺登记按 string / 非必填展开', () => {
+    const rows = paramRowsFrom({ page: '1', userId: '' }, { userId: { required: true } })
+
+    expect(rows).toEqual([
+      { key: 'page', value: '1', type: 'string', required: false, description: '' },
+      { key: 'userId', value: '', type: 'string', required: true, description: '' },
+    ])
+    expect(paramRowsFrom(undefined, undefined)).toEqual([
+      { key: '', value: '', type: 'string', required: false, description: '' },
+    ])
+  })
+
+  it('全缺省的登记不落键，孤儿键（参数已删）被丢掉', () => {
+    const { params, paramMeta } = rowsToParams([
+      { key: 'page', value: '1', type: 'string', required: false, description: '' },
+      { key: 'size', value: '20', type: 'number', required: true, description: ' 每页条数 ' },
+      { key: '  ', value: 'x', type: 'number', required: true, description: '' },
+    ])
+
+    expect(params).toEqual({ page: '1', size: '20' })
+    expect(paramMeta).toEqual({
+      size: { type: 'number', required: true, description: '每页条数' },
+    })
+  })
+
+  it('一行有效参数都没有时两个映射都缺省', () => {
+    expect(
+      rowsToParams([{ key: '', value: '', type: 'string', required: false, description: '' }]),
+    ).toEqual({ params: undefined, paramMeta: undefined })
+  })
+})
+
+describe('标签与公开标记的往返', () => {
+  it('标签去重裁空白、公开标记只落 true，往返后字段不变', () => {
+    const api = makeApi({ tags: ['用户', '信息'], isPublic: true })
+    const parsed = parseApiDraft(draftFromApi(api), undefined)
+    const roundTripped = normalizeApiInput(
+      parsed.input ?? expect.unreachable('往返应当通过校验'),
+    )
+
+    expect(roundTripped.tags).toEqual(['用户', '信息'])
+    expect(roundTripped.isPublic).toBe(true)
+  })
+
+  it('空标签与 false 公开标记往返后缺席', () => {
+    const draft = createApiDraft()
+    draft.name = '用户列表'
+    draft.path = '/users'
+    draft.tags = ['  ', '用户', '用户']
+
+    const parsed = parseApiDraft(draft, undefined)
+    const roundTripped = normalizeApiInput(
+      parsed.input ?? expect.unreachable('往返应当通过校验'),
+    )
+
+    expect(roundTripped.tags).toEqual(['用户'])
+    expect(roundTripped.isPublic).toBeUndefined()
   })
 })

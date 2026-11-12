@@ -47,10 +47,22 @@ const projectChildren: RouteRecordRaw[] = [
     path: 'components/:componentId/edit',
     component: () => import('./views/ComponentBlueprintView.vue'),
   },
-  // 接口：字段比函数多，新建直接进编辑器，第一条就在「列表页弹框」里填不下
-  { path: 'apis', component: () => import('./views/ApiListView.vue') },
-  { path: 'apis/new', component: () => import('./views/ApiEditorView.vue') },
-  { path: 'apis/:apiId/edit', component: () => import('./views/ApiEditorView.vue') },
+  // 接口三条路由共用主控台视图：URL 只决定选中项，草稿缓存留在视图里（与函数同一约定）
+  {
+    path: 'apis',
+    name: 'project-apis',
+    component: () => import('./views/ApiListView.vue'),
+  },
+  {
+    path: 'apis/new',
+    name: 'project-api-new',
+    component: () => import('./views/ApiListView.vue'),
+  },
+  {
+    path: 'apis/:apiId/edit',
+    name: 'project-api-edit',
+    component: () => import('./views/ApiListView.vue'),
+  },
   { path: 'flows', component: () => import('./views/FlowListView.vue') },
   { path: 'flows/new', component: () => import('./views/FlowEditorView.vue') },
   { path: 'flows/:flowId/edit', component: () => import('./views/FlowEditorView.vue') },
