@@ -3,11 +3,12 @@ import { createBlankPageSchema } from './page-model'
 import { createAdminDocumentSchema } from '../admin-document'
 import { createDemoSchema } from '../demo-document'
 import { createEventDemoSchema } from '../event-demo-document'
+import { createFormPageSchema } from '../form-page-document'
 
 /**
  * 内置页面种子。
  *
- * 只在 localStorage 里还没有页面存储时写入一次，之后它们就是普通记录：可以改名、
+ * 只在 IndexedDB 里还没有页面存储时写入一次，之后它们就是普通记录：可以改名、
  * 可以删掉，与设计器里保存出来的页面没有任何区别。
  *
  * 前三个 id 沿用项目化改造前 `pages.ts` 里的那三个：事件链演示的动作引用的是文档内的
@@ -25,6 +26,12 @@ export function createBuiltinPageSeeds(): PageRecord[] {
       id: 'admin-doc',
       title: '工单管理系统',
       schema: createAdminDocumentSchema(),
+      updatedAt: now,
+    },
+    {
+      id: 'form-doc',
+      title: '自定义表单页',
+      schema: createFormPageSchema(),
       updatedAt: now,
     },
     {

@@ -4,7 +4,12 @@ import type { Context } from '@lc/kernel'
 import { createApp, definePlugin } from '@lc/kernel'
 import type { ExpressionEngine } from '@lc/schema'
 import presetDesigner from '@lc/preset-designer'
-import { installCustomComponents } from './custom-components/custom-components'
+import {
+  installCustomComponents,
+  saveCustomComponent,
+  customComponents,
+} from './custom-components/custom-components'
+import { signupFormComponent } from './form-page-document'
 import { installGlobalFunctions } from './functions/global-functions'
 import { navigationService } from './navigation'
 import { httpService } from './apis/api-request'
@@ -229,6 +234,17 @@ export async function bootstrapHost(): Promise<HostBootstrap> {
       context.require<ModuleService>('modules'),
     ),
   )
+
+  // 演示：把「报名表单」自定义组件注册进物料，确保 form-doc 预览页里的 SignupForm 能出图。
+  // 全局自定义组件目前是渲染器解析 componentName 的唯一来源（页面级 components 仅被编辑器识别），
+  // 所以演示页要在预览里真正渲染，组件必须落到这里。幂等保护：已存在同名定义则跳过。
+  if (
+    !customComponents.value.some(
+      (entry) => entry.definition.meta.name === signupFormComponent.meta.name,
+    )
+  ) {
+    saveCustomComponent({ definition: signupFormComponent })
+  }
 
   registerBuiltinPackages(context.require<LoaderService>('loader'))
   registerAppShellCommands(context)
