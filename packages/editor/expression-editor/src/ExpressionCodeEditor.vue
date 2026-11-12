@@ -361,7 +361,7 @@ defineExpose({ insert })
   border-radius: 999px;
   background: var(--lc-accent-soft);
   color: var(--lc-accent);
-  font-size: 9px;
+  font-size: var(--lc-font-size-3xs);
   line-height: 14px;
 }
 
@@ -378,7 +378,7 @@ defineExpose({ insert })
 .lc-expression-editor__signature-count {
   flex: none;
   color: var(--lc-text-muted);
-  font-size: 9px;
+  font-size: var(--lc-font-size-3xs);
   font-variant-numeric: tabular-nums;
 }
 </style>

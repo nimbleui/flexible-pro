@@ -421,7 +421,7 @@ function commitExpression(key: string, raw: string): void {
   background: transparent;
   color: var(--lc-text-muted);
   font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
-  font-size: 9px;
+  font-size: var(--lc-font-size-3xs);
   line-height: 1;
   cursor: pointer;
 }

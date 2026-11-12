@@ -208,7 +208,7 @@
   border-radius: 999px;
   background: var(--lc-danger-surface, rgba(255, 107, 129, 0.12));
   color: var(--lc-danger, #ff6b81);
-  font-size: 9px;
+  font-size: var(--lc-font-size-3xs);
   line-height: 14px;
 }
 

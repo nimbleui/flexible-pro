@@ -42,7 +42,7 @@
   border-radius: 999px;
   background: var(--lc-accent-soft);
   color: var(--lc-accent);
-  font-size: 9px;
+  font-size: var(--lc-font-size-3xs);
 }
 
 .lc-page-data__status {
@@ -52,7 +52,7 @@
   border-radius: 999px;
   background: rgba(148, 163, 184, 0.14);
   color: var(--lc-text-muted);
-  font-size: 9px;
+  font-size: var(--lc-font-size-3xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
