@@ -686,7 +686,7 @@ function onSubmit(): void {
 .lc-function-form__button--primary {
   border-color: rgba(55, 182, 255, 0.55);
   background: linear-gradient(135deg, var(--lc-accent), var(--lc-accent-bright));
-  color: #04101f;
+  color: var(--lc-on-accent);
   font-weight: 600;
 }
 

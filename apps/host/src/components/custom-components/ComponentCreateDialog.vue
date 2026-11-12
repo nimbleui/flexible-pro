@@ -278,7 +278,7 @@ function confirm(): void {
 .lc-component-create__button--primary {
   border-color: var(--lc-accent);
   background: linear-gradient(150deg, var(--lc-accent-bright), var(--lc-accent));
-  color: #04101f;
+  color: var(--lc-on-accent);
   font-weight: 600;
 }
 
