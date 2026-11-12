@@ -32,6 +32,8 @@ import { toastService } from '../../toast'
 const props = defineProps<{
   /** 环境归属的项目 id */
   projectId: string
+  /** 打开时聚焦编辑的环境 id；缺省跟着生效环境走 */
+  focusEnvId?: string
 }>()
 
 /** 值可能被旁人读到，也可能被误复制进文档：敏感头名按掩码显示 */
@@ -50,15 +52,18 @@ const environments = computed<readonly RequestEnvironment[]>(() =>
 )
 const activeId = computed(() => activeEnvironmentOf(props.projectId).id)
 
-/** 面板当前编辑的环境 id；缺省跟着生效环境走 */
-const editingId = ref<string>(activeId.value)
+/** 面板当前编辑的环境 id；缺省跟着生效环境走，外部指定时优先 */
+const editingId = ref<string>(props.focusEnvId ?? activeId.value)
 const revealSecrets = ref(false)
 const draft = reactive({
   name: '',
   baseUrl: '',
   withCredentials: false,
+  autoRetry: true,
+  requestLogging: false,
   headers: [] as ApiKeyValueRow[],
   params: [] as ApiKeyValueRow[],
+  responseHeaders: [] as ApiKeyValueRow[],
   /** 凭据来源：登录接口的 id，空串表示「不用凭据」 */
   authApiId: '',
   /** token 在响应里的点路径 */
@@ -84,8 +89,11 @@ watch(
     draft.name = env?.name ?? (id === DEFAULT_ENVIRONMENT.id ? DEFAULT_ENVIRONMENT.name : '')
     draft.baseUrl = env?.baseUrl ?? ''
     draft.withCredentials = env?.withCredentials === true
+    draft.autoRetry = env?.autoRetry !== false
+    draft.requestLogging = env?.requestLogging === true
     draft.headers = mapToRows(env?.headers)
     draft.params = mapToRows(env?.params)
+    draft.responseHeaders = mapToRows(env?.responseHeaders)
     draft.authApiId = env?.auth?.sourceApiId ?? ''
     draft.authTokenPath = env?.auth?.tokenPath ?? ''
     draft.authHeaderName = env?.auth?.headerName ?? ''
@@ -157,7 +165,10 @@ function save(): void {
       baseUrl: draft.baseUrl,
       headers: rowsToMap(draft.headers),
       params: rowsToMap(draft.params),
+      responseHeaders: rowsToMap(draft.responseHeaders),
       withCredentials: draft.withCredentials,
+      autoRetry: draft.autoRetry,
+      requestLogging: draft.requestLogging,
       auth: authFromDraft(),
     })
     // 动的若是还没启用的环境，就不该让所有已打开的页面重取一遍
@@ -266,6 +277,14 @@ function onPick(event: Event): void {
       value-placeholder="值"
     />
 
+    <ApiKeyValueRows
+      :rows="draft.responseHeaders"
+      label="响应头（登记）"
+      hint="网关应返回的响应头，如 CORS；仅登记随环境导出，浏览器不据此修改真实响应"
+      key-placeholder="Access-Control-Allow-Origin"
+      value-placeholder="*"
+    />
+
     <div class="lc-api-config__auth">
       <span class="lc-api-config__label">凭据（可选）</span>
       <label class="lc-api-config__field">
@@ -307,6 +326,14 @@ function onPick(event: Event): void {
       <label class="lc-api-config__check">
         <input v-model="draft.withCredentials" type="checkbox" />
         跨域请求携带凭据
+      </label>
+      <label class="lc-api-config__check">
+        <input v-model="draft.autoRetry" type="checkbox" />
+        401 自动重试
+      </label>
+      <label class="lc-api-config__check">
+        <input v-model="draft.requestLogging" type="checkbox" />
+        请求日志
       </label>
       <label class="lc-api-config__check">
         <input v-model="revealSecrets" type="checkbox" />
