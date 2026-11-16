@@ -8,7 +8,11 @@
  * 本包只实现它们，不重新定义它们。
  */
 
-export type { ExpressionDiagnosticSink, ExpressionEngineOptions } from './engine'
+export type {
+  ExpressionDiagnosticSink,
+  ExpressionEngineOptions,
+  JsExpressionRunner,
+} from './engine'
 export { createExpressionEngine } from './engine'
 
 /**

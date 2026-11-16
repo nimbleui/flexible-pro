@@ -234,7 +234,7 @@ export default { components }
 3. **DOM 与算法分离**。几何/变换/解析逻辑写成纯函数并单测：`canvas-align/src/align.ts`、`canvas-commands/src/operations.ts`、`canvas-rotate/src/rotate.ts`、`canvas-minimap/src/geometry.ts`、`canvas-rulers/src/guides.ts`、`canvas-selection/src/hierarchy.ts`、`vue/src/render/tree.ts`。渲染函数只负责把结果写进 DOM。
 4. **依赖方向不可逆**。低层包不得 import 高层；插件不得 import 插件；跨层协作走服务/事件/设置/handle-id。物料语义（`container`）不下沉进画布内核。
 5. **失败降级优先于抛错**，但装配错误要抛错。二者分界：`ensure`/`resolveMaterial`/`execute` 返回 undefined 或静默并记诊断；`provide` 冲突、`settings.set` 未注册 id、`transaction.begin` 已有活动事务、`beginGesture` 已有手势——**抛错**。
-6. **不绕过类型系统**。生产代码里的收窄断言是 `as Component` **4 处**（`packages/vue/src/components/CanvasStage.vue:177`、`PageRuntime.vue:255`、`SchemaPreview.vue:191`、`Slot.vue:129`）与 `as CanvasContext` **2 处**（`service-canvas-core/src/index.ts:122`、`service-workspace/src/index.ts:136`），另有 `JsExpression` 逃生门的 `new Function` 返回值（`service-expression/src/index.ts:51`，仅在 `allowUnsafeJs` 开启时构造，注释写明授权前提）、3 个 spec 里的 `as unknown as CanvasContext`，以及 `canvas-drag/tests/drag.spec.ts:130` 的测试上下文构造。新增断言必须说明为什么类型无法表达。实质约定未变：收窄只落在 `@lc/vue` 宿主层与服务装配层，没有散落进插件。
+6. **不绕过类型系统**。生产代码里的收窄断言是 `as Component` **4 处**（`packages/vue/src/components/CanvasStage.vue:177`、`PageRuntime.vue:255`、`SchemaPreview.vue:191`、`Slot.vue:129`）与 `as CanvasContext` **2 处**（`service-canvas-core/src/index.ts:122`、`service-workspace/src/index.ts:136`），另有 `JsExpression` 逃生门的 `new Function` 返回值（`service-expression/src/index.ts:54`，仅在 `allowUnsafeJs` 开启时构造，注释写明授权前提）、3 个 spec 里的 `as unknown as CanvasContext`，以及 `canvas-drag/tests/drag.spec.ts:130` 的测试上下文构造。新增断言必须说明为什么类型无法表达。实质约定未变：收窄只落在 `@lc/vue` 宿主层与服务装配层，没有散落进插件。
 7. **样式走语义变量 + 兜底值**：`var(--lc-accent, #2563eb)`。可复用组件一律 `<style scoped>`；画布覆盖层是渲染函数，用内联 `style`。
 
 ## 7. 测试
@@ -317,7 +317,7 @@ __lc.context.contribution.list('canvasFeatures') // 画布能力装配了什么
 7. 【现状】**业务事件无 `ctx.on` 消费者**：`document:change`、`selection:change`、`canvas:gestureEnd`、`plugin:activated/failed` 在仓库内没有任何 `ctx.on` 订阅；`service-version/src/tracker.ts` 消费 `document:change` 走的是 `DocumentChangeSource.onDidChange`（服务通知），不是事件总线，其余刷新也走各自的 `onDidChange`（见 [02 §4](./02-runtime-flow.md#4-两套通道业务事件-vs-服务通知)）。保留是对的（外部订阅面），但要防止误以为「监听事件就能刷新 UI」。
 8. 【描述不准】**hover 描边仍硬编码，但媒体查询不是全仓缺失**：`canvas-selection/src/overlay.ts` 的 `renderHoverBox` 仍写死 `rgba(37, 99, 235, 0.55)`，与 token 规范不一致（选中框 `renderSelectionBox` 已改用 `var(--lc-accent, #2563eb)`）；但 `prefers-color-scheme` / `prefers-reduced-motion` 已在 devtools、物料、code/data/eventflow/version 等面板的 `.vue` / `states.css` 里落地，不能再写成「无适配」。
 9. 【现状】**`.vue` 无自动化测试**：110 个 spec / 1136 条用例全是纯逻辑（默认并行 `pnpm test` 实跑 EXIT=0；`release-store.spec.ts` 的抖动已由 suite `timeout: 20_000` 治理，`--no-file-parallelism` 仅作对照，见 README 基线），`vitest.config.ts:8` 的配置注释自述「apps 侧只跑纯逻辑（草稿映射、校验、几何计算）：页面组件仍靠浏览器实测覆盖」；`renderTreeExpression.spec.ts` 覆盖「真实表达式引擎接入渲染树」这条接线，但仍不挂载组件。面板与舞台的行为回归依赖人工浏览器验证。沙箱侧同理：协议与客户端行为由回环 transport 覆盖，**跨 realm 的隔离强度只能在浏览器里验**（本仓源码用无扩展名相对导入，Node ESM 加载不了，所以 CI 里没有真 worker 线程的用例）。
-10. 【现状】**无 ESLint**：仅有 prettier + vue-tsc，风格之外的规则（如 `no-new-func`）没有工具执行。仓库现存 0 处行内 disable——原来唯一的一处随 `new Function` 从表达式引擎移出而删除，`JsExpression` 的执行改由「是否注入 `jsRunner`」这一结构性开关控制。
+10. 【现状】**无 ESLint**：仅有 prettier + vue-tsc，风格之外的规则（如 `no-new-func`）没有工具执行。仓库现存 0 处行内 disable——原来唯一的一处随 `new Function` 从表达式引擎移出而删除，`JsExpression` 的执行改由「是否注入 `compileJs`」这一结构性开关控制。
 
 ## 10. 提交前检查清单
 

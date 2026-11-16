@@ -243,3 +243,90 @@ describe('表达式安全边界：时间预算', () => {
     expect(kinds).toEqual(['budget'])
   })
 })
+
+/**
+ * `JsExpression` 曾经是三处预算与缓存策略共同的盲区：执行器一步走完
+ * `(code, scope) → 结果`，引擎既量不到耗时，编译缓存也留在装配层且无上限。
+ * 现在编译与执行分离，缓存淘汰与耗时计量都归引擎，与白名单路径同一套口径。
+ *
+ * 边界要说清：JS 越界只**上报**，同 realm 已经开始的代码中断不了。
+ */
+describe('表达式安全边界：JsExpression 的缓存与耗时计量', () => {
+  it('同一段代码只编译一次，缓存命中不再调编译器', () => {
+    let compiled = 0
+    const { engine } = auditingEngine({
+      compileJs: (code) => {
+        compiled += 1
+        return () => code.length
+      },
+    })
+
+    expect(engine.resolveValue({ type: 'js', code: 'aaa' }, {})).toBe(3)
+    expect(engine.resolveValue({ type: 'js', code: 'aaa' }, {})).toBe(3)
+    expect(compiled).toBe(1)
+  })
+
+  it('编译缓存有上限，超出后淘汰最早的一条', () => {
+    const compiled: string[] = []
+    const { engine } = auditingEngine({
+      jsCacheLimit: 2,
+      compileJs: (code) => {
+        compiled.push(code)
+        return () => code
+      },
+    })
+
+    for (const code of ['a', 'b', 'c', 'd']) {
+      engine.resolveValue({ type: 'js', code }, {})
+    }
+    expect(compiled).toEqual(['a', 'b', 'c', 'd'])
+
+    // 缓存里只剩 c、d：a 已被淘汰必然重编译，d 仍命中
+    compiled.length = 0
+    engine.resolveValue({ type: 'js', code: 'a' }, {})
+    engine.resolveValue({ type: 'js', code: 'd' }, {})
+    expect(compiled).toEqual(['a'])
+  })
+
+  it('执行超过时间预算上报 timeout，但结果照常返回（同 realm 不中止）', () => {
+    let clock = 0
+    const { engine, kinds } = auditingEngine({
+      timeBudgetMs: 10,
+      // 一次 JS 执行读两次时钟，每次推进 25ms：差值必然越界
+      now: () => (clock += 25),
+      compileJs: () => () => 'value',
+    })
+
+    expect(engine.resolveValue({ type: 'js', code: 'x' }, {})).toBe('value')
+    expect(kinds).toEqual(['timeout'])
+  })
+
+  it('预算内与 Infinity 关闭预算都不上报', () => {
+    const within = auditingEngine({ timeBudgetMs: 10, now: () => 0, compileJs: () => () => 1 })
+    expect(within.engine.resolveValue({ type: 'js', code: 'x' }, {})).toBe(1)
+    expect(within.kinds).toEqual([])
+
+    // 时钟读数再大也不会越界：Infinity 是显式关闭，不是「预算很宽」
+    const uncapped = auditingEngine({
+      timeBudgetMs: Number.POSITIVE_INFINITY,
+      now: () => Number.MAX_SAFE_INTEGER,
+      compileJs: () => () => 1,
+    })
+    expect(uncapped.engine.resolveValue({ type: 'js', code: 'x' }, {})).toBe(1)
+    expect(uncapped.kinds).toEqual([])
+  })
+
+  it('编译失败原样上报并返回 undefined，不抛穿渲染层', () => {
+    const errors: unknown[] = []
+    const engine = createExpressionEngine({
+      compileJs: () => {
+        throw new SyntaxError('Unexpected end of input')
+      },
+      onDiagnostic: (error) => errors.push(error),
+    })
+
+    const resolved = engine.resolveValue({ props: { text: { type: 'js', code: '1 +' } } }, {})
+    expect(resolved).toStrictEqual({ props: { text: undefined } })
+    expect(errors[0]).toBeInstanceOf(SyntaxError)
+  })
+})

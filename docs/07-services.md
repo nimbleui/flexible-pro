@@ -145,15 +145,19 @@ notify()           // version += 1
 `packages/services/service-expression/src/index.ts`
 
 ```ts
-createJsRunner() // :45   JsExpression 执行器；全仓库唯一的 new Function 在 :51
-schema.parse // :65   allowUnsafeJs 默认 false；timeBudgetMs 非负或 Infinity，否则配置阶段失败
-apply(ctx, config) // :79   createExpressionEngine({ jsRunner, timeBudgetMs, onDiagnostic })
-ctx.provide('expression', engine, { apiVersion: '1.1' }) // :86
+compileJs() // :53   JsExpression 编译器；全仓库唯一的 new Function 在 :54
+schema.parse // :62   allowUnsafeJs 默认 false；timeBudgetMs 非负或 Infinity，否则配置阶段失败
+apply(ctx, config) // :75   createExpressionEngine({ compileJs, timeBudgetMs, onDiagnostic })
+ctx.provide('expression', engine, { apiVersion: '1.1' }) // :82
 ```
 
-`jsRunner` **就是**能力开关本身，而不是配一个布尔位：不传执行器就没有任何路径能执行 `JsExpression`，因此不存在「开了开关但没有运行器」的非法状态。`@lc/expression` 自身不持有 `new Function`，搜索全仓库只能命中 `:51` 一处，且它只在显式开启 `allowUnsafeJs` 后才构造。这条分层的意义是让「字符串变成可执行代码」的站点可被直接审计。
+`compileJs` **就是**能力开关本身，而不是配一个布尔位：不传编译器就没有任何路径能执行 `JsExpression`，因此不存在「开了开关但没有运行器」的非法状态。`@lc/expression` 自身不持有 `new Function`，搜索全仓库只能命中 `:54` 一处，且它只在显式开启 `allowUnsafeJs` 后才注入。这条分层的意义是让「字符串变成可执行代码」的站点可被直接审计。
+
+编译与执行分成两步（`code → runner`，而不是 `run(code, scope)`）是为了把这条旁路拉回引擎的统一策略里：编译结果进 `jsCache`，与语法树、模板分段共用同一个 `cacheSet` 淘汰口径（`jsCacheLimit` 默认 500，见 `engine.ts:37`）；执行结果用同一个 `now()` 与 `timeBudgetMs` 计量，越界上报 `timeout`（`engine.ts:354`）。装配层因此不再自持缓存。
 
 **安全边界必须原样记录**：白名单解释器限制的是「语言能表达什么」（无原型链、无全局对象、`call/apply/bind` 不可得、`constructor` 被拒），**不是**「代码能碰到什么」。同 realm 的 JS 无法被沙箱化（设计稿 §19.2 明示）；§19.4 要求的 Worker 求值后端已作为**可选旁路**实现（`packages/expression/src/sandbox/`，细节见 [05](./05-contracts-and-schema.md) 的沙箱条目），但它**不经本插件装配**：本插件只 provide 同步 `expression`，沙箱由消费方按需用 `createExpressionSandbox` 自建——没有调用方却常驻一个线程是纯开销。两个残留的非隔离面：宿主注入到求值作用域的函数是真 JS（沙箱强度 = min(语言白名单, 注入的函数面)，且这样的作用域无法结构化克隆进 worker），以及开启后的 `JsExpression` 完全等同物料代码。
+
+预算对这条旁路**只能计量、不能中止**：`timeBudgetMs` 越界会记一条 `timeout` 诊断，结果照常返回——同 realm 里已经开始执行的代码停不下来。要把跑飞的求值真的停下来，只有沙箱旁路的 `terminate()` 做得到（`packages/expression/src/sandbox/client.ts`）。修复前这条路径连计量都没有：执行器一步走完 `code + scope → 结果`，配了 `timeBudgetMs` 也是静默无效。
 
 ## `setter` — 属性类型 → 控件种类
 

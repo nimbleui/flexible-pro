@@ -90,7 +90,7 @@ const tree = computed<RenderNode[]>(() => {
 })
 ```
 
-`resolveValue` 不再是宿主自己实现的递归函数，而是直接注入引擎的 `expression.resolveValue`（`:61`）。入口顺序：`isExpressionString` → 求值；`isJsExpression` → 走 `allowUnsafeJs` 门控的执行器（默认关闭，拒绝并上报诊断）；含 `{{` 的字符串 → 插值；数组与「原型为 `Object.prototype`」的普通对象递归；`Date`/`Map`/类实例原样透传，避免日期字段被重建成空对象。**条件、循环、指令共用这一个入口**，保证渲染树里的值都已求值。递归深度上限与「错误吞掉并上报诊断以免白屏」的策略都在引擎侧，见 `docs/05` 的表达式一节。
+`resolveValue` 不再是宿主自己实现的递归函数，而是直接注入引擎的 `expression.resolveValue`（`:61`）。入口顺序：`isExpressionString` → 求值；`isJsExpression` → 走 `allowUnsafeJs` 门控的编译器（默认关闭，拒绝并上报诊断；开启后耗时只被 `timeBudgetMs` 计量并上报 `timeout`，同 realm 不中止，结果照常渲染）；含 `{{` 的字符串 → 插值；数组与「原型为 `Object.prototype`」的普通对象递归；`Date`/`Map`/类实例原样透传，避免日期字段被重建成空对象。**条件、循环、指令共用这一个入口**，保证渲染树里的值都已求值。递归深度上限与「错误吞掉并上报诊断以免白屏」的策略都在引擎侧，见 `docs/05` 的表达式一节。
 
 `buildRenderTree`（`packages/vue/src/render/tree.ts:50-169`）的规则（`:39-49` 注释）：
 

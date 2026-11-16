@@ -57,6 +57,25 @@ describe('表达式服务', () => {
     expect(permissive.resolveValue({ type: 'js', code: 'count + 1' }, { count: 1 })).toBe(2)
   })
 
+  it('开启后非法 JS 代码只降级当前字段，不连带整棵 schema 值', async () => {
+    const app = createApp({ grants: {} })
+    app.plugin(expressionPlugin, { allowUnsafeJs: true })
+    await app.runtime.whenIdle()
+    const engine = app.require<ExpressionEngine>('expression')
+    const before = app.diagnostics.list().length
+
+    const resolved = engine.resolveValue(
+      {
+        text: { type: 'js', code: '1 +' },
+        count: { type: 'expression', raw: '{{ n * 2 }}' },
+      },
+      { n: 2 },
+    )
+
+    expect(resolved).toStrictEqual({ text: undefined, count: 4 })
+    expect(app.diagnostics.list().length).toBeGreaterThan(before)
+  })
+
   it('递归解析 schema 值，供渲染树与动作配置共用', async () => {
     const engine = await createEngine()
     const resolved = engine.resolveValue(

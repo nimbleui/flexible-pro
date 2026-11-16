@@ -17,6 +17,9 @@ import { defineDataProperty, isPlainRecord } from './coerce'
  * 缓存必须存在且必须有上限：设计器里用户是逐字符编辑表达式的，
  * 每个中间态都是一串唯一文本。无上限的 Map 在长会话里只会单调增长，
  * 这是把 `new Function` 换成解释器之后新引入的内存特征，不能不管。
+ *
+ * `JsExpression` 的编译缓存也归这一层：它的条目是编译后的函数体，比语法树更重，
+ * 交给装配层各自决定「缓存或不缓存」只会让三处缓存的淘汰口径各走各路。
  */
 
 /** 编译缓存上限：一次设计会话里同时存活的不同表达式数量远低于这个量级 */
@@ -24,6 +27,14 @@ const DEFAULT_COMPILE_CACHE_LIMIT = 2000
 
 /** 模板分段缓存上限 */
 const DEFAULT_TEMPLATE_CACHE_LIMIT = 500
+
+/**
+ * `JsExpression` 编译缓存上限。
+ *
+ * 比语法树缓存小一个量级：JS 表达式是逃生门，一个页面里的数量本就少，
+ * 这个上限的存在理由是把最坏情况封顶，而不是被人调优。
+ */
+const DEFAULT_JS_CACHE_LIMIT = 500
 
 /**
  * 单次顶层求值的节点访问预算。
@@ -53,6 +64,13 @@ const DEFAULT_RESOLVE_DEPTH_LIMIT = 32
 export type ExpressionDiagnosticSink = (error: unknown, detail: Record<string, unknown>) => void
 
 /**
+ * `JsExpression` 的编译产物：吃一次作用域、返回结果。
+ *
+ * 抛错由引擎吞掉并转成诊断，编译器本身不需要 try。
+ */
+export type JsExpressionRunner = (scope: ExpressionScope) => unknown
+
+/**
  * 引擎装配配置。
  *
  * 所有预算参数按「单个引擎实例」计，而非全局：预览沙箱、动作执行器等
@@ -60,14 +78,19 @@ export type ExpressionDiagnosticSink = (error: unknown, detail: Record<string, u
  */
 export interface ExpressionEngineOptions {
   /**
-   * `JsExpression` 的执行器。
+   * `JsExpression` 的编译器：把代码文本变成可执行函数。
    *
    * 引擎核心**不自己持有 `new Function`**：这样整个仓库里「把字符串变成可执行代码」
    * 的位置只有一处，可以通过搜索直接审计，也符合 CSP 禁 `unsafe-eval` 的运行时要求。
    * 不传本参数时，任何 `JsExpression` 都会被拒绝并上报诊断 ——
    * 「能力开关」就是这个参数本身，不需要再配一个布尔位。
+   *
+   * 编译与执行分成两步（而不是一个 `run(code, scope)`）有两个理由：编译结果由引擎
+   * 按 `jsCacheLimit` 统一缓存，与语法树、模板分段共用同一套淘汰口径；执行则被纳入
+   * `timeBudgetMs` 的计量范围 —— 代价是每次调用都调一次时钟，收益是「配了预算却
+   * 一条 JS 都没管」这种静默失效不再可能。
    */
-  jsRunner?: (code: string, scope: ExpressionScope) => unknown
+  compileJs?: (code: string) => JsExpressionRunner
 
   /** 诊断上报通道 @default 空实现（诊断属于宿主，不属于语言） */
   onDiagnostic?: ExpressionDiagnosticSink
@@ -78,6 +101,9 @@ export interface ExpressionEngineOptions {
   /** 模板分段缓存条目上限 @default 500 */
   templateCacheLimit?: number
 
+  /** `JsExpression` 编译缓存条目上限 @default 500 */
+  jsCacheLimit?: number
+
   /** 单次顶层求值节点访问预算 @default 100000 */
   stepBudget?: number
 
@@ -87,6 +113,10 @@ export interface ExpressionEngineOptions {
    * 补的是步数预算兜不住的一类：一次原生方法或宿主函数调用在语法树上只占一个节点。
    * 已经在执行中的调用无法被中断，只能在其返回后中止后续求值 —— 这条限制是
    * 同 realm 执行的固有属性，要真正隔离得走 Worker。
+   *
+   * `JsExpression` 整段代码就是「一次执行中的调用」，因此对它而言本参数只能
+   * **事后计量并上报 `timeout`**，结果照常返回；要真的把跑飞的求值停下来，
+   * 只有沙箱旁路（`sandbox/client.ts` 的 `terminate()`）做得到。
    */
   timeBudgetMs?: number
 
@@ -128,17 +158,22 @@ export function createExpressionEngine(
   const report: ExpressionDiagnosticSink = options.onDiagnostic ?? (() => {})
   const compileCacheLimit = options.compileCacheLimit ?? DEFAULT_COMPILE_CACHE_LIMIT
   const templateCacheLimit = options.templateCacheLimit ?? DEFAULT_TEMPLATE_CACHE_LIMIT
+  const jsCacheLimit = options.jsCacheLimit ?? DEFAULT_JS_CACHE_LIMIT
   const stepBudget = options.stepBudget ?? DEFAULT_STEP_BUDGET
   const timeBudgetMs = options.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS
   const callDepthLimit = options.callDepthLimit ?? DEFAULT_CALL_DEPTH_LIMIT
   const resolveDepthLimit = options.resolveDepthLimit ?? DEFAULT_RESOLVE_DEPTH_LIMIT
+
+  // 同一个时钟喂给解释器与 JS 执行计量：两处预算必须是同一把尺子，否则
+  // 「timeBudgetMs 到底按谁的读数判定」会变成第三处口径
+  const now = options.now ?? (() => performance.now())
 
   const { registry: functions, resolve } = createFunctionRegistry(report)
   const evaluator = createEvaluator({
     stepBudget,
     timeBudgetMs,
     callDepthLimit,
-    now: options.now ?? (() => performance.now()),
+    now,
     resolveFunction: resolve,
     onUnboundIdentifier: (name, source) =>
       reportOnce(
@@ -150,6 +185,7 @@ export function createExpressionEngine(
 
   const compileCache = new Map<string, CompiledExpression>()
   const templateCache = new Map<string, CompiledSegment[]>()
+  const jsCache = new Map<string, JsExpressionRunner>()
 
   /** Map 保持插入顺序，删掉第一个键就是淘汰最旧的一条 */
   function cacheSet<V>(cache: Map<string, V>, limit: number, key: string, value: V): void {
@@ -260,8 +296,21 @@ export function createExpressionEngine(
     return result
   }
 
+  /**
+   * `JsExpression` 的求值入口。
+   *
+   * 三段：能力判定 → 编译（带缓存）→ 执行（带时间计量）。编译失败与执行抛错
+   * 都收敛成「返回 undefined + 一条诊断」，与白名单路径同一套降级策略，
+   * 否则一个坏掉的 JS 字段会把整棵渲染树带崩。
+   *
+   * 编译失败不入缓存，这一点和语法树的负缓存策略不同：坏代码每次渲染重编译、
+   * 每次各报一条诊断，换来的是不必再定「负缓存何时失效」。这条路径默认关闭，
+   * 只在显式开启 `allowUnsafeJs` 的宿主里可达，先不为它加一层状态。
+   */
   function resolveJs(code: string, scope: ExpressionScope): unknown {
-    if (!options.jsRunner) {
+    // 局部名与选项同名：这里不能叫 compile，本作用域已有一个编译语法树的 compile
+    const compileJs = options.compileJs
+    if (!compileJs) {
       reportOnce(
         code,
         code,
@@ -274,12 +323,49 @@ export function createExpressionEngine(
       return undefined
     }
 
+    let run = jsCache.get(code)
+    if (run === undefined) {
+      try {
+        run = compileJs(code)
+      } catch (error) {
+        report(error, { scope: 'expression', expression: code, stage: 'js-compile' })
+        return undefined
+      }
+      cacheSet(jsCache, jsCacheLimit, code, run)
+    }
+
+    const startedAt = now()
     try {
-      return options.jsRunner(code, scope)
+      const value = run(scope)
+      reportJsOverrun(code, now() - startedAt)
+      return value
     } catch (error) {
       report(error, { scope: 'expression', expression: code })
       return undefined
     }
+  }
+
+  /**
+   * JS 执行超预算的事后上报。
+   *
+   * 同 realm 的原生调用中断不了，所以这条路径上报而不中止：至少让「一个 JS 字段
+   * 每帧吃掉 200ms」在诊断面板里可见，而不是配了 `timeBudgetMs` 却静默无效。
+   * 报的是和白名单路径同一个 `timeout` 分类，两条路径的超预算能在面板里一起排序。
+   *
+   * 只在执行成功的路径上计量：抛错时原始错误比耗时更重要，理由与
+   * `interpreter.ts` 里 `withCallDepth` 的检查点一致。
+   */
+  function reportJsOverrun(code: string, elapsedMs: number): void {
+    if (elapsedMs <= timeBudgetMs) return
+
+    report(
+      new ExpressionError(
+        'timeout',
+        `JsExpression 求值耗时 ${elapsedMs.toFixed(1)}ms，超过 ${timeBudgetMs}ms 时间预算；同 realm 不中止，需中止请走沙箱旁路`,
+        code,
+      ),
+      { scope: 'expression', expression: code, stage: 'js-runner' },
+    )
   }
 
   /**
