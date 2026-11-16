@@ -34,6 +34,12 @@ interface Harness {
   clears: () => number
   currentIds: () => readonly string[]
   context: CanvasContext
+  /** 模拟真实管线的收尾：先摘掉活动手势，再回调 onFinish */
+  finishGesture: (commit: boolean) => void
+  /** 交给 ctx.effect 托管的副作用条数，即 EffectScope 的待回收记录数 */
+  registered: () => number
+  /** 模拟插件作用域销毁：逆序回收全部登记的副作用 */
+  disposeScope: () => void
 }
 
 /** 只覆盖选择插件所需的最小替身：命中结果、选中集、设置与手势都可被观察 */
@@ -45,9 +51,22 @@ function createContext(options: {
   let ids = [...(options.selection ?? [])]
   let cleared = 0
   let gesture: GestureCallbacks | undefined
+  /** 活动手势与它的收尾状态：句柄被重复 dispose 时不得再回调一次 onFinish */
+  let active: { callbacks: GestureCallbacks; finished: boolean } | null = null
+  const registered: Array<{ dispose(): void }> = []
   const handlers = new Map<string, InteractionHandler>()
   const settings = new Map<string, unknown>()
   const selectionSets: string[][] = []
+
+  /** 与管线 `finishGesture` 同规则：先置空再回调，onFinish 里才能紧接着起新手势 */
+  function finishGesture(commit: boolean): void {
+    const current = active
+    if (!current) return
+    current.finished = true
+    active = null
+    gesture = undefined
+    current.callbacks.onFinish(commit)
+  }
 
   const canvas = {
     nodeFlags: { hidden: new Set<string>(), locked: new Set<string>(), root: options.root },
@@ -91,7 +110,14 @@ function createContext(options: {
       },
       beginGesture(callbacks: GestureCallbacks) {
         gesture = callbacks
-        return { dispose() {} }
+        const token = { callbacks, finished: false }
+        active = token
+        return {
+          dispose() {
+            if (token.finished || active !== token) return
+            finishGesture(false)
+          },
+        }
       },
     },
     viewport: {
@@ -105,8 +131,11 @@ function createContext(options: {
   const context = {
     canvas,
     document: { model: { schema: createSchema(options.root) } },
-    effect<T>(factory: () => T): T {
-      return factory()
+    // 与真实 EffectScope 同构：每次登记追加一条待回收记录，只有作用域销毁才回收
+    effect<T extends { dispose(): void }>(factory: () => T): T {
+      const item = factory()
+      registered.push(item)
+      return item
     },
   } as unknown as CanvasContext
 
@@ -115,15 +144,22 @@ function createContext(options: {
   return {
     context,
     handler: (id: string) => {
-      const registered = handlers.get(id)
-      if (!registered) throw new Error(`处理器未注册：${id}`)
-      return registered
+      const found = handlers.get(id)
+      if (!found) throw new Error(`处理器未注册：${id}`)
+      return found
     },
     gesture: () => gesture as GestureCallbacks,
     setting: (id: string) => settings.get(id),
     selectionSets,
     clears: () => cleared,
     currentIds: () => ids,
+    finishGesture,
+    registered: () => registered.length,
+    disposeScope: () => {
+      for (let index = registered.length - 1; index >= 0; index -= 1)
+        registered[index]?.dispose()
+      registered.length = 0
+    },
   }
 }
 
@@ -268,5 +304,49 @@ describe('按下普通节点', () => {
       )
 
     expect(harness.currentIds()).toEqual(['card'])
+  })
+})
+
+describe('框选手势登记的生命周期', () => {
+  function startMarquee(harness: Harness): void {
+    harness.handler(POINTER).handle(
+      pointerEvent({
+        targetNodeId: 'board',
+        screen: { x: 10, y: 10 },
+        world: { x: 10, y: 10 },
+      }),
+      harness.context,
+    )
+    harness.gesture().onMove(
+      pointerEvent({
+        type: 'pointermove',
+        screen: { x: 90, y: 90 },
+        world: { x: 90, y: 90 },
+      }),
+    )
+  }
+
+  it('反复框选不增加 EffectScope 的登记条数', () => {
+    const harness = createContext({ root: 'board', hits: ['card'] })
+    const baseline = harness.registered()
+
+    for (let index = 0; index < 200; index += 1) {
+      startMarquee(harness)
+      harness.finishGesture(true)
+    }
+
+    // 逐次 ctx.effect(() => beginGesture(...)) 时这里是 baseline + 200
+    expect(harness.registered()).toBe(baseline)
+    expect(harness.setting(MARQUEE_SETTING)).toBeNull()
+  })
+
+  it('插件卸载时进行中的框选会清空临时矩形', () => {
+    const harness = createContext({ root: 'board', hits: ['card'] })
+
+    startMarquee(harness)
+    expect(harness.setting(MARQUEE_SETTING)).not.toBeNull()
+
+    harness.disposeScope()
+    expect(harness.setting(MARQUEE_SETTING)).toBeNull()
   })
 })

@@ -123,6 +123,12 @@ export interface CanvasInteractionService {
    * 声明当前处理器接管后续 move/up。
    *
    * 返回的 Disposable 用于提前结束手势（如 pointerup 后主动释放）。
+   *
+   * 生命周期归管线：pointerup、Escape、pointercancel 与舞台卸载都会收尾并回调
+   * `onFinish`。因此处理器要把句柄存进**单槽位**变量、在 `onFinish` 里置空，
+   * 而不是每次按下都 `ctx.effect(() => beginGesture(...))`——EffectScope 只在插件
+   * 卸载时回收，逐次登记会让记录数随操作次数线性增长，闭包还钉住手势前的文档快照。
+   * 需要「卸载时若手势仍活跃就取消」的保护，登记一次槽位的回收即可。
    */
   beginGesture(callbacks: GestureCallbacks): Disposable
 }

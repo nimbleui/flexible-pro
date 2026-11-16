@@ -96,6 +96,12 @@ export default defineCanvasPlugin({
       )
     }
 
+    // 同一时刻只有一条手势存活：登记槽位而不是逐次 ctx.effect，理由见
+    // contracts/services/canvas.ts 的 beginGesture 注释。建线与移动共用一个槽位，
+    // 因为管线本身就不允许两条并发手势
+    let gestureHandle: { dispose(): void } | null = null
+    ctx.effect(() => ({ dispose: () => gestureHandle?.dispose() }))
+
     ctx.effect(() =>
       canvas.interaction.register({
         id: 'canvas-rulers.create',
@@ -113,26 +119,25 @@ export default defineCanvasPlugin({
           const start = event.screen
           let draft: GuideDraft | null = null
 
-          ctx.effect(() =>
-            canvas.interaction.beginGesture({
-              onMove: (move) => {
-                const travelled =
-                  Math.abs(move.screen.x - start.x) + Math.abs(move.screen.y - start.y)
-                if (travelled < CREATE_THRESHOLD_PX) return
+          gestureHandle = canvas.interaction.beginGesture({
+            onMove: (move) => {
+              const travelled =
+                Math.abs(move.screen.x - start.x) + Math.abs(move.screen.y - start.y)
+              if (travelled < CREATE_THRESHOLD_PX) return
 
-                draft = { axis, value: axis === 'horizontal' ? move.world.y : move.world.x }
-                writeDraft(draft)
-              },
-              onFinish: (commit) => {
-                // Esc 或指针取消：草稿消失，文档不留痕
-                if (commit && draft) {
-                  const created = draft
-                  writeGuides(addGuide(readGuides(), created.axis, created.value))
-                }
-                writeDraft(null)
-              },
-            }),
-          )
+              draft = { axis, value: axis === 'horizontal' ? move.world.y : move.world.x }
+              writeDraft(draft)
+            },
+            onFinish: (commit) => {
+              gestureHandle = null
+              // Esc 或指针取消：草稿消失，文档不留痕
+              if (commit && draft) {
+                const created = draft
+                writeGuides(addGuide(readGuides(), created.axis, created.value))
+              }
+              writeDraft(null)
+            },
+          })
 
           // 手柄手势独占：标尺拖动不该同时触发框选或节点拖拽
           return 'stop'
@@ -157,19 +162,18 @@ export default defineCanvasPlugin({
           const original = readGuides()[target.axis][target.index]
           if (original === undefined) return 'pass'
 
-          ctx.effect(() =>
-            canvas.interaction.beginGesture({
-              onMove: (move) => {
-                const value = target.axis === 'horizontal' ? move.world.y : move.world.x
-                writeGuides(moveGuide(readGuides(), target.axis, target.index, value))
-              },
-              onFinish: (commit) => {
-                if (!commit) {
-                  writeGuides(moveGuide(readGuides(), target.axis, target.index, original))
-                }
-              },
-            }),
-          )
+          gestureHandle = canvas.interaction.beginGesture({
+            onMove: (move) => {
+              const value = target.axis === 'horizontal' ? move.world.y : move.world.x
+              writeGuides(moveGuide(readGuides(), target.axis, target.index, value))
+            },
+            onFinish: (commit) => {
+              gestureHandle = null
+              if (!commit) {
+                writeGuides(moveGuide(readGuides(), target.axis, target.index, original))
+              }
+            },
+          })
 
           return 'stop'
         },

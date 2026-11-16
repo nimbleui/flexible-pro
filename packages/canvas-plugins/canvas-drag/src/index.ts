@@ -201,6 +201,11 @@ export default defineCanvasPlugin({
       }),
     )
 
+    // 同一时刻只有一条手势存活：登记槽位而不是逐次 ctx.effect，理由见
+    // contracts/services/canvas.ts 的 beginGesture 注释
+    let gestureHandle: { dispose(): void } | null = null
+    ctx.effect(() => ({ dispose: () => gestureHandle?.dispose() }))
+
     ctx.effect(() =>
       canvas.interaction.register({
         id: 'canvas-drag.move',
@@ -234,32 +239,32 @@ export default defineCanvasPlugin({
           const startScreen = event.screen
           let started = false
 
-          ctx.effect(() =>
-            canvas.interaction.beginGesture({
-              onMove: (move) => {
-                // 阈值只在起拖前判定一次；起拖后即使回拉到起点也继续跟随
-                if (!started) {
-                  const moved = Math.hypot(
-                    move.screen.x - startScreen.x,
-                    move.screen.y - startScreen.y,
-                  )
-                  if (moved < DRAG_THRESHOLD_PX) return
-                  started = true
-                }
+          gestureHandle = canvas.interaction.beginGesture({
+            onMove: (move) => {
+              // 阈值只在起拖前判定一次；起拖后即使回拉到起点也继续跟随
+              if (!started) {
+                const moved = Math.hypot(
+                  move.screen.x - startScreen.x,
+                  move.screen.y - startScreen.y,
+                )
+                if (moved < DRAG_THRESHOLD_PX) return
+                started = true
+              }
 
-                const offset = frameWorldOffset(move, startWorld, snap, canvas, anchors, ids)
-                previewDragFrame(canvas, transaction, starts, primaryRect, offset)
-              },
+              const offset = frameWorldOffset(move, startWorld, snap, canvas, anchors, ids)
+              previewDragFrame(canvas, transaction, starts, primaryRect, offset)
+            },
 
-              // commit=false 来自 Esc 或 pointercancel：撤销预览并清掉辅助线
-              onFinish: (commit) => {
-                if (snap) clearSnap(snap, canvas, ids)
-                canvas.settings.set<Rect | null>(DRAG_BADGE_SETTING, null)
-                if (commit) transaction.commit()
-                else transaction.cancel()
-              },
-            }),
-          )
+            // commit=false 来自 Esc 或 pointercancel：撤销预览并清掉辅助线
+            onFinish: (commit) => {
+              // 先摘句柄：收尾抛错时槽位不该继续钉住这一帧的快照
+              gestureHandle = null
+              if (snap) clearSnap(snap, canvas, ids)
+              canvas.settings.set<Rect | null>(DRAG_BADGE_SETTING, null)
+              if (commit) transaction.commit()
+              else transaction.cancel()
+            },
+          })
 
           // handled 在管线里是跨阶段消费：本次按下不会再进入后续处理器
           return 'handled'

@@ -113,19 +113,19 @@ export default defineCanvasPlugin({
 
 可直接抄的注册面（每个都返回 `Disposable`）：
 
-| 想做的事           | 用哪个 API                                                                                | 真实调用点                                                        |
-| ------------------ | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| 响应指针/滚轮/键盘 | `canvas.interaction.register({ id, phase, priority, when, handle })`                      | `canvas-zoom/src/index.ts:70`                                     |
-| 接管一段手势       | `canvas.interaction.beginGesture({ onMove, onFinish })`                                   | `canvas-pan/src/index.ts:72`、`canvas-drag/src/index.ts:139`      |
-| 画东西             | `canvas.layers.register({ band, visible, load })`                                         | `canvas-grid/src/index.ts:26`                                     |
-| 存共享状态/预览    | `canvas.settings.register({ id, title, scope, schema, default })` + `set/get/onDidChange` | `canvas-grid/src/index.ts:16`、`canvas-selection/src/index.ts:53` |
-| 右键菜单项         | `canvas.contextMenu.register(item)`                                                       | `canvas-context-menu/src/index.ts`                                |
-| 写文档（手势）     | `canvas.transaction.begin({ label, owner })` → `preview` → `commit/cancel`                | `canvas-drag/src/index.ts:128`                                    |
-| 写文档（命令）     | `document.apply(patches, { record: true, label })`                                        | `canvas-align/src/index.ts`                                       |
-| 提供吸附候选       | `snap.registerProvider({ id, getCandidates })`                                            | `canvas-snap/src/index.ts:61-70`                                  |
-| 暴露命令           | `ctx.command.register({ id, title, enabled?, run })`                                      | `canvas-zoom/src/index.ts:123`                                    |
-| 绑快捷键           | `ctx.keybinding.register({ id, key, command })`（**先判空**）                             | `canvas-zoom/src/index.ts:171-178`                                |
-| 订阅事件           | `ctx.on('canvas:drop', …)`                                                                | `canvas-drop/src/index.ts:56`                                     |
+| 想做的事           | 用哪个 API                                                                                                                                    | 真实调用点                                                        |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| 响应指针/滚轮/键盘 | `canvas.interaction.register({ id, phase, priority, when, handle })`                                                                          | `canvas-zoom/src/index.ts:70`                                     |
+| 接管一段手势       | 存进单槽位：`gestureHandle = canvas.interaction.beginGesture({ onMove, onFinish })`，`onFinish` 里置空（不要逐次 `ctx.effect`，docs/06 §5.4） | `canvas-pan/src/index.ts:76`、`canvas-drag/src/index.ts:242`      |
+| 画东西             | `canvas.layers.register({ band, visible, load })`                                                                                             | `canvas-grid/src/index.ts:26`                                     |
+| 存共享状态/预览    | `canvas.settings.register({ id, title, scope, schema, default })` + `set/get/onDidChange`                                                     | `canvas-grid/src/index.ts:16`、`canvas-selection/src/index.ts:53` |
+| 右键菜单项         | `canvas.contextMenu.register(item)`                                                                                                           | `canvas-context-menu/src/index.ts`                                |
+| 写文档（手势）     | `canvas.transaction.begin({ label, owner })` → `preview` → `commit/cancel`                                                                    | `canvas-drag/src/index.ts:128`                                    |
+| 写文档（命令）     | `document.apply(patches, { record: true, label })`                                                                                            | `canvas-align/src/index.ts`                                       |
+| 提供吸附候选       | `snap.registerProvider({ id, getCandidates })`                                                                                                | `canvas-snap/src/index.ts:61-70`                                  |
+| 暴露命令           | `ctx.command.register({ id, title, enabled?, run })`                                                                                          | `canvas-zoom/src/index.ts:123`                                    |
+| 绑快捷键           | `ctx.keybinding.register({ id, key, command })`（**先判空**）                                                                                 | `canvas-zoom/src/index.ts:171-178`                                |
+| 订阅事件           | `ctx.on('canvas:drop', …)`                                                                                                                    | `canvas-drop/src/index.ts:56`                                     |
 
 ### 2.4 登记进宿主
 

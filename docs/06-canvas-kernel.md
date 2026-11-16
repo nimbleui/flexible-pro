@@ -140,7 +140,9 @@ return false   # 无人消费
 
 ### 5.4 手势接管
 
-`beginGesture(callbacks)`（`:407-416`）：**同一时刻只允许一个手势，已有则抛 `[canvas] 已存在活动手势`**。返回的 Disposable 比对回调引用——手势已被 pointerup 结束时，迟到的 dispose 不再回调一次 `onFinish`。
+`beginGesture(callbacks)`（`:474-483`）：**同一时刻只允许一个手势，已有则抛 `[canvas] 已存在活动手势`**。返回的 Disposable 比对回调引用——手势已被 pointerup 结束时，迟到的 dispose 不再回调一次 `onFinish`。
+
+处理器侧的登记规则是**单槽位**：把句柄存进 `let gestureHandle`，在 `onFinish` 第一行置空，另在装载期登记一次 `ctx.effect(() => ({ dispose: () => gestureHandle?.dispose() }))` 兜住「插件先于手势卸载」。不能写成 `ctx.effect(() => beginGesture(...))`——EffectScope 只在插件卸载时逆序回收，逐次登记会让记录数随 pointerdown 次数线性增长，每条闭包还钉住手势前的文档快照（`transaction` 的 `base`）。八个手势插件（drag / selection / resize / rotate / pan / rulers / minimap）统一按槽位写法实现。
 
 `finishGesture(commit)`（`:330-339`）：**先把 `gesture` 置空再回调**，因为 `onFinish` 里常常紧接着 `beginGesture`，否则会被旧手势以「已存在活动手势」挡掉。无手势时是空操作，所以 pointerup、Escape、pointercancel 与卸载都无条件调用。`onMove`/`onFinish` 抛错分别记为 `scope: 'gesture'`（`:337`、`:490`）。
 

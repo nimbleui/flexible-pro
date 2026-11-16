@@ -55,6 +55,11 @@ export default defineCanvasPlugin({
       return nodes
     }
 
+    // 同一时刻只有一条手势存活：登记槽位而不是逐次 ctx.effect，理由见
+    // contracts/services/canvas.ts 的 beginGesture 注释
+    let gestureHandle: { dispose(): void } | null = null
+    ctx.effect(() => ({ dispose: () => gestureHandle?.dispose() }))
+
     ctx.effect(() =>
       canvas.interaction.register({
         id: 'canvas-rotate.gesture',
@@ -91,26 +96,25 @@ export default defineCanvasPlugin({
 
           const startAngle = Math.atan2(event.world.y - center.y, event.world.x - center.x)
 
-          ctx.effect(() =>
-            canvas.interaction.beginGesture({
-              onMove: (move) => {
-                const angle = Math.atan2(move.world.y - center.y, move.world.x - center.x)
-                const rawDelta = angle - startAngle
-                const delta = move.modifiers.shift ? snapRadians(rawDelta) : rawDelta
+          gestureHandle = canvas.interaction.beginGesture({
+            onMove: (move) => {
+              const angle = Math.atan2(move.world.y - center.y, move.world.x - center.x)
+              const rawDelta = angle - startAngle
+              const delta = move.modifiers.shift ? snapRadians(rawDelta) : rawDelta
 
-                const rotated = rotateNodes(starts, center, delta)
-                transaction.preview(
-                  rotated.flatMap(({ id, rect, rotate }) =>
-                    createNodeLayoutPatch(id, { rect, rotate }),
-                  ),
-                )
-              },
-              onFinish: (commit) => {
-                if (commit) transaction.commit()
-                else transaction.cancel()
-              },
-            }),
-          )
+              const rotated = rotateNodes(starts, center, delta)
+              transaction.preview(
+                rotated.flatMap(({ id, rect, rotate }) =>
+                  createNodeLayoutPatch(id, { rect, rotate }),
+                ),
+              )
+            },
+            onFinish: (commit) => {
+              gestureHandle = null
+              if (commit) transaction.commit()
+              else transaction.cancel()
+            },
+          })
 
           return 'stop'
         },

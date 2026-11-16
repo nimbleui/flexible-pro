@@ -122,6 +122,11 @@ export default defineCanvasPlugin({
       return (degrees * Math.PI) / 180
     }
 
+    // 同一时刻只有一条手势存活：登记槽位而不是逐次 ctx.effect，理由见
+    // contracts/services/canvas.ts 的 beginGesture 注释
+    let gestureHandle: { dispose(): void } | null = null
+    ctx.effect(() => ({ dispose: () => gestureHandle?.dispose() }))
+
     ctx.effect(() =>
       canvas.interaction.register({
         id: 'canvas-resize.handle',
@@ -157,51 +162,50 @@ export default defineCanvasPlugin({
             return 'pass'
           }
 
-          ctx.effect(() =>
-            canvas.interaction.beginGesture({
-              onMove: (move) => {
-                const keepAspect = move.modifiers.shift
+          gestureHandle = canvas.interaction.beginGesture({
+            onMove: (move) => {
+              const keepAspect = move.modifiers.shift
 
-                // 单选：旋转感知缩放，对侧锚点在世界空间保持不动
-                if (single) {
-                  const raw = resizeRotatedRect({
-                    rect: startBounds,
-                    rotation: startRotation,
-                    handleId,
-                    point: move.world,
-                    keepAspect,
-                  })
-                  // 旋转后的「边」不沿世界轴，按轴吸附会改可视尺寸而不是对齐，直接跳过
-                  const next =
-                    startRotation === 0 ? withSnap(raw, handleId, move, [single.id]) : raw
-                  transaction.preview(createNodeLayoutPatch(single.id, { rect: next }))
-                  return
-                }
-
-                // 多选：组框轴对齐缩放，各节点旋转保持不变
-                const bounds = resizeRect(startBounds, handleId, move.world, { keepAspect })
-                const nextBounds = withSnap(
-                  bounds,
+              // 单选：旋转感知缩放，对侧锚点在世界空间保持不动
+              if (single) {
+                const raw = resizeRotatedRect({
+                  rect: startBounds,
+                  rotation: startRotation,
                   handleId,
-                  move,
+                  point: move.world,
+                  keepAspect,
+                })
+                // 旋转后的「边」不沿世界轴，按轴吸附会改可视尺寸而不是对齐，直接跳过
+                const next =
+                  startRotation === 0 ? withSnap(raw, handleId, move, [single.id]) : raw
+                transaction.preview(createNodeLayoutPatch(single.id, { rect: next }))
+                return
+              }
+
+              // 多选：组框轴对齐缩放，各节点旋转保持不变
+              const bounds = resizeRect(startBounds, handleId, move.world, { keepAspect })
+              const nextBounds = withSnap(
+                bounds,
+                handleId,
+                move,
+                starts.map(({ id }) => id),
+              )
+              const scaled = scaleSelection(starts, startBounds, nextBounds)
+              transaction.preview(
+                scaled.flatMap(({ id, rect }) => createNodeLayoutPatch(id, { rect })),
+              )
+            },
+            onFinish: (commit) => {
+              gestureHandle = null
+              if (snap)
+                clearSnap(
+                  snap,
                   starts.map(({ id }) => id),
                 )
-                const scaled = scaleSelection(starts, startBounds, nextBounds)
-                transaction.preview(
-                  scaled.flatMap(({ id, rect }) => createNodeLayoutPatch(id, { rect })),
-                )
-              },
-              onFinish: (commit) => {
-                if (snap)
-                  clearSnap(
-                    snap,
-                    starts.map(({ id }) => id),
-                  )
-                if (commit) transaction.commit()
-                else transaction.cancel()
-              },
-            }),
-          )
+              if (commit) transaction.commit()
+              else transaction.cancel()
+            },
+          })
 
           // 手柄手势独占，阻止冒泡触发节点拖拽
           return 'stop'

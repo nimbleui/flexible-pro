@@ -69,19 +69,46 @@ function createContext(
   previews: SchemaPatch[]
   /** 每次 transaction.begin 的历史标签，用于断言「压根没起手势」 */
   began: string[]
+  /** 模拟真实管线的收尾：先摘掉活动手势，再回调 onFinish */
+  finishGesture: (commit: boolean) => void
+  /** 交给 ctx.effect 托管的副作用条数，即 EffectScope 的待回收记录数 */
+  registered: () => number
+  /** 模拟插件作用域销毁：逆序回收全部登记的副作用 */
+  disposeScope: () => void
+  commits: () => number
+  cancels: () => number
 } {
   let handler: InteractionHandler | undefined
   let gesture: GestureCallbacks | undefined
+  /** 活动手势与它的收尾状态：句柄被重复 dispose 时不得再回调一次 onFinish */
+  let active: { callbacks: GestureCallbacks; finished: boolean } | null = null
+  const registered: Array<{ dispose(): void }> = []
   const previews: SchemaPatch[] = []
   const began: string[] = []
+  let commitCount = 0
+  let cancelCount = 0
 
   const transaction: CanvasTransaction = {
     closed: false,
     preview(patches) {
       previews.push(...patches)
     },
-    commit() {},
-    cancel() {},
+    commit() {
+      commitCount += 1
+    },
+    cancel() {
+      cancelCount += 1
+    },
+  }
+
+  /** 与管线 `finishGesture` 同规则：先置空再回调，onFinish 里才能紧接着起新手势 */
+  function finishGesture(commit: boolean): void {
+    const current = active
+    if (!current) return
+    current.finished = true
+    active = null
+    gesture = undefined
+    current.callbacks.onFinish(commit)
   }
 
   const canvas = {
@@ -102,7 +129,14 @@ function createContext(
       },
       beginGesture(callbacks: GestureCallbacks) {
         gesture = callbacks
-        return { dispose() {} }
+        const token = { callbacks, finished: false }
+        active = token
+        return {
+          dispose() {
+            if (token.finished || active !== token) return
+            finishGesture(false)
+          },
+        }
       },
     },
     scene: {
@@ -128,8 +162,11 @@ function createContext(
     canvas,
     document: { model: { schema } },
     snap: undefined,
-    effect<T>(factory: () => T): T {
-      return factory()
+    // 与真实 EffectScope 同构：每次登记追加一条待回收记录，只有作用域销毁才回收
+    effect<T extends { dispose(): void }>(factory: () => T): T {
+      const item = factory()
+      registered.push(item)
+      return item
     },
   } as unknown as CanvasContext
 
@@ -141,6 +178,15 @@ function createContext(
     gesture: () => gesture as GestureCallbacks,
     previews,
     began,
+    finishGesture,
+    registered: () => registered.length,
+    disposeScope: () => {
+      for (let index = registered.length - 1; index >= 0; index -= 1)
+        registered[index]?.dispose()
+      registered.length = 0
+    },
+    commits: () => commitCount,
+    cancels: () => cancelCount,
   }
 }
 
@@ -273,5 +319,83 @@ describe('节点拖拽', () => {
     expect(movedRects(previews)).toEqual(
       new Map([['/nodes/title/layout/rect', rect(80, 60, 120, 24)]]),
     )
+  })
+
+  describe('手势登记的生命周期', () => {
+    /** 起一场真实的手势：按下 → 越过阈值位移 → 抬手提交 */
+    function dragOnce(
+      harness: ReturnType<typeof createContext>,
+      context: CanvasContext,
+      nodeId: string,
+    ): void {
+      harness.handler.handle(
+        pointerEvent({
+          targetNodeId: nodeId,
+          screen: { x: 60, y: 60 },
+          world: { x: 60, y: 60 },
+        }),
+        context,
+      )
+      harness.gesture().onMove(
+        pointerEvent({
+          type: 'pointermove',
+          screen: { x: 90, y: 90 },
+          world: { x: 90, y: 90 },
+        }),
+      )
+      harness.finishGesture(true)
+    }
+
+    it('反复拖拽不增加 EffectScope 的登记条数', () => {
+      const schema = createSchema()
+      const harness = createContext(schema, { selection: ['title'] })
+      const baseline = harness.registered()
+
+      for (let index = 0; index < 200; index += 1) dragOnce(harness, harness.context, 'title')
+
+      // 逐次 ctx.effect(() => beginGesture(...)) 时这里是 baseline + 200：
+      // EffectScope 只在插件卸载时回收，每次按下指针都会永久留下一条记录，
+      // 其闭包还钉住手势前的文档快照
+      expect(harness.registered()).toBe(baseline)
+      expect(harness.commits()).toBe(200)
+    })
+
+    it('插件卸载时进行中的手势被取消并回退预览', () => {
+      const schema = createSchema()
+      const harness = createContext(schema, { selection: ['title'] })
+
+      harness.handler.handle(
+        pointerEvent({
+          targetNodeId: 'title',
+          screen: { x: 60, y: 60 },
+          world: { x: 60, y: 60 },
+        }),
+        harness.context,
+      )
+      harness.gesture().onMove(
+        pointerEvent({
+          type: 'pointermove',
+          screen: { x: 90, y: 90 },
+          world: { x: 90, y: 90 },
+        }),
+      )
+      harness.disposeScope()
+
+      expect(harness.cancels()).toBe(1)
+      expect(harness.commits()).toBe(0)
+    })
+
+    it('手势已收尾后卸载不再回调 onFinish', () => {
+      const schema = createSchema()
+      const harness = createContext(schema, { selection: ['title'] })
+
+      dragOnce(harness, harness.context, 'title')
+      expect(harness.commits()).toBe(1)
+
+      // onFinish 已清空槽位：卸载时不该把手势再取消一遍，那会凭空多一条 cancel 记录
+      harness.disposeScope()
+      expect(harness.cancels()).toBe(0)
+      expect(harness.commits()).toBe(1)
+    })
   })
 })

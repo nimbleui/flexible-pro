@@ -68,6 +68,11 @@ export default defineCanvasPlugin({
       })
     }
 
+    // 同一时刻只有一条手势存活：登记槽位而不是逐次 ctx.effect，理由见
+    // contracts/services/canvas.ts 的 beginGesture 注释
+    let gestureHandle: { dispose(): void } | null = null
+    ctx.effect(() => ({ dispose: () => gestureHandle?.dispose() }))
+
     ctx.effect(() =>
       canvas.interaction.register({
         id: 'canvas-minimap.pan',
@@ -82,13 +87,13 @@ export default defineCanvasPlugin({
 
           centerOn(worldAt(event.screen))
 
-          ctx.effect(() =>
-            canvas.interaction.beginGesture({
-              onMove: (move) => centerOn(worldAt(move.screen)),
-              // 地图只是导航，抬手没有任何需要提交的结果
-              onFinish: () => undefined,
-            }),
-          )
+          gestureHandle = canvas.interaction.beginGesture({
+            onMove: (move) => centerOn(worldAt(move.screen)),
+            // 地图只是导航，抬手没有任何需要提交的结果
+            onFinish: () => {
+              gestureHandle = null
+            },
+          })
 
           // 独占手势：在小地图上拖动不该同时触发框选
           return 'stop'

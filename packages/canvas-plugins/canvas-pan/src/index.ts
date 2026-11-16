@@ -53,6 +53,11 @@ export default defineCanvasPlugin({
       }),
     )
 
+    // 同一时刻只有一条手势存活：登记槽位而不是逐次 ctx.effect，理由见
+    // contracts/services/canvas.ts 的 beginGesture 注释
+    let gestureHandle: { dispose(): void } | null = null
+    ctx.effect(() => ({ dispose: () => gestureHandle?.dispose() }))
+
     ctx.effect(() =>
       canvas.interaction.register({
         id: 'canvas-pan.drag',
@@ -68,19 +73,19 @@ export default defineCanvasPlugin({
 
           // 逐帧增量平移：last 每帧前移，所以平移跟手而不是相对按下点累计
           let last = event.screen
-          ctx.effect(() =>
-            canvas.interaction.beginGesture({
-              onMove: (move) => {
-                canvas.viewport.panBy({
-                  x: move.screen.x - last.x,
-                  y: move.screen.y - last.y,
-                })
-                last = move.screen
-              },
-              // 平移不改文档，没有需要撤销的内容；Esc 只需停止跟随
-              onFinish: () => {},
-            }),
-          )
+          gestureHandle = canvas.interaction.beginGesture({
+            onMove: (move) => {
+              canvas.viewport.panBy({
+                x: move.screen.x - last.x,
+                y: move.screen.y - last.y,
+              })
+              last = move.screen
+            },
+            // 平移不改文档，没有需要撤销的内容；Esc 只需停止跟随
+            onFinish: () => {
+              gestureHandle = null
+            },
+          })
           return 'handled'
         },
       }),

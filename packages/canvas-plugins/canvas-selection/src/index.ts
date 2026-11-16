@@ -151,6 +151,11 @@ export default defineCanvasPlugin({
       }),
     )
 
+    // 同一时刻只有一条手势存活：登记槽位而不是逐次 ctx.effect，理由见
+    // contracts/services/canvas.ts 的 beginGesture 注释
+    let gestureHandle: { dispose(): void } | null = null
+    ctx.effect(() => ({ dispose: () => gestureHandle?.dispose() }))
+
     ctx.effect(() =>
       canvas.interaction.register({
         id: 'canvas-selection.pointer',
@@ -240,13 +245,14 @@ export default defineCanvasPlugin({
             canvas.selection.set([...new Set([...base, ...hits])])
           }
 
-          ctx.effect(() =>
-            canvas.interaction.beginGesture({
-              onMove: (move) => applyMarquee(move.world),
-              // 抬手清空临时矩形，覆盖层随即停止绘制；选中结果已经落到 selection 服务
-              onFinish: () => canvas.settings.set(MARQUEE_SETTING, null),
-            }),
-          )
+          gestureHandle = canvas.interaction.beginGesture({
+            onMove: (move) => applyMarquee(move.world),
+            // 抬手清空临时矩形，覆盖层随即停止绘制；选中结果已经落到 selection 服务
+            onFinish: () => {
+              gestureHandle = null
+              canvas.settings.set(MARQUEE_SETTING, null)
+            },
+          })
 
           return 'handled'
         },
